@@ -14,7 +14,9 @@ Stop a server you started before building again - on Windows the running jar is 
 ./gradlew bootJar          # generates, compiles and packages; read its output as for compileJava
 ```
 
-The jar is the file in `build/libs/` that does not end in `-plain.jar`.
+The jar is the file in `build/libs/` that does not end in `-plain.jar` - `<project>.jar` when
+`build.gradle` sets no `version`. In the README write the name you see there, not a guessed
+`<project>-0.0.1-SNAPSHOT.jar`.
 
 On Windows, run `./gradlew.bat` - from Git Bash too, where it works as well. Not `./gradlew`,
 `sh ./gradlew` or `bash ./gradlew`: when the Unix wrapper script starts a Gradle daemon, the daemon

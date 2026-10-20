@@ -51,7 +51,10 @@ the runtime; the kit now shows how.
   said the opposite - that the daemon is no problem in bash and in Claude Code - and offered
   `sh ./gradlew` as the answer to `ClassNotFoundException: GradleWrapperMain`; both are corrected,
   the answer to that error is `./gradlew.bat`. The skill's fast path, the quick reference and the
-  `generate` skill say the same.
+  `generate` skill say the same. The same run with the corrected page: 2 minutes 18 seconds, nine
+  tool calls, no command stuck, 20.5 of 21 (the plain Spring Boot run of the same task took 4
+  minutes 41 seconds). The half point is the README's jar name - the page now says to write the
+  name seen in `build/libs/`, not a guessed `-0.0.1-SNAPSHOT.jar`.
 - **`references/recipe-library.md`:** insert the service methods with the file-editing tool, not
   with a script - an agent spent a minute and a half on an awk splice that put them in the wrong
   place, then wrote the files by hand anyway.
