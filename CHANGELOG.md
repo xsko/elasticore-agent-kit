@@ -40,6 +40,21 @@ the runtime; the kit now shows how.
   messages the recipe throws; 24 contracts. They run only when the version is 3.0.261021 or later;
   with an older one each is reported `SKIP` and the summary line ends `, 24 skipped (needs
   3.0.261021)`. The other contracts are unchanged.
+- **`references/run-and-check.md`:** on Windows build with `./gradlew.bat`, from Git Bash too. The
+  Unix wrapper script - `./gradlew`, `sh ./gradlew`, `bash ./gradlew` - run from Claude Code's Bash
+  tool does not return when it starts a Gradle daemon: the daemon inherits the tool's output pipe,
+  Claude Code waits for the call's timeout, moves it to the background and stops it ten minutes
+  later. In the library comparison that cost a Claude Code run ten minutes on a build that had
+  finished in twelve seconds, and made it look slower with the kit than without. Reproduced in that
+  tool: `sh ./gradlew` and `bash ./gradlew` hang whether their output goes to a pipe or a file,
+  `./gradlew.bat` from the same bash returns, PowerShell returns, `--no-daemon` returns. The page
+  said the opposite - that the daemon is no problem in bash and in Claude Code - and offered
+  `sh ./gradlew` as the answer to `ClassNotFoundException: GradleWrapperMain`; both are corrected,
+  the answer to that error is `./gradlew.bat`. The skill's fast path, the quick reference and the
+  `generate` skill say the same.
+- **`references/recipe-library.md`:** insert the service methods with the file-editing tool, not
+  with a script - an agent spent a minute and a half on an awk splice that put them in the wrong
+  place, then wrote the files by hand anyway.
 
 ## 0.2.0
 

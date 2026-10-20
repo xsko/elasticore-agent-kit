@@ -26,7 +26,8 @@ logic the DSL cannot express, in the files the generator hands over to you.
      says what to write instead on 3.0.261020.
 2. DSL syntax: `references/quick-reference.md`, one page. Open the long guides only for what it does
    not have.
-3. Change the YAML, run `./gradlew compileJava`, fix every warning in the YAML.
+3. Change the YAML, run `./gradlew compileJava` (`./gradlew.bat` on Windows, from Git Bash too -
+   `run-and-check.md` says why), fix every warning in the YAML.
 4. Run and check the application: `references/run-and-check.md` - a jar in the background, stopped
    by its process id. Never `./gradlew bootRun` from a tool's shell; never stop processes by name.
 5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
@@ -138,7 +139,8 @@ A worked example that generates and compiles: `references/example-order.md`.
 
 1. Read the guide section for what you are about to change.
 2. Edit the DSL in `src/main/resources/blueprint/<domain>/` (`env.yml`, `model/*.yml`).
-3. Regenerate and compile: `./gradlew compileJava` (`gradlew.bat` on Windows without a Unix shell).
+3. Regenerate and compile: `./gradlew compileJava` (`./gradlew.bat` on Windows, from Git Bash too:
+   the Unix script does not return when it starts the Gradle daemon - `references/run-and-check.md`).
    The plugin generates before every compile, unless the `elasticore { }` block sets
    `generateBeforeCompile = false` - then run the generation task first. To regenerate alone:
    `./gradlew elcore3` on the rule engine, `./gradlew elcore` on the 2.x path. The TypeScript

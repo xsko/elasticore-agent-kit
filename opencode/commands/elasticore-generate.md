@@ -6,7 +6,8 @@ description: Regenerate an ElastiCORE project from its DSL, compile it, and repo
 
 The Gradle task to run: `$ARGUMENTS` - when that is empty, `compileJava`.
 
-1. In the project root, run `./gradlew <task>` (`gradlew.bat` on Windows without a Unix shell).
+1. In the project root, run `./gradlew <task>` (`./gradlew.bat` on Windows, from Git Bash too: the
+   Unix script does not return when it starts the Gradle daemon).
    `compileJava` generates first, unless the build sets `generateBeforeCompile = false`. Keep the
    whole output - no `head`, no `grep`. Never add `-Pforce`: it overwrites hand edits in generated files.
 2. Say which generator ran: the 3.0 rule engine prints `=== elcore3: ... ===`, the 2.x generator

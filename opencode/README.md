@@ -74,8 +74,10 @@ On Windows, two things stop a session that have nothing to do with the kit, seen
   cmd or Windows Terminal; from Git Bash it runs bash), a Gradle run that starts the Gradle daemon
   never returns - the daemon keeps the tool's output pipe open, and the session sits until the
   daemon is stopped. Start opencode with `GRADLE_OPTS=-Dorg.gradle.daemon=false` in its
-  environment, or build with `./gradlew --no-daemon ...`; `run-and-check.md` tells the agent so.
-  The same holds for a server started with `Start-Process -RedirectStandardOutput`, which is why
+  environment, or build with `./gradlew.bat --no-daemon ...`; `run-and-check.md` tells the agent so.
+  In bash, run `./gradlew.bat` rather than `./gradlew`: the Unix wrapper script does not return
+  either when it starts a daemon (seen in Claude Code's bash tool, where `./gradlew.bat` from the
+  same bash returns). The same holds for a server started with `Start-Process -RedirectStandardOutput`, which is why
   the PowerShell start in `run-and-check.md` lets the server write its own log instead.
 - `opencode run` asks before a tool touches a file outside the project (`$env:TEMP`, `~/.gradle`),
   and with nobody to answer, the run waits forever. For unattended runs add

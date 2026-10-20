@@ -16,14 +16,19 @@ Stop a server you started before building again - on Windows the running jar is 
 
 The jar is the file in `build/libs/` that does not end in `-plain.jar`.
 
-On Windows, when `./gradlew` in Git Bash fails with `ClassNotFoundException: GradleWrapperMain`,
-run `sh ./gradlew ...` or `./gradlew.bat ...` instead - the wrapper is fine, do not regenerate it.
+On Windows, run `./gradlew.bat` - from Git Bash too, where it works as well. Not `./gradlew`,
+`sh ./gradlew` or `bash ./gradlew`: when the Unix wrapper script starts a Gradle daemon, the daemon
+inherits the tool's output pipe, and the call does not return until that daemon exits. Claude Code
+waits for the call's timeout, moves it to the background and stops it ten minutes later - a build
+that was done in twelve seconds cost ten minutes that way. `./gradlew.bat` does not have this, in
+bash or in PowerShell; where only the script can be used, add `--no-daemon`. (`./gradlew` in Git
+Bash may also fail with `ClassNotFoundException: GradleWrapperMain` - the same answer,
+`./gradlew.bat`; the wrapper is fine, do not regenerate it.)
 
-In opencode on Windows, when its shell tool runs PowerShell, a Gradle run that starts the Gradle
-daemon does not return: the daemon keeps the tool's output pipe open. Build with `--no-daemon`
-there (`./gradlew --no-daemon compileJava`), or start opencode with
-`GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment. In bash (Git Bash) and in Claude Code
-the daemon is no problem.
+In opencode on Windows, when its shell tool runs PowerShell, a Gradle run that starts the daemon
+does not return either, with `gradlew.bat` too: build with `--no-daemon` there
+(`./gradlew.bat --no-daemon compileJava`), or start opencode with
+`GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment.
 
 ## Start, wait, call, stop - bash (macOS, Linux, Git Bash on Windows)
 
