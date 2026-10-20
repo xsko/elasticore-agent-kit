@@ -171,8 +171,9 @@ def main():
     def bash_payload(session, command, out, rc=0):
         """What Claude Code sends after a command: PostToolUse, or PostToolUseFailure when it exited non-zero."""
         if rc != 0:
+            # Claude Code passes on the first 10,000 characters of a failed command's output.
             return {"session_id": session, "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
-                    "tool_input": {"command": command}, "error": "Exit code %d\n%s" % (rc, out),
+                    "tool_input": {"command": command}, "error": "Exit code %d\n%s" % (rc, out[:10000]),
                     "is_interrupt": False}
         return {"session_id": session, "hook_event_name": "PostToolUse", "tool_name": "Bash",
                 "tool_input": {"command": command},
@@ -188,6 +189,12 @@ def main():
               "src/main/resources/blueprint/shop/env.yml", "src/main/resources/blueprint/shop/model/entity.yml"]
     check("new-project.md has the five files of the template", sorted(template) == wanted,
           "references/new-project.md", "found: %s" % sorted(template))
+    wrapped = os.path.join(work, "wrapper")
+    write(os.path.join(wrapped, "settings.gradle"), template.get("settings.gradle", ""))
+    rc, out = run(wrapped, "wrapper", "--gradle-version", "8.14.3")
+    check("the Gradle wrapper is made with settings.gradle alone, before build.gradle exists",
+          rc == 0 and os.path.isfile(os.path.join(wrapped, "gradlew")), "references/new-project.md",
+          "exit %d: %s" % (rc, out.strip()[-300:]))
     project = os.path.join(work, "shop")
     for name, text in template.items():
         write(os.path.join(project, name), text.replace("VERSION", version))
@@ -335,7 +342,7 @@ def main():
     hook("post-edit", edit_payload("broken", review))
     rc, out = run(project, "compileJava")
     check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
-          rc == 0 and "LOAD ERROR" in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
+          rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
           and not find(java, "Review.java"),
           "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
     _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
@@ -383,7 +390,7 @@ def main():
     rc, out = run(layered, "compileJava")
     write(os.path.join(work, "layered.log"), out)
     check("on layered Java the generator warns that @access is not enforced",
-          "DSL validation warnings:" in out and "which the selected rules do not enforce" in out,
+          "DSL validation warnings:" in out and "@access" in out and "which the selected rules do not enforce" in out,
           "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
     check("on layered Java a money field does not compile ('package Money does not exist')",
           rc != 0 and "package Money does not exist" in out,
@@ -475,7 +482,7 @@ def main():
     legacy_java = os.path.join(legacy, "src", "main", "java")
     generated = "".join(read(os.path.join(d, f)) for d, _, files in os.walk(legacy_java) for f in files)
     check("the 2.x generator ignores @access without a warning",
-          rc == 0 and not re.search(r"(?i)(warn|error)[^\n]*access|access[^\n]*(ignored|not enforced)", out)
+          rc == 0 and "[WARN]" not in out and not re.search(r"(?i)access[^\n]*(ignored|not enforced)", out)
           and "AccessPolicy" not in generated and generated,
           "SKILL.md section 3; agents; hooks/elasticore-hook.sh post-edit",
           "see %s" % os.path.join(work, "legacy.log"))

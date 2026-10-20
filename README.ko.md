@@ -63,7 +63,8 @@ claude plugin update elasticore@elasticore-agent-kit
 | Gradle 빌드(성공이든 실패든) 출력에 DSL 검증 경고, 읽지 못한 YAML 파일, 손으로 고친 생성 파일이 나올 때 | 그 뜻과 할 일을 알려 줍니다 |
 | 성공한 빌드로 생성·컴파일되지 않은 DSL 변경을 둔 채 끝내려 할 때 | 한 번 돌려보내 빌드하게 합니다. 백그라운드 빌드, 잘리거나 걸러진 출력, 생성만 한 실행은 빌드로 치지 않습니다 |
 
-hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니다. Claude Code가 너무 길어 넘기지 못한 출력은 저장해 둔 파일에서 읽습니다.
+hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니다. 성공한 명령의 출력이 너무 길어 Claude Code가 넘기지 못하면 저장해 둔
+파일에서 읽습니다. 실패한 명령은 Claude Code가 앞 10,000자만 넘기므로, 아주 큰 프로젝트에서는 경고가 그 뒤에 있어 hook이 못 볼 수 있습니다.
 셸에서 스크립트를 돌려 고치는 것은 막지 못하며, skill이 그렇게 하지 말라고 안내합니다.
 
 그래도 생성 파일을 고치게 하려면 `ELASTICORE_ALLOW_GENERATED_EDITS=1`, `-Pforce`를 허용하려면 `ELASTICORE_ALLOW_FORCE=1`을

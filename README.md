@@ -68,9 +68,11 @@ Claude Code then updates it when a session starts, and the next session loads th
 | A Gradle build - successful or failed - prints DSL validation warnings, a YAML file it could not read, or hand-edited generated files | Told what that means and what to do |
 | Claude is about to finish while no successful build has generated and compiled its DSL change | Sent back once to build. A build in the background, cut short or filtered, or one that only generated, does not count |
 
-The hooks see the edit tools and Gradle runs through Bash or PowerShell; output too long for
-Claude Code to pass on is read from the file it saves it to. An edit made another way - a script
-through a shell - is not stopped; the skill tells Claude not to make one.
+The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
+command too long for Claude Code to pass on is read from the file it saves it to; of a failed one,
+Claude Code passes on only the first 10,000 characters, so in a very large project the warnings may
+be past what the hook sees. An edit made another way - a script through a shell - is not stopped;
+the skill tells Claude not to make one.
 
 To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS=1`, and
 `ELASTICORE_ALLOW_FORCE=1` for `-Pforce`, for example in `.claude/settings.local.json`:

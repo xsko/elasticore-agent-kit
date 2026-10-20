@@ -14,10 +14,11 @@ uses a released version from there and nothing else.
   3.x release, the one the agent kit's CI checks. Use the same version in the three places marked
   `VERSION` below. If the machine cannot reach Maven Central, say so to the user instead of working
   around it.
-- **Tools:** Java 17 or later. Spring Boot 4's Gradle plugin needs Gradle 8.14 or later. A project
-  without a Gradle wrapper gets one first, in the empty folder, before `build.gradle` exists - an
-  installed Gradle older than 8.14 cannot run a build that applies Spring Boot 4:
-  `gradle wrapper --gradle-version 8.14.3`. Without an installed Gradle, ask the user.
+- **Tools:** Java 17 or later. Spring Boot 4's Gradle plugin needs Gradle 8.14 or later. Make the
+  Gradle wrapper after writing `settings.gradle` and before writing `build.gradle`: the wrapper
+  task needs a settings file to run at all, and an installed Gradle older than 8.14 cannot run a
+  build that applies Spring Boot 4. Run `gradle wrapper --gradle-version 8.14.3` there, never
+  `gradle init`. Without an installed Gradle, ask the user.
 
 The files below are the ElastiCORE README's quick start. The agent kit's CI builds this exact
 project with the newest ElastiCORE release every week. Rename `shop` and `com.acme.shop` together:

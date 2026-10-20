@@ -140,33 +140,48 @@ trim_json() {
     printf '%s' "$1" | sed -E -e 's/^([[:space:]]|\\[nrt])+//' -e 's/([[:space:]]|\\[nrt])+$//'
 }
 
-# An Edit that only inserts one whole preserved block into a generated file:
-# the old text is kept, as it was, at the start or the end of the new text, and
-# the rest is a single "// !----------" ... "// ------------!" block whose end
-# line holds "//", as the generator requires. Anything else - code outside the
-# block, generated code moved into it, a block at every match, a MultiEdit - is
-# not this edit.
+# Trims spaces and escaped line breaks from the end of a JSON string value.
+trim_json_end() {
+    printf '%s' "$1" | sed -E 's/([[:space:]]|\\[nrt])+$//'
+}
+
+# An Edit that only inserts one whole preserved block right before the closing
+# brace of the file's class - where the generator puts a block's code back on
+# every regeneration, so a block anywhere else would move. The old text ends
+# with that brace on a line of its own, the only line in the file that starts
+# with "}"; the new text is the old text with one block before the brace:
+# "// !----------" first, an end line holding "//" and "------------!" last, each
+# on lines of their own, and no other end marker in between - the generator ends
+# a block at the first one. Anything else - code outside the block, generated
+# code moved into it, a block at every match, a MultiEdit - is not this edit.
 adds_block() {
     [ "$(json_string tool_name)" = Edit ] || return 1
     json_true replace_all && return 1
-    old="$(json_string old_string)"
-    new="$(json_string new_string)"
-    [ -n "$old" ] || return 1
+    old="$(trim_json_end "$(json_string old_string)")"
+    new="$(trim_json_end "$(json_string new_string)")"
+    case "$old" in
+        '}' | *'\n}') prefix="${old%?}" ;;
+        *) return 1 ;;
+    esac
+    [ "$(tr -d '\r' < "$path" 2>/dev/null | grep -c '^}')" = 1 ] || return 1
     case "$new" in
-        "$old"*) rest="${new#"$old"}" ;;
-        *"$old") rest="${new%"$old"}" ;;
+        "$prefix"*'\n}') rest="${new#"$prefix"}"; rest="${rest%???}" ;;
         *) return 1 ;;
     esac
     rest="$(trim_json "$rest")"
     case "$rest" in
         *'// !----------'*'// !----------'*) return 1 ;;
-        '// !----------'*'\n'*'------------!') ;;
+        '// !----------'*'\n'*) ;;
         *) return 1 ;;
     esac
     case "${rest##*\\n}" in
-        *'//'*'------------!') return 0 ;;
+        *'//'*'------------!'*) ;;
+        *) return 1 ;;
     esac
-    return 1
+    case "${rest%\\n*}" in
+        *'------------!'*) return 1 ;;
+    esac
+    return 0
 }
 
 # Text for a JSON string: one line, quotes and backslashes escaped.
@@ -185,32 +200,95 @@ deny() {
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(json_text "$1")"
 }
 
-# The shell command, one simple command per line: split at ; & | ( ) and at
-# the escaped line breaks of the JSON.
+# The shell command as simple commands, one per line: the JSON escapes decoded,
+# split at ; & | ( ) and line breaks outside quotes, the quotes dropped, and the
+# body of a here-document left out - text in a commit message is not a command.
+# A quoted command handed to sh -c or cmd /c stays on the line of its caller.
 commands() {
-    printf '%s\n' "$1" | awk '{ gsub(/\\[nr]/, "\n"); gsub(/[;&|()]/, "\n"); print }'
+    printf '%s\n' "$1" | awk '
+    function decode(s,   t, i, n, c, d) {
+        t = ""; n = length(s)
+        for (i = 1; i <= n; i++) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < n) {
+                i++; d = substr(s, i, 1)
+                if (d == "n") t = t "\n"
+                else if (d == "t") t = t "\t"
+                else if (d == "u") { t = t "?"; i += 4 }
+                else if (d != "r") t = t d
+            } else t = t c
+        }
+        return t
+    }
+    function emit() { sub(/^[ \t]+/, "", seg); if (seg != "") print seg; seg = "" }
+    {
+        t = decode($0); n = length(t); q = ""; seg = ""; hd = ""; i = 1
+        while (i <= n) {
+            c = substr(t, i, 1)
+            if (q != "") {
+                if (c == q) q = ""
+                else if (c == "\n") seg = seg " "
+                else seg = seg c
+                i++; continue
+            }
+            if (c == "\"" || c == "\047") { q = c; i++; continue }
+            if (substr(t, i, 2) == "<<" && substr(t, i, 3) != "<<<") {
+                j = i + 2; w = ""
+                if (substr(t, j, 1) == "-") j++
+                while (substr(t, j, 1) == " ") j++
+                while (j <= n) {
+                    d = substr(t, j, 1)
+                    if (d ~ /[A-Za-z0-9_]/) w = w d
+                    else if (d != "\"" && d != "\047") break
+                    j++
+                }
+                if (w != "") { hd = w; i = j; continue }
+            }
+            if (c == "\n") {
+                emit(); i++
+                if (hd != "") {
+                    while (i <= n) {
+                        k = index(substr(t, i), "\n")
+                        if (k == 0) { l = substr(t, i); i = n + 1 } else { l = substr(t, i, k - 1); i += k }
+                        sub(/^\t+/, "", l)
+                        if (l == hd) break
+                    }
+                    hd = ""
+                }
+                continue
+            }
+            if (c == ";" || c == "&" || c == "|" || c == "(" || c == ")") { emit(); i++; continue }
+            seg = seg c; i++
+        }
+        emit()
+    }'
 }
 
-# A Gradle run - gradle, gradlew or gradlew.bat, with any path, after any
-# variable assignments, or started through sh, bash, call or cmd /c - and, with
-# a second argument, one whose own task list names one of those tasks.
-GRADLE='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((sh|bash|call|cmd(\.exe)?[[:space:]]+/[cC])[[:space:]]+)?([^[:space:]]*[/\\])?gradlew?(\.bat)?'
+# A Gradle run - gradle, gradlew or gradlew.bat, with any path, after variable
+# assignments, or started through env, time, nice, exec, call, sh -c, bash -c,
+# cmd /c or powershell -Command - and, with a second argument, one whose own
+# task list names one of those tasks; a task excluded with -x does not count.
+GRADLE='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|time|nice|exec|command|call|(sh|bash)[[:space:]]+-c|cmd(\.exe)?[[:space:]]+/[cC]|powershell(\.exe)?[[:space:]]+-(Command|c))[[:space:]]+)*([^[:space:]]*[/\\])?gradlew?(\.bat)?'
+gradle_commands() {
+    commands "$1" | grep -E "$GRADLE"'([[:space:]]|$)' \
+        | sed -E 's/(^|[[:space:]])(-x|--exclude-task)([[:space:]]+|=)[^[:space:]]+//g'
+}
 runs_gradle() {
     if [ -n "${2:-}" ]; then
-        commands "$1" | grep -Eq "$GRADLE"'[[:space:]]([^[:space:]]+[[:space:]]+)*([^[:space:]]*:)?('"$2"')([[:space:]]|$)'
+        gradle_commands "$1" | grep -Eq "$GRADLE"'[[:space:]]([^[:space:]]+[[:space:]]+)*([^[:space:]]*:)?('"$2"')([[:space:]]|$)'
     else
-        commands "$1" | grep -Eq "$GRADLE"'([[:space:]]|$)'
+        gradle_commands "$1" | grep -q .
     fi
 }
 
 # Whether a Gradle run sets the property that makes the generator overwrite
 # hand edits, in any form Gradle reads: -Pforce, -P force, --project-prop force,
-# -Dorg.gradle.project.force, ORG_GRADLE_PROJECT_force. A gradle.properties
-# that sets it cannot be seen from here.
+# -Dorg.gradle.project.force, or ORG_GRADLE_PROJECT_force set in the same
+# command. A gradle.properties that sets it cannot be seen from here.
 forces() {
     runs_gradle "$1" || return 1
-    case "$1" in *ORG_GRADLE_PROJECT_force*) return 0 ;; esac
-    commands "$1" | grep -E "$GRADLE"'([[:space:]]|$)' | tr -d "\"'\\\\" \
+    commands "$1" | grep -Eq '(^|[[:space:]])(export[[:space:]]+)?ORG_GRADLE_PROJECT_force[[:space:]]*=|\$env:ORG_GRADLE_PROJECT_force[[:space:]]*=' && return 0
+    gradle_commands "$1" \
         | grep -Eq '[[:space:]](-Pforce|-P[[:space:]]+force|--project-prop(=|[[:space:]]+)force|-Dorg\.gradle\.project\.force)([[:space:]=]|$)'
 }
 
@@ -244,7 +322,7 @@ pre-edit)
     case "$(classify "$path")" in
     managed)
         adds_block && exit 0
-        deny "ElastiCORE generates $path from the DSL (its first line is //ecd:). A hand edit is not kept in step: from the next build on, the generator skips the file - SKIP(user-modified) - and it no longer follows the DSL. Make this change in the YAML under src/main/resources/blueprint/<domain>/, or in a file that carries the line '// Initially generated by ElastiCORE;' - the elasticore skill says which. Code that has to live in this very file, such as a custom query in a repository, goes in a preserved block: one Edit that keeps the old text as it is and adds one whole block before or after it - '// !----------', the code, '// ------------!' on lines of their own - and nothing else; only that edit goes through. Do not make the change another way, with a shell command or a script. If the user wants this file edited by hand anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
+        deny "ElastiCORE generates $path from the DSL (its first line is //ecd:). A hand edit is not kept in step: from the next build on, the generator skips the file - SKIP(user-modified) - and it no longer follows the DSL. Make this change in the YAML under src/main/resources/blueprint/<domain>/, or in a file that carries the line '// Initially generated by ElastiCORE;' - the elasticore skill says which. Code that has to live in this very file, such as a custom query in a repository, goes in a preserved block right before the class's closing brace - the generator puts a block's code there on every regeneration: one Edit whose old text ends with that last '}' line and whose new text is the same with one whole block inserted before the '}' - '// !----------', the code with fully qualified type names, '// ------------!', each on lines of their own - and nothing else; only that edit goes through. Do not make the change another way, with a shell command or a script. If the user wants this file edited by hand anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
     regenerated)
         deny "ElastiCORE writes $path again on every generation, so an edit to it is lost. The model is the YAML in src/main/resources/blueprint/<domain>/; a message is translated or reworded in a copy with a locale suffix next to the default file, such as <domain>-messages_ko.properties. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
@@ -304,7 +382,7 @@ post-bash)
     command="$(json_string command)"
     # A Gradle command whose own task list generates, and that is not a dry run.
     runs_gradle "$command" "$GENERATING" || exit 0
-    commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)' && exit 0
+    gradle_commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)' && exit 0
 
     # What Gradle printed. The command itself may name the same words (a grep),
     # so only what came back counts: the tool's response - or the whole output,
@@ -328,9 +406,9 @@ post-bash)
     state
     text=""
     unreadable=0
-    # The model loader prints the file and the parse error, skips the file and
-    # goes on: the build can pass without that part of the model.
-    if printf '%s' "$output" | grep -Eq 'YAMLException|YAMLParseException|ScannerException|ParserException|JsonParseException|MismatchedInputException'; then
+    # The model loader prints " * LOAD ERROR: <file>" and the parse error, skips
+    # the file and goes on: the build can pass without that part of the model.
+    if has '* LOAD ERROR: '; then
         unreadable=1
         text="A blueprint YAML file could not be read: the generator printed its path and the parse error, left the file out of the model and went on - the build can pass without what that file declares. Fix the YAML at the line the error names (indentation, a missing ':' or quote) and build again. "
     fi
@@ -347,10 +425,11 @@ post-bash)
         text="${text}The generator left a file alone because it has no ElastiCORE header, and did not write its own there. If that file was meant to be generated, it has to be deleted and generated again - ask the user if you did not create it."
     fi
     # Cleared only by a build that shows the generator ran, compiled what it
-    # generated and passed. A cut or filtered output that lost a line proves nothing.
+    # generated and passed - and no other build in the same command failed. A cut
+    # or filtered output that lost a line proves nothing.
     if [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
         && { has '=== elcore3: ' || has 'ModelExtractor execution mode'; } \
-        && has 'BUILD SUCCESSFUL' && ! has 'DSL validation warnings:' \
+        && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' && ! has 'DSL validation warnings:' \
         && { runs_gradle "$command" "$COMPILING" || printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:compile(Java|Kotlin)'; }; then
         rm -f -- "$marker"
     fi

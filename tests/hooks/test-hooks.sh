@@ -155,29 +155,43 @@ check "a new file may be written" quiet
 run pre-edit "$(edit_json Edit "$src/product-status.ts")"
 check "a TypeScript file without its //ecd: line is the developer's, whatever its comment says" quiet
 
-# Preserved blocks: one Edit that keeps the old text and adds one whole block.
+# Preserved blocks: one Edit that adds one whole block right before the class's closing brace,
+# where the generator puts block code back on every regeneration.
 block='    // !----------------------------------------\n    java.util.List<Object> findByName(String name);\n    // ----------------------------------------!'
 repo="$src/OrderRepository.java"
+run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();\n}' "    void touch();\\n$block\\n}")"
+check "adding one whole block before the closing brace goes through" quiet
+run pre-edit "$(edit_json Edit "$repo" s1 '}\n' "$block\\n}\\n")"
+check "with the brace alone as the old text too" quiet
+run pre-edit "$(edit_json Edit "$repo" s1 '    String s = \"a\\\\b*[x]\";\r\n}' "    String s = \\\"a\\\\\\\\b*[x]\\\";\\r\\n$block\\r\\n}")"
+check "old text with quotes, backslashes, glob characters and CRLF is taken literally" quiet
 run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' "    void touch();\\n$block")"
-check "adding one whole preserved block after the old text goes through" quiet
-run pre-edit "$(edit_json Edit "$repo" s1 '}' "$block\\n}")"
-check "adding it before the old text goes through" quiet
-run pre-edit "$(edit_json Edit "$repo" s1 '    int[] sizes = {1}; // *' "    int[] sizes = {1}; // *\\n$block")"
-check "old text with glob characters is taken literally" quiet
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' '    void touch();\n    void more();')"
+check "a block anywhere but before the closing brace is refused" denied
+run pre-edit "$(edit_json Edit "$repo" s1 '        return x;\n    }' "        return x;\\n$block\\n    }")"
+check "a block inside a method is refused" denied
+run pre-edit "$(edit_json Edit "$repo" s1 '}' '    void more();\n}')"
 check "adding code outside a block is refused" denied
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' "    void touch();\\n$block\\n    void more();")"
+run pre-edit "$(edit_json Edit "$repo" s1 '}' "$block\\n    void more();\\n}")"
 check "a block with code after it is refused" denied
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' "    void touch();\\n$block\\n$block")"
+run pre-edit "$(edit_json Edit "$repo" s1 '}' "$block\\n$block\\n}")"
 check "two blocks in one edit are refused" denied
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' '    // !----------\n    void touch();\n    // ----------!')"
+run pre-edit "$(edit_json Edit "$repo" s1 '}' '    // !----------------\n    void a();\n    // ----------------!\n    void evil();\n    // ----------------!\n}')"
+check "code after the first end marker is refused - the generator ends the block there" denied
+run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();\n}' '    // !----------\n    void touch();\n    // ----------!\n}')"
 check "moving generated code into a block is refused" denied
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' '    void touch();\n    // !----------\n    void more();\n    ------------!')"
+run pre-edit "$(edit_json Edit "$repo" s1 '}' "$block}")"
+check "pulling the closing brace into the block is refused" denied
+run pre-edit "$(edit_json Edit "$repo" s1 '}' '    // !----------\n    void more();\n    ------------!\n}')"
 check "a block whose end line has no // is refused - the generator would not see its end" denied
-run pre-edit "$(edit_json Edit "$repo" s1 '    void touch();' "    void touch();\\n$block" ',"replace_all":true')"
+run pre-edit "$(edit_json Edit "$repo" s1 '}' '    // !---------- void more(); // ------------!\n}')"
+check "a block on one line is refused" denied
+run pre-edit "$(edit_json Edit "$repo" s1 '}' "$block\\n}" ',"replace_all":true')"
 check "a block added at every match (replace_all) is refused" denied
-run pre-edit "$(edit_json MultiEdit "$repo" s1 '    void touch();' "    void touch();\\n$block")"
+run pre-edit "$(edit_json MultiEdit "$repo" s1 '}' "$block\\n}")"
 check "a block added through MultiEdit is refused" denied
+printf '//ecd:-903H20261020123214_V3.0\npackage com.acme.shop;\n\nclass First {\n}\n\nclass Second {\n}\n' > "$src/TwoTypes.java"
+run pre-edit "$(edit_json Edit "$src/TwoTypes.java" s1 '}' "$block\\n}")"
+check "in a file with two top-level closing braces it is refused - which one is unclear" denied
 
 run pre-edit "$(edit_json Edit "$blueprint/schema.yml")"
 check "blueprint/schema.yml is refused: rewritten on every generation" denied
@@ -228,18 +242,31 @@ for command in \
     './gradlew -Dorg.gradle.project.force=true elcore3' \
     'ORG_GRADLE_PROJECT_force=true ./gradlew elcore3' \
     'cd app && gradle :app:elcore3 -Pforce=true' \
-    'cmd /c gradlew.bat elcore3 -Pforce'
+    'cmd /c gradlew.bat elcore3 -Pforce' \
+    'cmd.exe /c \"gradlew.bat elcore3 -Pforce\"' \
+    'bash -c \"./gradlew elcore3 -Pforce\"' \
+    'env ./gradlew elcore3 -Pforce' \
+    'time ./gradlew elcore3 -Pforce'
 do
     run pre-bash "$(bash_json "$command" "")"
     check "refused: $command" eval 'denied && has "$out" "Ask the user"'
 done
-run pre-bash "$(bash_json '.\\gradlew.bat elcore3 -Pforce' "" s1 "" "" PowerShell)"
-check "refused from PowerShell: .\\gradlew.bat elcore3 -Pforce" denied
+for command in \
+    '.\\gradlew.bat elcore3 -Pforce' \
+    '& \".\\gradlew.bat\" elcore3 -Pforce' \
+    '$env:ORG_GRADLE_PROJECT_force=\"true\"; .\\gradlew.bat elcore3'
+do
+    run pre-bash "$(bash_json "$command" "" s1 "" "" PowerShell)"
+    check "refused from PowerShell: $command" denied
+done
 out="$(printf '%s' "$(bash_json "./gradlew elcore3 -Pforce" "")" | ELASTICORE_ALLOW_FORCE=1 "$shell" "$hook" pre-bash 2>"$work/stderr")"; rc=$?; err="$(cat "$work/stderr")"
 check "ELASTICORE_ALLOW_FORCE=1 lets it through" quiet
 for command in \
     'grep -n -- -Pforce notes.txt' \
     "git commit -m 'never run gradle -Pforce here'" \
+    'git commit -m \"docs; gradle elcore3 -Pforce is refused now\"' \
+    "git commit -F - <<'EOF'\\n./gradlew elcore3 -Pforce is refused\\nEOF" \
+    'unset ORG_GRADLE_PROJECT_force; ./gradlew compileJava' \
     'echo -Pforce; ./gradlew compileJava' \
     './gradlew compileJava'
 do
@@ -306,6 +333,9 @@ for case in \
     "cat build.gradle into grep~cat build.gradle | grep -n test~12: test {~~" \
     "ls and cat~ls build && cat settings.gradle~rootProject.name~~" \
     "failed build~./gradlew compileJava~> Task :compileJava FAILED\\nBUILD FAILED in 3s~~" \
+    "a failed build followed by a generation~./gradlew compileJava; ./gradlew elcore3~> Task :elcore3\\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\\n> Task :compileJava FAILED\\nBUILD FAILED in 3s\\n$gen3~~" \
+    "generation with the tests excluded~./gradlew elcore3 -x test~$gen3~~" \
+    "a quiet build, which prints no BUILD SUCCESSFUL~./gradlew -q build~=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===~~" \
     "a YAML file that did not parse~./gradlew compileJava~> Task :elcore3\\n * LOAD ERROR: /p/src/main/resources/blueprint/shop/model/review.yml\\ncom.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException: while parsing a block mapping\\n=== elcore3: 20 written / 0 unchanged / 2 skipped / 0 failed ===\\n> Task :compileJava\\nBUILD SUCCESSFUL in 19s~~"
 do
     IFS='~' read -r label command stdout input_extra response_extra <<EOF
@@ -326,6 +356,9 @@ run post-bash "$(bash_json "./gradlew compileJava" "> Task :elcore\\nModelExtrac
 check "2.x hand-edited files are reported, with what [INGORE] means" eval 'noted && has "$out" "edited by hand" && has "$out" "[INGORE]"'
 check "a successful 2.x build clears the note" [ ! -f "$marker" ]
 
+run post-bash "$(bash_json './gradlew compileJava && git commit -m \"wip\"' "> Task :elcore3\\n[elcore3] DSL validation warnings:\\n  x\\n$built3")"
+check "a -m in another command of the line does not make it a dry run" eval 'noted && has "$out" "rule engine"'
+
 run post-bash "$(bash_json "./gradlew elcore3" "control  src/x/ShopController.java  SKIP(no ElastiCORE header - yours)\\n$gen3")"
 check "a file without a header where one is generated is reported" eval 'noted && has "$out" "no ElastiCORE header"'
 
@@ -333,7 +366,8 @@ for case in \
     "./gradlew compileJava~$built3" \
     "gradle :app:compileJava~$built2" \
     "(cd app && ./gradlew compileJava)~$built3" \
-    "./gradlew -q build~$built3" \
+    "./gradlew build --console=plain~$built3" \
+    "./gradlew test~> Task :elcore3\\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\\n> Task :compileJava\\ncom.fasterxml.jackson.core.JsonParseException: Unexpected character in a test request\\nBUILD SUCCESSFUL in 20s" \
     "./gradlew elcore3 bootRun~$built3"
 do
     command="${case%%~*}"; stdout="${case#*~}"

@@ -18,20 +18,27 @@ against what Claude Code really sends a hook.
 - **Failed builds.** A command that exits non-zero comes as `PostToolUseFailure`, which the hooks did
   not listen to - the 2.x generator's warnings, which stop the build, never reached Claude. They do
   now, from the `error` Claude Code sends.
-- **Long output.** Claude Code passes on the first 30,000 characters of a command's output and saves
-  the rest to a file; `BUILD SUCCESSFUL` at the end was cut off, so a large project's build never
-  counted. The hook reads the saved file.
-- **A YAML file that does not parse** is printed as `LOAD ERROR` and left out of the model, and the
-  build passes. The hook reports it and keeps the note; the skill says to look for it.
-- **"Compiled" means compiled.** Generation alone - `elcore3`, `elcore3ts` - no longer counts as the
-  build that ends a DSL change; a compiling task has to run.
-- **Preserved blocks** are let through only as one Edit that keeps the old text as it was and adds
-  one whole block before or after it, whose end line holds `//`: not generated code moved into a
-  block, two blocks, `replace_all` or a MultiEdit. A block before `}` - the usual place - now goes
-  through.
+- **Long output.** Claude Code passes on the first 30,000 characters of a successful command's
+  output and saves all of it to a file; `BUILD SUCCESSFUL` at the end was cut off, so a large
+  project's build never counted. The hook reads the saved file. Of a failed command only the first
+  10,000 characters come, with no file - the README says so.
+- **A YAML file that does not parse** is printed as `* LOAD ERROR: <file>` and left out of the model,
+  and the build passes. The hook reports it and keeps the note; the skill says to look for it.
+- **"Compiled" means compiled.** Generation alone - `elcore3`, `elcore3ts`, or a build with `-x` on
+  the compiling tasks - no longer counts as the build that ends a DSL change, nor does a command in
+  which one Gradle run failed and another passed; a compiling task has to run and pass.
+- **Preserved blocks** go where the generator puts their code back on every regeneration: right
+  before the class's closing brace. Only that edit is let through - one Edit whose old text ends
+  with the last `}` and that adds one whole block, its end line holding `//` and no other end marker,
+  each on lines of their own. Not code outside the block, generated code moved into it, a block in
+  a method, two blocks, `replace_all` or a MultiEdit.
 - **`-Pforce`** is also refused as `"-Pforce"`, `-P force`, `--project-prop force`,
-  `-Dorg.gradle.project.force` and `ORG_GRADLE_PROJECT_force`, and only in a Gradle command - not in
-  a commit message.
+  `-Dorg.gradle.project.force` and `ORG_GRADLE_PROJECT_force=`, through `& ".\gradlew.bat"`,
+  `cmd /c`, `bash -c`, `env` or `time`. The command is read as a shell reads it - quotes, separators,
+  here-documents - so a commit message that mentions `-Pforce` is not refused.
+- **New projects:** `gradle wrapper` needs a settings file, so `new-project.md` makes the wrapper
+  after `settings.gradle` and before `build.gradle` - from an empty folder Gradle failed and
+  suggested `gradle init`.
 - **Layered Java** keeps the 2.x-compatible output on the rule engine: `@access`, `@owner` and
   `@password` are not enforced (the generator warns), and with 3.0.261015-alpha1 a `money` field
   does not compile there. The skill, the agents and `new-project.md` say so, and a new project
@@ -42,9 +49,10 @@ against what Claude Code really sends a hook.
   the hook and the reviewer say so. `new-project.md` takes the newest 3.x version as the contract test
   does, and makes the Gradle wrapper before `build.gradle` exists.
 - The agents may use the PowerShell tool.
-- Tests: 112 hook cases, the payloads as Claude Code sends them (checked by recording real ones);
-  new contracts for a YAML file that does not parse, layered Java, and the 2.x generator ignoring
-  `@access` without a warning. The macOS `/bin/bash` run no longer stops when the first run fails.
+- Tests: 132 hook cases, the payloads as Claude Code sends them (checked by recording real ones);
+  new contracts for the wrapper, a YAML file that does not parse, layered Java, and the 2.x generator
+  ignoring `@access` without a warning. The macOS `/bin/bash` run no longer stops when the first run
+  fails.
 
 ## 0.1.1
 
