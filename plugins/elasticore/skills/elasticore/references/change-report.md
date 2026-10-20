@@ -22,6 +22,7 @@ what did not change. Use the user's language.
 
 ## Checked
 
+- Generator: <3.0 rule engine, architecture X | 2.x generator - rules it ignores are not in force>
 - Generation: <N written / N unchanged / N skipped / N failed>, DSL validation warnings: <none, or the lines>
 - Compile and tests: <command and result>
 - Hand-written code: <files you own that changed, one line each>
