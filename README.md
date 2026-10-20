@@ -10,6 +10,33 @@ DSL, regenerates, compiles, and tells you what changed for the business.
 
 [한국어](README.ko.md)
 
+## Measured: one task, with and without the kit
+
+A task neither agent had seen before - a library loan API: books keyed by a 13-digit ISBN, members
+with a unique e-mail and a joining date the server sets, loans whose dates the server sets, a 409
+when no copy is left, a return operation, and "not yet returned" as a search. Each agent got the
+same text, once with the kit and once without, and an independent grader built, started and called
+every project against 21 checks (2026-10-21, one Windows PC, the Gradle builds inside the times;
+kit 0.3.0 with a pre-release build of ElastiCORE 3.0.261021).
+
+| Agent | Without the kit | With the kit |
+|---|---|---|
+| Claude Code, Sonnet | 4 min 41 s, 20.5 of 21 - every entity, DTO, repository, service, controller and error handler written by hand | **2 min 18 s, 20.5 of 21** - one 27-line YAML, two service methods, one controller |
+| opencode, a small local model (`qwen3.8-flash-next-a5b`) | did not finish in four attempts - each stalled in a shell call that never returned | **11 min 42 s, 21 of 21** |
+
+With the kit, Claude Code read the one-page reference and the library recipe, wrote the YAML,
+generated, added the two methods and the controller the recipe gives, built, started the server,
+sent fifteen requests - 400 for a bad ISBN, 409 for a duplicate, for a loan with no copy left and
+for a second return, 404 for an unknown member - stopped the server by its process id and reported,
+naming what it had not checked. It opened no guide and no jar. The grader found no claim that did
+not hold; the half point is the jar name in its README.
+
+The same task is where ElastiCORE 3.0.261021 got `@readonly`, `@search(isnull)`, `@pattern` with a
+message, `ref: Entity!` and `ConflictException`: the kit's first run on it showed what an agent
+still had to write in Java, and the DSL took that over. The kit's earlier page sent agents into a
+Gradle call that never returns on Windows and cost one run ten minutes; [CHANGELOG.md](CHANGELOG.md)
+has the numbers before and after.
+
 ## Install
 
 ```bash
