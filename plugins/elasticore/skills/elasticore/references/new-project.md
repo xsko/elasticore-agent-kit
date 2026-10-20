@@ -66,6 +66,13 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     runtimeOnly 'com.h2database:h2'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
 }
 ```
 
@@ -122,7 +129,8 @@ public class ShopApplication {
 ## Run it and try it in a browser
 
 1. `./gradlew bootRun` generates, compiles and starts the application on port 8080, with an
-   in-memory H2 database that starts empty on every run.
+   in-memory H2 database that starts empty on every run. From an agent's shell, start it as
+   `run-and-check.md` says instead - `bootRun` does not return.
 2. Open `http://localhost:8080/swagger-ui.html`: every operation the model exposes can be called
    from there. For `Product` they are, under `/api/shop/product`: `POST` creates, `GET /{productId}`
    reads one, `POST /search` returns a page (`{}` as the body lists everything), `PUT` updates,

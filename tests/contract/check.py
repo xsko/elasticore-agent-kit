@@ -35,6 +35,8 @@ REFERENCES = os.path.join(PLUGIN, "skills", "elasticore", "references")
 SKILL = os.path.join(PLUGIN, "skills", "elasticore", "SKILL.md")
 NEW_PROJECT = os.path.join(REFERENCES, "new-project.md")
 EXAMPLE = os.path.join(REFERENCES, "example-order.md")
+RECIPE_BOARD = os.path.join(REFERENCES, "recipe-board.md")
+QUICK_REFERENCE = os.path.join(REFERENCES, "quick-reference.md")
 HOOK = os.path.join(PLUGIN, "hooks", "elasticore-hook.sh")
 METADATA = "https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml"
 
@@ -454,6 +456,138 @@ def main():
                 check("creating a product without signing in answers 401 'Sign in to create Product'",
                       status == 401 and "Sign in to create Product" in body, "references/new-project.md step 3",
                       "status %s: %s" % (status, body[:160]))
+        finally:
+            app.terminate()
+            try:
+                app.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                app.kill()
+            log.close()
+
+    # --- the board recipe and the quick reference's sample, built and called as written ---------
+    recipe = blocks_by_heading(RECIPE_BOARD)
+    sample = blocks_by_heading(QUICK_REFERENCE)
+    recipe_files = ["src/main/java/com/acme/board/BoardApplication.java",
+                    "src/main/java/com/acme/board/application/CommentService.java",
+                    "src/main/resources/blueprint/board/env.yml", "src/main/resources/blueprint/board/model/entity.yml"]
+    check("recipe-board.md has its four files", sorted(recipe) == recipe_files,
+          "references/recipe-board.md", "found: %s" % sorted(recipe))
+    check("quick-reference.md has its sample model", list(sample) == ["src/main/resources/blueprint/board/model/sample.yml"],
+          "references/quick-reference.md", "found: %s" % list(sample))
+    board = os.path.join(work, "board")
+    for name in ("settings.gradle", "build.gradle"):
+        write(os.path.join(board, name), template[name].replace("VERSION", version)
+              .replace("rootProject.name = 'shop'", "rootProject.name = 'board'"))
+    for name, text in list(recipe.items()) + list(sample.items()):
+        write(os.path.join(board, name), text)
+    rc, out = run(board, "build", "bootJar")
+    write(os.path.join(work, "board.log"), out)
+    check("the board recipe and the sample generate, compile and pass the generated tests (gradlew build)",
+          rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out and "LOAD ERROR" not in out,
+          "references/recipe-board.md; references/quick-reference.md; references/new-project.md (test setup)",
+          "exit %d; see %s" % (rc, os.path.join(work, "board.log")))
+    check("the hand-written CommentService is left alone", "SKIP(no ElastiCORE header - yours)" in
+          (status_of(out, "CommentService.java") or ""), "references/recipe-board.md",
+          "status: %s" % status_of(out, "CommentService.java"))
+    libs = os.path.join(board, "build", "libs")
+    jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
+    if jars:
+        port = free_port()
+        base = "http://127.0.0.1:%d" % port
+        log = open(os.path.join(work, "board-app.log"), "w", encoding="utf-8")
+        app = subprocess.Popen([args.java, "-Djava.io.tmpdir=" + temp, "-jar", os.path.join(libs, jars[0]),
+                                "--server.port=%d" % port], stdout=log, stderr=subprocess.STDOUT)
+
+        def ask(method, path, body=None):
+            data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+            request = urllib.request.Request(base + path, data=data_bytes, method=method,
+                                             headers={"Content-Type": "application/json"} if data_bytes else {})
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    text = response.read().decode("utf-8", "replace")
+                    try:
+                        return response.status, json.loads(text)
+                    except ValueError:
+                        return response.status, text
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode("utf-8", "replace")
+
+        try:
+            started = False
+            deadline = time.time() + 180
+            while time.time() < deadline and app.poll() is None:
+                try:
+                    if ask("GET", "/v3/api-docs")[0] == 200:
+                        started = True
+                        break
+                except OSError:
+                    pass
+                time.sleep(1)
+            if check("the board starts", started, "references/run-and-check.md",
+                     "see %s" % os.path.join(work, "board-app.log")):
+                where = "references/recipe-board.md, the API table"
+                P, C = "/api/board/post", "/api/board/comment"
+                st, first = ask("POST", P, {"title": "Hello", "body": "first", "author": "kim"})
+                check("create a post: 200 with postId and createdAt", st == 200 and isinstance(first, dict)
+                      and first.get("postId") and first.get("createdAt"), where, "%s %s" % (st, str(first)[:160]))
+                st, second = ask("POST", P, {"title": "Second", "body": "two", "author": "lee",
+                                             "createdAt": "2000-01-01 00:00:00"})
+                check("a createdAt in the request is ignored", st == 200 and isinstance(second, dict)
+                      and not str(second.get("createdAt", "")).startswith("2000"), where, str(second)[:160])
+                ask("POST", P, {"title": "Hello again", "body": "three", "author": "park"})
+                pid = first.get("postId") if isinstance(first, dict) else 1
+                check("read one: 200, unknown id 404", ask("GET", "%s/%s" % (P, pid))[0] == 200
+                      and ask("GET", P + "/987654")[0] == 404, where)
+                refusals = [ask("POST", P, b)[0] for b in (
+                    {"title": "", "body": "x", "author": "kim"}, {"title": "t" * 101, "body": "x", "author": "kim"},
+                    {"title": "t", "body": "", "author": "kim"}, {"title": "t", "body": "x"})]
+                check("empty title, 101-char title, empty body, no author: 400 each", refusals == [400] * 4, where,
+                      str(refusals))
+                st, upd = ask("PUT", P, {"postId": pid, "title": "Hello (edited)", "body": "first", "author": "kim"})
+                check("update with the id in the body", st == 200 and isinstance(upd, dict)
+                      and upd.get("title") == "Hello (edited)", where, "%s %s" % (st, str(upd)[:160]))
+                st, page = ask("POST", P + "/search", {"pageNumber": 0, "pageSize": 2})
+                ids = [r.get("postId") for r in page.get("content", [])] if isinstance(page, dict) else []
+                check("search pages newest first", st == 200 and len(ids) == 2 and ids == sorted(ids, reverse=True)
+                      and page.get("totalElements") == 3, where, "%s %s" % (st, ids))
+                st, found = ask("POST", P + "/search", {"title": "ell"})
+                titles = [r.get("title") for r in found.get("content", [])] if isinstance(found, dict) else []
+                check("search by part of the title", st == 200 and sorted(titles) == ["Hello (edited)", "Hello again"],
+                      where, "%s %s" % (st, titles))
+                st, com = ask("POST", C, {"postId": pid, "content": "nice", "author": "choi"})
+                check("comment on a post", st == 200 and isinstance(com, dict) and com.get("postId") == pid, where,
+                      "%s %s" % (st, str(com)[:160]))
+                check("comment on an unknown post 404, without postId 400",
+                      ask("POST", C, {"postId": 987654, "content": "x", "author": "han"})[0] == 404
+                      and ask("POST", C, {"content": "x", "author": "han"})[0] == 400, where)
+                lengths = [ask("POST", C, {"postId": pid, "content": c, "author": "han"})[0]
+                           for c in ("c" * 501, "c" * 500, "")]
+                check("a comment of 501 characters 400, of 500 200, empty 400", lengths == [400, 200, 400], where,
+                      str(lengths))
+                st, mine = ask("POST", C + "/search", {"postId": pid})
+                check("a post's comments", st == 200 and isinstance(mine, dict) and mine.get("content")
+                      and all(r.get("postId") == pid for r in mine["content"]), where, "%s %s" % (st, str(mine)[:160]))
+                cid = com.get("commentId") if isinstance(com, dict) else 1
+                st, ed = ask("PUT", C, {"commentId": cid, "content": "edited", "author": "choi"})
+                check("update a comment without postId", st == 200 and isinstance(ed, dict)
+                      and ed.get("content") == "edited", where, "%s %s" % (st, str(ed)[:160]))
+                check("delete a comment, then 404", ask("DELETE", "%s/%s" % (C, cid)) == (200, True)
+                      and ask("GET", "%s/%s" % (C, cid))[0] == 404, where)
+                check("a post with comments answers 409 on delete", ask("DELETE", "%s/%s" % (P, pid))[0] == 409, where)
+
+                where = "references/quick-reference.md"
+                good = {"name": "Dune", "handle": "dune", "memo": "", "contact": "a@b.co", "rating": 5,
+                        "price": 12.5, "releasedOn": "2021-10-22", "inStock": True, "kind": "B"}
+                st, item = ask("POST", "/api/board/item", good)
+                check("the sample creates: a 15-character @genid key, money, enum by code, both time stamps",
+                      st == 200 and isinstance(item, dict) and len(item.get("itemCode") or "") == 15
+                      and item.get("kind") == "B" and item.get("createdAt") and item.get("modifiedAt"),
+                      where, "%s %s" % (st, str(item)[:200]))
+                check("string(n)! lets \"\" through (memo)", st == 200, where)
+                bad = [ask("POST", "/api/board/item", dict(good, **change))[0] for change in (
+                    {"name": ""}, {"handle": "abc"}, {"contact": "not-an-address"}, {"rating": 0}, {"rating": 11})]
+                check("@notblank, @length(min=4), @email, @min(1), @max(10) each refuse: 400", bad == [400] * 5, where,
+                      str(bad))
         finally:
             app.terminate()
             try:

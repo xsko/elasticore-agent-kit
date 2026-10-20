@@ -1,0 +1,153 @@
+# Recipe: a board - posts and comments, CRUD, validation, search, paging
+
+A complete model for "posts with comments": create, read, update, delete, required and length-checked
+fields that refuse empty text, a title search, newest-first paging, a creation time the server sets,
+and comments that need an existing post. Start from `new-project.md` (build files, wrapper) and use
+these files instead of its `shop` ones. The agent kit's CI generates, builds, starts and calls
+exactly this project, with every request shown at the end.
+
+It works as written. Rename `board` and `com.acme.board` together if the task needs another name.
+
+## `src/main/resources/blueprint/board/env.yml`
+
+```yaml
+elasticore:
+  enable: true
+  config:
+    domainName: board
+    framework: springboot
+    mode: jpa
+    j2ee: jakarta
+    apiPath: "/api"
+  namespace:
+    base: com.acme.board
+```
+
+## `src/main/resources/blueprint/board/model/entity.yml`
+
+```yaml
+entity:
+  Post:
+    meta: entity @root @editable @expose(20) @sort(postId-) -- post
+    fields:
+      postId:    long @id @sequence
+      title:     string(100)! @notblank @search(like) -- title
+      body:      text! @notblank -- body
+      author:    string(30)! @notblank -- author name
+      createdAt: datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- written at
+
+  Comment:
+    meta: entity @root @editable @expose(50) @sort(commentId+) -- comment
+    fields:
+      commentId: long @id @sequence
+      post:      Post -- the post it belongs to
+      content:   string(500)! @notblank -- comment
+      author:    string(30)! @notblank -- author name
+      createdAt: datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- written at
+```
+
+Why each piece is there:
+
+- `string(n)!` is required and at most n characters. It does **not** refuse `""`: add `@notblank`.
+- `@root @editable` gives the update operation (`PUT`); `@expose(n)` gives the API, n is the page size.
+- `@sort(postId-)` lists newest first: ids grow with every insert. `@search(like)` searches by part of
+  the title.
+- `createdAt` with `@jpa:...CreatedDate` is set by the server and never taken from a request - but
+  only with `@EnableJpaAuditing` on the application class (below). ElastiCORE has no `@createtime`.
+- `post: Post` makes a comment carry `postId` in requests and answers. Leave the `!` off: with
+  `post: Post!` the generated DTO requires the nested `post` object instead of `postId`, and every
+  comment is refused. `CommentService` below makes the post required and checks that it exists.
+
+## `src/main/java/com/acme/board/BoardApplication.java`
+
+```java
+package com.acme.board;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+
+@SpringBootApplication
+@EnableJpaAuditing
+public class BoardApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(BoardApplication.class, args);
+    }
+}
+```
+
+## `src/main/java/com/acme/board/application/CommentService.java`
+
+```java
+package com.acme.board.application;
+
+import com.acme.board.application.dto.CommentDTO;
+import com.acme.board.application.port.in.CommentUseCase;
+import com.acme.board.application.port.out.CommentQueryPort;
+import com.acme.board.domain.model.Comment;
+import com.acme.board.domain.model.Post;
+import com.acme.board.domain.repository.CommentRepositoryPort;
+import io.elasticore.springboot3.validation.BadRequestException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import org.springframework.stereotype.Service;
+
+/** Comments: the generated CRUD, plus a post that has to exist. */
+@Service
+public class CommentService extends CommentCoreService implements CommentUseCase {
+
+    public CommentService(CommentRepositoryPort repository, CommentQueryPort query, EntityManager entityManager) {
+        super(repository, query, entityManager);
+    }
+
+    /** A new comment names an existing post: 400 without postId, 404 for an unknown one. */
+    @Override
+    protected void beforeSave(Comment entity, CommentDTO request) {
+        if (entity.getCommentId() == null) {
+            if (request.getPostId() == null) {
+                throw new BadRequestException("postId: required");
+            }
+            if (entityManager.find(Post.class, request.getPostId()) == null) {
+                throw new EntityNotFoundException("Post " + request.getPostId() + " not found");
+            }
+        }
+        super.beforeSave(entity, request);
+    }
+}
+```
+
+Write this file before the first generation: a file without an ElastiCORE header is yours, and the
+generator leaves it alone (`SKIP(no ElastiCORE header - yours)`). After a generation has already
+written `CommentService.java`, put the `beforeSave` method into that file instead - it starts with
+`// Initially generated by ElastiCORE;`, so it is yours too.
+
+## The API it generates
+
+Base paths `/api/board/post` and `/api/board/comment`. JSON in and out; dates are
+`yyyy-MM-dd HH:mm:ss`. Answers: 200 with the row (or `true` for a delete), 400 for invalid input
+(`fieldErrors` names each field), 404 for an unknown id, 409 when a row is still referenced.
+
+| Operation | Request | Answer |
+|---|---|---|
+| Create a post | `POST /api/board/post` `{"title":"Hello","body":"first","author":"kim"}` | 200, the post with `postId` and `createdAt` |
+| Read one | `GET /api/board/post/1` | 200; unknown id 404 |
+| Update | `PUT /api/board/post` `{"postId":1,"title":"Hello (edited)","body":"first","author":"kim"}` - the id is in the body | 200, the post |
+| Delete | `DELETE /api/board/post/2` | 200 `true`; 409 while it has comments |
+| List, newest first | `POST /api/board/post/search` `{"pageNumber":0,"pageSize":2}` | 200, a page: `content`, `totalElements`, `totalPages`, `number` |
+| Search the title | `POST /api/board/post/search` `{"title":"ell"}` | 200, the posts whose title contains it |
+| Comment | `POST /api/board/comment` `{"postId":1,"content":"nice","author":"choi"}` | 200; unknown post 404, no `postId` 400 |
+| A post's comments | `POST /api/board/comment/search` `{"postId":1}` | 200, a page of that post's comments |
+| Update a comment | `PUT /api/board/comment` `{"commentId":1,"content":"edited","author":"choi"}` | 200 |
+| Delete a comment | `DELETE /api/board/comment/1` | 200 `true` |
+
+Invalid input, all 400: an empty `title`, a `title` of 101 characters, an empty `body`, no `author`,
+a comment of 501 characters or an empty one. A `createdAt` in a request is ignored.
+
+```bash
+curl -s -X POST localhost:PORT/api/board/post -H 'Content-Type: application/json' \
+     -d '{"title":"Hello","body":"first","author":"kim"}'
+curl -s -X POST localhost:PORT/api/board/post/search -H 'Content-Type: application/json' -d '{"title":"ell"}'
+```
+
+There is no `GET` for a list: lists and searches are `POST .../search`. The whole API, with every
+field, is at `http://localhost:PORT/v3/api-docs` once the server runs.

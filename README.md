@@ -1,7 +1,8 @@
 # ElastiCORE agent kit
 
-A [Claude Code](https://code.claude.com) plugin for projects built with
-[ElastiCORE](https://github.com/xsko/ElastiCORE) - Spring Boot applications generated from a YAML DSL.
+A [Claude Code](https://code.claude.com) plugin, also packaged for [opencode](https://opencode.ai),
+for projects built with [ElastiCORE](https://github.com/xsko/ElastiCORE) - Spring Boot applications
+generated from a YAML DSL.
 
 Left to itself, an agent edits the generated Java. The next build either overwrites the edit or
 stops updating the file from the model, and nobody notices. With this plugin the agent changes the
@@ -27,6 +28,10 @@ The hooks run in bash: macOS and Linux have it, and on Windows Claude Code runs 
 On Windows without Git Bash, Claude Code reports a hook error on every edit and command - install
 Git for Windows, or disable the plugin.
 
+**opencode:** clone this repository and run `opencode/install.sh` (or `opencode/install.ps1`). It
+installs the same skill and hook script, an opencode plugin that runs them, and the agents and
+commands as opencode's own - see [opencode/README.md](opencode/README.md).
+
 ## Update
 
 Claude Code does not update plugins from a marketplace like this one on its own. To get the newest
@@ -48,7 +53,7 @@ Claude Code then updates it when a session starts, and the next session loads th
 
 | Part | What it does |
 |---|---|
-| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It says how to start a project, which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. For syntax it sends Claude to the guides ElastiCORE copies into the project. |
+| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It starts with a fast path: a one-page DSL reference, a complete recipe (posts and comments - CRUD, validation, search, paging, time stamps), and how an agent runs and checks the application. Then: which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. Everything the reference and the recipe show is generated, built and called in CI; for the rest it sends Claude to the guides ElastiCORE copies into the project. |
 | Hooks | Stop edits to generated files and `-Pforce` runs, say what to run after a DSL change, pass on the generator's warnings, and keep Claude from finishing with a DSL change that no successful build has generated and compiled. |
 | Agent `elasticore:modeler` | Turns a requirement into a DSL change that generates and compiles, and reports it in business terms. |
 | Agent `elasticore:reviewer` | Reviews a change: hand edits to generated files, DSL the guides or the generator do not know, generated code out of step with the DSL, and who gains or loses what. |

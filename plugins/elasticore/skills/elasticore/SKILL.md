@@ -14,6 +14,18 @@ state transitions and, on request, a TypeScript client.
 how a record moves along, how a value is decided - in YAML, regenerate, and write by hand only the
 logic the DSL cannot express, in the files the generator hands over to you.
 
+## Fast path - do this first
+
+1. A new project: `references/new-project.md`. Posts, comments or any other CRUD:
+   `references/recipe-board.md` - copy it, then rename and adjust.
+2. DSL syntax: `references/quick-reference.md`, one page. Open the long guides only for what it does
+   not have.
+3. Change the YAML, run `./gradlew compileJava`, fix every warning in the YAML.
+4. Run and check the application: `references/run-and-check.md` - a jar in the background, stopped
+   by its process id. Never `./gradlew bootRun` from a tool's shell; never stop processes by name.
+5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
+   are generated. Extra rules go in `<Entity>Service.beforeSave`.
+
 ## 0. Stay inside the project
 
 Work on the project you were asked to work on and nothing else on the machine. Do not search other
@@ -27,10 +39,12 @@ newest version, a template that is built in CI every week, and how to try the re
 
 ## 1. Read the project's own guides
 
-Every generation copies the guides of the ElastiCORE version the project uses into
-`src/main/resources/blueprint/` - in a multi-module build, the root project's. They are the
+`references/quick-reference.md` covers everyday modelling and is checked against the newest release.
+For anything else, every generation copies the guides of the ElastiCORE version the project uses into
+`src/main/resources/blueprint/` - in a multi-module build, the root project's. They are the full
 reference; syntax differs between versions, so read them rather than relying on memory. They are
-written in Korean - answer the user in their language.
+long and written in Korean: search them for the topic and read that section only. Answer the user
+in their language.
 
 | Guide | For |
 |---|---|

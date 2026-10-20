@@ -3,7 +3,48 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
-## 0.1.2
+## 0.2.0
+
+Guidance a small model can follow, opencode support, and the fixes that were to be 0.1.2.
+
+A comparison on one task - a board API with posts and comments, the same spec with and without
+ElastiCORE - showed where agents lose time. Claude Code (Sonnet) built it faster with the kit; a
+small local model in opencode took three times as long with ElastiCORE as without. It read the long
+guides in pieces, guessed the shape of the generated API, started the server with `./gradlew
+bootRun` (which never returns and held the shell for minutes), and left the creation time unset.
+
+- **`references/quick-reference.md`:** the DSL on one page - field types and checks (`string!`
+  does not refuse `""`, `@notblank` does; `@length(min=)`, `@email`, `@min`/`@max`), keys, the
+  entity line, the exact API of an `@expose` entity (lists and searches are `POST /search`, an
+  update carries its key in the body), time stamps (they need `@EnableJpaAuditing`; there is no
+  `@createtime`), where hand-written checks go, names to avoid, and the YAML pitfall that drops a
+  whole file. Its sample model is generated, built and called in CI.
+- **`references/recipe-board.md`:** posts and comments as a complete project - the DSL, the
+  application class and the one hand-written check that makes a comment need an existing post -
+  with every request and answer, all checked in CI. It records that `post: Post!` makes the
+  generated DTO require the nested object instead of `postId`.
+- **`references/run-and-check.md`:** how an agent builds, starts, calls and stops the application:
+  a jar in the background with its process id written down, in bash and in PowerShell; never
+  `bootRun` from a tool's shell, never stopping processes by name.
+- The skill starts with a five-step fast path that sends the agent to these pages first.
+- `new-project.md` gives the template its test setup, so a project's tests run with
+  `./gradlew build`.
+- **opencode:** see the opencode section below.
+
+### opencode
+
+- `opencode/` installs the same skill and hook script into opencode (`install.sh`, `install.ps1`,
+  for the user or `--project`), with `plugins/elasticore.js`, an opencode plugin that runs the hook
+  script on opencode's tool calls - refusals become tool errors, notes are added to the tool's
+  output - and the agents and commands in opencode's own format.
+- Seen live with opencode 1.18.31: the skill is found, an edit of a generated file and a `-Pforce`
+  run are refused, a DSL edit gets its note. The note after a build, `apply_patch` and long saved
+  output are covered by `tests/opencode/test-adapter.mjs` (44 cases, in CI), not seen live. The
+  reminder when a session goes idle does not continue `opencode run`.
+- An older ElastiCORE skill in `~/.claude/skills` with the same name can be loaded instead of the
+  kit's: `opencode/README.md` says how to keep it out.
+
+### Fixes (from the reviews of 0.1.1)
 
 Fixes from a second independent review, each checked against ElastiCORE 3.0.261015-alpha1 and
 against what Claude Code really sends a hook.

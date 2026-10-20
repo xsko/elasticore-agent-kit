@@ -1,7 +1,7 @@
 # ElastiCORE agent kit
 
 [ElastiCORE](https://github.com/xsko/ElastiCORE)로 만든 프로젝트(YAML DSL에서 생성하는 Spring Boot 애플리케이션)를 위한
-[Claude Code](https://code.claude.com) 플러그인입니다.
+[Claude Code](https://code.claude.com) 플러그인입니다. [opencode](https://opencode.ai)용 패키지도 들어 있습니다.
 
 그냥 두면 에이전트는 생성된 Java를 고칩니다. 다음 빌드가 그 수정을 덮어쓰거나, 그 파일이 더 이상 모델을 따라가지 않게 되는데
 아무도 모르고 지나갑니다. 이 플러그인을 쓰면 에이전트는 DSL을 고치고, 다시 생성하고, 컴파일한 뒤 업무에 무엇이 바뀌었는지 알려 줍니다.
@@ -24,6 +24,9 @@ Maven Central의 릴리스와, CI가 매주 실제로 빌드하는 템플릿으�
 hook은 bash로 돕니다. macOS와 Linux에는 기본으로 있고, Windows에서는 Claude Code가 Git Bash로 hook을 실행합니다.
 Git Bash가 없는 Windows에서는 편집·명령마다 hook 오류가 표시되니, Git for Windows를 설치하거나 플러그인을 끄세요.
 
+**opencode:** 이 저장소를 받아 `opencode/install.sh`(또는 `opencode/install.ps1`)를 실행합니다. 같은 skill과 hook 스크립트,
+그것을 돌리는 opencode 플러그인, opencode 형식의 에이전트·명령이 설치됩니다. 자세한 내용은 [opencode/README.md](opencode/README.md).
+
 ## 업데이트
 
 Claude Code는 이런 마켓플레이스의 플러그인을 저절로 업데이트하지 않습니다. 최신 버전은 이렇게 받습니다.
@@ -43,7 +46,7 @@ claude plugin update elasticore@elasticore-agent-kit
 
 | 구성 | 하는 일 |
 |---|---|
-| skill `elasticore` | ElastiCORE 프로젝트에서 일하거나 새로 시작할 때 불려 옵니다. 프로젝트 시작 방법, 빌드가 어느 생성기를 쓰고 각각 무엇을 지원하는지, 생성 파일과 내 파일을 가리는 법, 변경이 들어갈 자리, 작업 순서(DSL 수정 → `./gradlew compileJava` → 생성기 경고 확인), 먼저 물어볼 일, 보고 방법을 담습니다. 문법은 ElastiCORE가 프로젝트에 복사해 둔 가이드를 읽게 합니다. |
+| skill `elasticore` | ElastiCORE 프로젝트에서 일하거나 새로 시작할 때 불려 옵니다. 맨 앞의 빠른 길에 한 장짜리 DSL 요약, 완성된 레시피(게시글·댓글 - CRUD, 검증, 검색, 페이지, 작성 시각), 에이전트가 애플리케이션을 띄우고 확인하는 방법이 있습니다. 그다음 빌드가 어느 생성기를 쓰고 각각 무엇을 지원하는지, 생성 파일과 내 파일을 가리는 법, 변경이 들어갈 자리, 작업 순서(DSL 수정 → `./gradlew compileJava` → 생성기 경고 확인), 먼저 물어볼 일, 보고 방법을 담습니다. 요약과 레시피의 내용은 CI가 모두 생성·빌드·호출해 확인하고, 그 밖의 문법은 ElastiCORE가 프로젝트에 복사해 둔 가이드를 읽게 합니다. |
 | hook | 생성 파일 수정과 `-Pforce` 실행을 막고, DSL을 고친 뒤 실행할 것을 알려 주고, 생성기 경고를 전하고, 성공한 빌드로 생성·컴파일되지 않은 DSL 변경을 둔 채 끝내지 않게 합니다. |
 | agent `elasticore:modeler` | 요구사항을 생성·컴파일이 되는 DSL 변경으로 바꾸고, 업무 말로 보고합니다. |
 | agent `elasticore:reviewer` | 변경을 검토합니다: 생성 파일 손수정, 가이드나 생성기가 모르는 DSL, DSL과 어긋난 생성 코드, 누가 무엇을 얻고 잃는지. |
