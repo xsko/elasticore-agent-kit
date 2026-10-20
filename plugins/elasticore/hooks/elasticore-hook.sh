@@ -18,6 +18,10 @@
 # ELASTICORE_ALLOW_FORCE=1 lets -Pforce through.
 
 set -u
+# Bytes, not characters: in a UTF-8 locale the BSD tools on macOS refuse or
+# miscount bytes that are not valid UTF-8 - a BOM taken apart, a file in
+# another encoding, a multibyte character cut by head -c.
+export LC_ALL=C
 
 event="${1:-}"
 input="$(cat)" || exit 0
