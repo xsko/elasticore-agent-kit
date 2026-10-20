@@ -5,8 +5,9 @@ permission:
   skill:
     elasticore: allow
   bash:
-    "*taskkill *": deny
-    "*Stop-Process*": deny
+    "*taskkill*/IM*": deny
+    "*taskkill*/im*": deny
+    "*Stop-Process*-Name*": deny
     "*pkill *": deny
     "*killall *": deny
 ---

@@ -88,8 +88,9 @@ directory.
     "skill": { "*": "deny", "elasticore": "allow" },
     "bash": {
       "*": "allow",
-      "*taskkill *": "deny",
-      "*Stop-Process*": "deny",
+      "*taskkill*/IM*": "deny",
+      "*taskkill*/im*": "deny",
+      "*Stop-Process*-Name*": "deny",
       "*pkill *": "deny",
       "*killall *": "deny"
     }
@@ -107,8 +108,10 @@ directory.
   Remove or rename the other copy, or start opencode with `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`
   so that it does not read `.claude/skills/`.
 - **`bash`**: the last rule that matches wins, so `"*"` comes first - keep your own `"*"` rule if
-  you have one, and put the deny lines after it. They keep the agent from stopping processes: a
-  small model once killed every `java.exe` on the machine. The two agents carry the same deny lines.
+  you have one, and put the deny lines after it. They keep the agent from stopping processes by
+  name - a small model once killed every `java.exe` on the machine - and still let it stop the
+  server it started by its process id, as `run-and-check.md` shows. The two agents carry the same
+  deny lines.
 
 ## Uninstall
 

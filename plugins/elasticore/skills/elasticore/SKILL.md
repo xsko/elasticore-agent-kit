@@ -16,6 +16,8 @@ logic the DSL cannot express, in the files the generator hands over to you.
 
 ## Fast path - do this first
 
+0. An existing project: check that `build.gradle` has an `elasticore { }` block with
+   `architecture = 'hexagonal'` or `'ddd'` (section 3). The pages below are for that build.
 1. A new project: `references/new-project.md`. Posts, comments or any other CRUD:
    `references/recipe-board.md` - copy it, then rename and adjust.
 2. DSL syntax: `references/quick-reference.md`, one page. Open the long guides only for what it does
@@ -141,8 +143,9 @@ A worked example that generates and compiles: `references/example-order.md`.
 5. **Compile even when generation succeeded.** On the rule engine generation succeeds with DSL
    warnings, and the code then may not compile - a DTO named in `@dtype(...)` that no `dto:` section
    defines warns `unresolved type` and breaks `compileJava`.
-6. Write the remaining logic in files you own. `./gradlew build` runs the tests; `./gradlew bootRun`
-   starts the application.
+6. Write the remaining logic in files you own. `./gradlew build` runs the tests. To start and call
+   the application, follow `references/run-and-check.md` - `./gradlew bootRun` does not return in a
+   tool's shell.
 7. Report the change in business terms (section 7).
 
 ## 5. Reading the generator's output

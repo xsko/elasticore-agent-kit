@@ -468,10 +468,11 @@ def main():
     recipe = blocks_by_heading(RECIPE_BOARD)
     sample = blocks_by_heading(QUICK_REFERENCE)
     recipe_files = ["src/main/java/com/acme/board/BoardApplication.java",
-                    "src/main/java/com/acme/board/application/CommentService.java",
                     "src/main/resources/blueprint/board/env.yml", "src/main/resources/blueprint/board/model/entity.yml"]
-    check("recipe-board.md has its four files", sorted(recipe) == recipe_files,
+    check("recipe-board.md has its three files", sorted(recipe) == recipe_files,
           "references/recipe-board.md", "found: %s" % sorted(recipe))
+    added = re.search(r"^## Add to `CommentService\.java`\s*\n+```java\n(.*?)```", read(RECIPE_BOARD), re.S | re.M)
+    check("recipe-board.md has the method to add to CommentService.java", added, "references/recipe-board.md")
     check("quick-reference.md has its sample model", list(sample) == ["src/main/resources/blueprint/board/model/sample.yml"],
           "references/quick-reference.md", "found: %s" % list(sample))
     board = os.path.join(work, "board")
@@ -480,15 +481,25 @@ def main():
               .replace("rootProject.name = 'shop'", "rootProject.name = 'board'"))
     for name, text in list(recipe.items()) + list(sample.items()):
         write(os.path.join(board, name), text)
+    # As the recipe says: generate, then add the method to the generated CommentService.
+    rc, out = run(board, "compileJava")
+    service = os.path.join(board, "src", "main", "java", "com", "acme", "board", "application", "CommentService.java")
+    owned_first = os.path.isfile(service) and kind(service) == "owned"
+    check("the first generation writes CommentService.java, owned by the developer", rc == 0 and owned_first,
+          "references/recipe-board.md", "exit %d, kind %s" % (rc, kind(service) if os.path.isfile(service) else "missing"))
+    if owned_first and added:
+        text = read(service)
+        cut = text.rstrip().rfind("}")
+        write(service, text[:cut] + "\n" + added.group(1) + text[cut:])
     rc, out = run(board, "build", "bootJar")
     write(os.path.join(work, "board.log"), out)
     check("the board recipe and the sample generate, compile and pass the generated tests (gradlew build)",
           rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out and "LOAD ERROR" not in out,
           "references/recipe-board.md; references/quick-reference.md; references/new-project.md (test setup)",
           "exit %d; see %s" % (rc, os.path.join(work, "board.log")))
-    check("the hand-written CommentService is left alone", "SKIP(no ElastiCORE header - yours)" in
-          (status_of(out, "CommentService.java") or ""), "references/recipe-board.md",
-          "status: %s" % status_of(out, "CommentService.java"))
+    check("CommentService with the added method is left alone: SKIP(user-owned)",
+          status_of(out, "CommentService.java") == "SKIP(user-owned)" and "beforeSave" in read(service),
+          "references/recipe-board.md", "status: %s" % status_of(out, "CommentService.java"))
     libs = os.path.join(board, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
     if jars:

@@ -2,9 +2,13 @@
 
 `./gradlew bootRun` never returns: in a tool's shell it holds the call until the tool's timeout, and
 in the background it keeps the build open. Build a jar, start it in the background with its process
-id written down, call it, and stop that process - only that one.
+id written to a file, call it, and stop that process - only that one. Each tool call may be a new
+shell, so the process id lives in `build/app.pid`, not in a variable.
 
 ## Build
+
+Stop a server you started before building again - on Windows the running jar is locked and
+`bootJar` cannot replace it.
 
 ```bash
 ./gradlew bootJar          # generates, compiles and packages; read its output as for compileJava
@@ -15,39 +19,45 @@ The jar is the file in `build/libs/` that does not end in `-plain.jar`.
 ## Start, wait, call, stop - bash (macOS, Linux, Git Bash on Windows)
 
 ```bash
+[ -f build/app.pid ] && kill "$(cat build/app.pid)" 2>/dev/null; sleep 1   # the server you started before, if any
 JAR=$(ls build/libs/*.jar | grep -v -- -plain.jar | head -1)
 mkdir -p build/tmp
 java -Djava.io.tmpdir="$PWD/build/tmp" -jar "$JAR" --server.port=PORT > build/app.log 2>&1 &
 echo $! > build/app.pid
 for i in $(seq 1 90); do curl -s -o /dev/null localhost:PORT/v3/api-docs && break; sleep 1; done
-curl -s localhost:PORT/v3/api-docs | head -c 400      # the generated API, every path and field
+curl -s localhost:PORT/v3/api-docs > build/api-docs.json   # the generated API: every path and field
 
 curl -s -X POST localhost:PORT/api/DOMAIN/ENTITY/search -H 'Content-Type: application/json' -d '{}'
 
-kill "$(cat build/app.pid)"                           # stop the server you started
+kill "$(cat build/app.pid)" && rm build/app.pid             # stop the server you started
 ```
 
-If it does not answer within the wait, read `build/app.log` - "Port PORT was already in use" means
-another program has the port: pick another one, do not stop that program.
+If it does not answer within the wait, read `build/app.log`. "Port PORT was already in use" means
+another program has the port: use another port - do not stop that program.
 
 ## The same in PowerShell
 
 ```powershell
+if (Test-Path build\app.pid) { Stop-Process -Id (Get-Content build\app.pid) -ErrorAction SilentlyContinue; Remove-Item build\app.pid }
 $jar = Get-ChildItem build\libs\*.jar | Where-Object { $_.Name -notlike '*-plain.jar' } | Select-Object -First 1
 New-Item -ItemType Directory -Force build\tmp | Out-Null
-$app = Start-Process java -ArgumentList "-Djava.io.tmpdir=$PWD\build\tmp", '-jar', $jar.FullName, '--server.port=PORT' `
-       -RedirectStandardOutput build\app.log -RedirectStandardError build\app.err -PassThru -WindowStyle Hidden
+$app = Start-Process java -PassThru -WindowStyle Hidden `
+       -ArgumentList "`"-Djava.io.tmpdir=$PWD\build\tmp`"", '-jar', "`"$($jar.FullName)`"", '--server.port=PORT' `
+       -RedirectStandardOutput build\app.log -RedirectStandardError build\app.err
+$app.Id | Set-Content build\app.pid
 for ($i = 0; $i -lt 90; $i++) { try { Invoke-WebRequest -UseBasicParsing http://localhost:PORT/v3/api-docs | Out-Null; break } catch { Start-Sleep 1 } }
 Invoke-RestMethod -Method Post -ContentType 'application/json' -Body '{}' http://localhost:PORT/api/DOMAIN/ENTITY/search
-Stop-Process -Id $app.Id                               # stop the server you started
+Stop-Process -Id (Get-Content build\app.pid); Remove-Item build\app.pid   # stop the server you started
 ```
+
+In PowerShell the server's errors go to `build\app.err`.
 
 ## Never
 
 - Stop processes by name (`taskkill /IM java.exe`, `pkill java`, `Stop-Process -Name java`): other
   programs on the machine run Java too.
 - Leave the server running when you finish, or start a second copy on another port to get around
-  the first.
+  the first - stop the first by its process id.
 
 ## What to check, in this order
 
