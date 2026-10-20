@@ -55,7 +55,8 @@ Why each piece is there:
   the title.
 - `createdAt` with `@jpa:...CreatedDate` is set by the server and never taken from a request - but
   only with `@EnableJpaAuditing` on the application class (below). ElastiCORE has no `@createtime`.
-- `post: Post` makes a comment carry `postId` in requests and answers. Leave the `!` off: with
+- `post: Post` makes a comment carry `postId` in requests and answers. Up to 3.0.261020 leave the `!`
+  off (from 3.0.261021 `post: Post!` makes `postId` required and the check below is not needed): with
   `post: Post!` the generated DTO requires the nested `post` object instead of `postId`, and every
   comment is refused. The check below makes the post required and checks that it exists.
 

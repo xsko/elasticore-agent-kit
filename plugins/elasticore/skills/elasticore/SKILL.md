@@ -18,15 +18,20 @@ logic the DSL cannot express, in the files the generator hands over to you.
 
 0. An existing project: check that `build.gradle` has an `elasticore { }` block with
    `architecture = 'hexagonal'` or `'ddd'` (section 3). The pages below are for that build.
-1. A new project: `references/new-project.md`. Posts, comments or any other CRUD:
-   `references/recipe-board.md` - copy it, then rename and adjust.
+1. A new project: `references/new-project.md`. Then copy the recipe that fits, rename and adjust:
+   - `references/recipe-board.md` (posts and comments) - CRUD with validation, search and paging;
+   - `references/recipe-library.md` (books, members, loans) - when a rule reads other rows (no copy
+     left to lend), the server sets values, or the task has an operation besides create, read,
+     update and delete (return a loan). It is for ElastiCORE 3.0.261021 or later; its last section
+     says what to write instead on 3.0.261020.
 2. DSL syntax: `references/quick-reference.md`, one page. Open the long guides only for what it does
    not have.
 3. Change the YAML, run `./gradlew compileJava`, fix every warning in the YAML.
 4. Run and check the application: `references/run-and-check.md` - a jar in the background, stopped
    by its process id. Never `./gradlew bootRun` from a tool's shell; never stop processes by name.
 5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
-   are generated. Extra rules go in `<Entity>Service.beforeSave`.
+   are generated. Extra rules go in `<Entity>Service.beforeSave`; an operation the CRUD does not
+   have is a method there plus one small controller of your own, as in `recipe-library.md`.
 
 ## 0. Stay inside the project
 

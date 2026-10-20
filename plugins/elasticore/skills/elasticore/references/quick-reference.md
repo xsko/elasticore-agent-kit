@@ -4,7 +4,8 @@ For a build whose `elasticore { }` block sets `architecture = 'hexagonal'` or `'
 template of `new-project.md` does. Without that block the 2.x generator runs, and much of this page
 does not apply (SKILL.md section 3).
 
-Everyday work needs only this page and a recipe (`recipe-board.md`). Open the project's long guides
+Everyday work needs only this page and a recipe: `recipe-board.md` for plain CRUD, `recipe-library.md`
+for rules on other rows, server-set values and an operation of its own. Open the project's long guides
 (`src/main/resources/blueprint/elasticore-*.md`) only for something this page does not have. Every
 line in the sample at the end is generated, compiled and called by the agent kit's CI.
 
@@ -30,15 +31,22 @@ application, see `run-and-check.md` - never `./gradlew bootRun` from a tool's sh
 | `string(20)! @length(min=4)` | 4 to 20 characters |
 | `text! @notblank` | long text, required, not blank |
 | `string(100) @email` | an e-mail address |
+| `string(13)! @pattern('^[0-9]{13}$', 'ISBN must be 13 digits')` | a format rule: 400 with that message when the value does not match (from 3.0.261021; write a backslash doubled, `\\d`, or use `[0-9]`) |
 | `int @min(1) @max(10)` | a whole number from 1 to 10 |
 | `long`, `int`, `boolean`, `date`, `datetime`, `money(10.2)` | the other types; `datetime` is `"yyyy-MM-dd HH:mm:ss"` in JSON |
 | `kind: ItemKind` | an enum of the model (an `enumeration:` entry) |
-| `post: Post` | a reference to another root: requests and answers carry its id field; no `!` on it (see the recipe) |
+| `post: Post` | a reference to another root: requests and answers carry its id field (`postId`) |
+| `post: Post!` | the same, and the id field is required: 400 without it (from 3.0.261021; before, the `!` required a nested `post` object - leave it off there) |
+| `returnedDate: date @readonly` | set by the server: in answers, never taken from a request, not required; your `beforeSave` fills it (from 3.0.261021) |
+| `returnedDate: date @readonly @search(isnull)` | and searchable by emptiness: `"returnedDateEmpty": true` finds rows where it is empty, `false` the others (from 3.0.261021) |
 | `-- product name` | the label: column comment and API description |
 
 The id field of a reference is the field name plus the target's key name, unless the key already
 starts with the field name: `post: Post` (key `postId`) carries `postId`; `author: Member` (key
-`memberId`) carries `authorMemberId`.
+`memberId`) carries `authorMemberId`. Under `hexagonal`/`ddd` it is the target's key name when that
+is unique in the entity: `member: Member` carries `memberId`, `book: Book` (key `isbn`) carries `bookIsbn`.
+Two 409s come for free: a create with a key that exists, and a `@Index(name="uk_member_email",
+columnList="email", unique=true)` on the entity line for a unique field.
 
 Not types: `uuid`, `short`, `char`, `OffsetDateTime`. Use `string(36)` for a uuid, `int` for a
 short, `string(1)` for a char, `timestamp` (an instant, ISO-8601 in JSON) for an offset time.
@@ -105,10 +113,15 @@ protected void beforeSave(Post entity, PostDTO request) {   // runs on create an
 Add the method to the generated `<Entity>Service.java` after the first generation - do not write
 that file yourself before it exists.
 
-Throw `jakarta.persistence.EntityNotFoundException` for 404 and
-`io.elasticore.springboot3.validation.BadRequestException` for 400; the generated error handler
-answers them. Do not write controllers, DTOs, repositories, security or error handlers by hand -
-they are generated.
+Throw `jakarta.persistence.EntityNotFoundException` for 404,
+`io.elasticore.springboot3.validation.BadRequestException` for 400 and
+`io.elasticore.springboot3.validation.ConflictException` for 409 ("no copy left to lend", "already
+returned"; from 3.0.261021); the generated error handler answers them with your message as `detail`.
+A business operation the CRUD does not have (returning a loan) is one method in `<Entity>Service`
+plus one small `@RestController` of your own that calls it; everything else - controllers, DTOs,
+repositories, security, the error handler - is generated, so do not write those by hand.
+`entityManager` is a field of the service: `entityManager.find(Book.class, isbn)` reads a row,
+`entityManager.createQuery("select count(l) from Loan l where ...", Long.class)` counts.
 
 ## Names to avoid
 

@@ -10,6 +10,10 @@ unless ELASTICORE_VERSION names one - and a second project on the 2.x
 generator, and fails, naming the assumption and where the kit states it, as
 soon as one no longer holds.
 
+A version ending in -SNAPSHOT is taken from the local Maven repository as well
+(mavenLocal() before mavenCentral()). The contracts of references/recipe-library.md
+need ElastiCORE 3.0.261021 or later; with an older one they are reported SKIP.
+
 usage: python tests/contract/check.py [--gradle GRADLE] [--bash BASH] [--java JAVA] [--work DIR]
   GRADLE  the Gradle command, Gradle 8.14 or later (default: gradle on the PATH)
   BASH    the bash that runs the hook script (default: Git Bash on Windows, else bash on the PATH)
@@ -17,6 +21,7 @@ usage: python tests/contract/check.py [--gradle GRADLE] [--bash BASH] [--java JA
   DIR     an empty directory for the projects (default: a new temporary one, kept)
 """
 import argparse
+import datetime
 import json
 import os
 import re
@@ -36,6 +41,7 @@ SKILL = os.path.join(PLUGIN, "skills", "elasticore", "SKILL.md")
 NEW_PROJECT = os.path.join(REFERENCES, "new-project.md")
 EXAMPLE = os.path.join(REFERENCES, "example-order.md")
 RECIPE_BOARD = os.path.join(REFERENCES, "recipe-board.md")
+RECIPE_LIBRARY = os.path.join(REFERENCES, "recipe-library.md")
 QUICK_REFERENCE = os.path.join(REFERENCES, "quick-reference.md")
 RUN_AND_CHECK = os.path.join(REFERENCES, "run-and-check.md")
 HOOK = os.path.join(PLUGIN, "hooks", "elasticore-hook.sh")
@@ -46,6 +52,39 @@ SUMMARY = re.compile(r"=== elcore3: (\d+) written / (\d+) unchanged / (\d+) skip
 GRADLE_TIMEOUT = 900
 
 results = []
+skipped = []
+
+# What references/recipe-library.md uses came with this version: a required reference by its key,
+# @readonly, @search(isnull), @pattern('regex', 'message') and ConflictException.
+LIBRARY_SINCE = (3, 0, 261021)
+
+# The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
+LIBRARY = {
+    "files": "recipe-library.md has its four files",
+    "methods": "recipe-library.md has the methods to add to LoanService.java and MemberService.java",
+    "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
+    "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
+    "kept": "LoanService and MemberService with the added methods are left alone: SKIP(user-owned)",
+    "starts": "the library starts",
+    "K1": "K1 create a book: 200",
+    "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
+    "K3": "K3 an ISBN that exists: 409 already-exists",
+    "K4": "K4 empty or 201-char title, year 1449 or 2101, copies -1, no author: 400 each",
+    "K5": "K5 read a book, unknown ISBN 404, update",
+    "K6": "K6 books paged in title order",
+    "K7": "K7 search by part of the title and of the author",
+    "M1": "M1 a member is created with joinedAt set by the server, the request's ignored (@readonly)",
+    "M2": "M2 an invalid e-mail 400, a taken one 409 unique (@Index unique)",
+    "M3": "M3 a member is read, updated and listed",
+    "L1": "L1 a loan gets its dates from the server, the request's ignored, no returnedDate",
+    "L1b": "L1b a loan without memberId: 400 naming memberId (Member! by key)",
+    "L2": "L2 an unknown member or book: 404 with the thrown message",
+    "L3": "L3 no copy left 409 and zero copies 409 with the thrown message (ConflictException), lent again after a return",
+    "L4": "L4 a return records today's date",
+    "L5": "L5 a second return 409 and an unknown loan 404, with the thrown messages",
+    "L6": "L6 a member's loans, and only the unreturned or returned ones (returnedDateEmpty)",
+    "L7": "L7 a book's loans",
+}
 
 
 def check(name, ok, where, detail=""):
@@ -56,6 +95,31 @@ def check(name, ok, where, detail=""):
         print("FAIL  " + name + "\n      the kit relies on it in: " + where
               + ("\n      " + detail if detail else ""), flush=True)
     return bool(ok)
+
+
+def skip(name, why):
+    skipped.append((name, why))
+    print("SKIP  " + name + " (" + why + ")", flush=True)
+
+
+def version_key(version):
+    """(3, 0, 261021, 0) for '3.0.261021', '3.0.261021-SNAPSHOT' or '3.0.261021.0-alpha3'; None otherwise."""
+    found = re.match(r"(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?$", version)
+    return tuple(int(part or 0) for part in found.groups()) if found else None
+
+
+def at_least(version, since):
+    """Whether the version is since or later; a pre-release of a version (-SNAPSHOT, -alpha3) counts as it."""
+    key = version_key(version)
+    return key is not None and key >= tuple(since) + (0,) * (4 - len(since))
+
+
+def render(text, version):
+    """A file of new-project.md as a project gets it; a -SNAPSHOT also comes from the local Maven repository."""
+    text = text.replace("VERSION", version)
+    if version.endswith("-SNAPSHOT"):
+        text = re.sub(r"^([ \t]*)mavenCentral\(\)", r"\1mavenLocal()\n\1mavenCentral()", text, flags=re.M)
+    return text
 
 
 def newest_3x():
@@ -141,6 +205,221 @@ def free_port():
         return s.getsockname()[1]
 
 
+def asker(base):
+    """ask(method, path, body): the status and the answer - JSON read as JSON, refusals too - else its text."""
+    def ask(method, path, body=None):
+        data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(base + path, data=data_bytes, method=method,
+                                         headers={"Content-Type": "application/json"} if data_bytes else {})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                status, text = response.status, response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            status, text = e.code, e.read().decode("utf-8", "replace")
+        try:
+            return status, json.loads(text)
+        except ValueError:
+            return status, text
+    return ask
+
+
+def check_library(work, version, template, run, java, temp):
+    """references/recipe-library.md built as written - generate, add the methods and the controller,
+    build - then started and called with every request of its API table."""
+    where = "references/recipe-library.md"
+    if not at_least(version, LIBRARY_SINCE):
+        for name in LIBRARY.values():
+            skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
+        return
+    recipe = blocks_by_heading(RECIPE_LIBRARY)
+    controller_file = "src/main/java/com/acme/library/adapter/in/web/LoanReturnController.java"
+    wanted = sorted(["src/main/java/com/acme/library/LibraryApplication.java", controller_file,
+                     "src/main/resources/blueprint/library/env.yml",
+                     "src/main/resources/blueprint/library/model/entity.yml"])
+    check(LIBRARY["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
+    text = read(RECIPE_LIBRARY)
+    added = {}
+    for service in ("LoanService.java", "MemberService.java"):
+        found = re.search(r"^## Add to `%s`\s*\n+```java\n(.*?)```" % re.escape(service), text, re.S | re.M)
+        if found:
+            added[service] = found.group(1)
+    check(LIBRARY["methods"], sorted(added) == ["LoanService.java", "MemberService.java"], where,
+          "found: %s" % sorted(added))
+
+    library = os.path.join(work, "library")
+    for name in ("settings.gradle", "build.gradle"):
+        write(os.path.join(library, name), render(template[name], version)
+              .replace("rootProject.name = 'shop'", "rootProject.name = 'library'"))
+    for name, body in recipe.items():
+        if name != controller_file:
+            write(os.path.join(library, name), body)
+    # As the recipe says: generate, add the methods to the generated services, write the controller, build.
+    rc, out = run(library, "compileJava")
+    write(os.path.join(work, "library-generate.log"), out)
+    application = os.path.join(library, "src", "main", "java", "com", "acme", "library", "application")
+    services = {s: os.path.join(application, s) for s in ("LoanService.java", "MemberService.java")}
+    kinds = {s: kind(p) if os.path.isfile(p) else "missing" for s, p in services.items()}
+    owned_first = rc == 0 and all(k == "owned" for k in kinds.values())
+    check(LIBRARY["owned"], owned_first, where, "exit %d, %s; see %s"
+          % (rc, kinds, os.path.join(work, "library-generate.log")))
+    if not owned_first or len(added) != 2:
+        return
+    for service, path in services.items():
+        current = read(path)
+        cut = current.rstrip().rfind("}")
+        write(path, current[:cut] + "\n" + added[service] + current[cut:])
+    if controller_file in recipe:
+        write(os.path.join(library, controller_file), recipe[controller_file])
+    rc, out = run(library, "bootJar")
+    write(os.path.join(work, "library.log"), out)
+    check(LIBRARY["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
+          and "LOAD ERROR" not in out, where + "; references/new-project.md",
+          "exit %d; see %s" % (rc, os.path.join(work, "library.log")))
+    statuses = {s: status_of(out, s) for s in services}
+    check(LIBRARY["kept"], all(st == "SKIP(user-owned)" for st in statuses.values())
+          and "returnLoan" in read(services["LoanService.java"]) and "beforeSave" in read(services["MemberService.java"]),
+          where + "; SKILL.md section 5", "status: %s" % statuses)
+    libs = os.path.join(library, "build", "libs")
+    jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
+    if not jars:
+        return
+
+    port = free_port()
+    base = "http://127.0.0.1:%d" % port
+    log = open(os.path.join(work, "library-app.log"), "w", encoding="utf-8")
+    app = subprocess.Popen([java, "-Djava.io.tmpdir=" + temp, "-jar", os.path.join(libs, jars[0]),
+                            "--server.port=%d" % port], stdout=log, stderr=subprocess.STDOUT)
+    ask = asker(base + "/api/library")
+    try:
+        started = False
+        deadline = time.time() + 180
+        while time.time() < deadline and app.poll() is None:
+            try:
+                if asker(base)("GET", "/v3/api-docs")[0] == 200:
+                    started = True
+                    break
+            except OSError:
+                pass
+            time.sleep(1)
+        if not check(LIBRARY["starts"], started, "references/run-and-check.md",
+                     "see %s" % os.path.join(work, "library-app.log")):
+            return
+        where = "references/recipe-library.md, the API table"
+
+        def detail(answer):
+            return answer.get("detail") if isinstance(answer, dict) else None
+
+        def fields(answer):
+            return [e.get("field") for e in answer.get("fieldErrors", [])] if isinstance(answer, dict) else []
+
+        def ids(page):
+            return sorted(r.get("loanId") for r in page.get("content", [])) if isinstance(page, dict) else page
+
+        today = datetime.date.today().isoformat()
+        plus14 = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+
+        def book(isbn, title="Dune", author="Frank Herbert", year=1965, copies=1, **change):
+            return dict({"isbn": isbn, "title": title, "author": author, "pubYear": year, "copies": copies}, **change)
+
+        st, b1 = ask("POST", "/book", book("9780000000001", "Dune", "Frank Herbert", 1965, 1))
+        check(LIBRARY["K1"], st == 200 and isinstance(b1, dict) and b1.get("isbn") == "9780000000001", where,
+              "%s %s" % (st, str(b1)[:160]))
+        bad = [ask("POST", "/book", book(i)) for i in ("978000000000", "97800000000011", "978000000000A")]
+        check(LIBRARY["K2"], [s for s, _ in bad] == [400] * 3
+              and all("ISBN must be 13 digits" in str(a) and "isbn" in fields(a) for _, a in bad), where,
+              str([(s, str(a)[:120]) for s, a in bad]))
+        st, body = ask("POST", "/book", book("9780000000001"))
+        check(LIBRARY["K3"], st == 409 and isinstance(body, dict) and body.get("code") == "already-exists", where,
+              "%s %s" % (st, str(body)[:160]))
+        bad = [ask("POST", "/book", book("9780000000002", **c))[0] for c in (
+            {"title": ""}, {"title": "t" * 201}, {"year": 1449}, {"year": 2101}, {"copies": -1})]
+        no_author = ask("POST", "/book", {"isbn": "9780000000002", "title": "x", "pubYear": 2000, "copies": 1})[0]
+        check(LIBRARY["K4"], bad == [400] * 5 and no_author == 400, where, str(bad + [no_author]))
+        ask("POST", "/book", book("9780000000002", "Emma", "Jane Austen", 1815, 2))
+        ask("POST", "/book", book("9780000000003", "Animal Farm", "George Orwell", 1945, 0))
+        st, got = ask("GET", "/book/9780000000001")
+        st404 = ask("GET", "/book/9999999999999")[0]
+        st_upd, upd = ask("PUT", "/book", book("9780000000001", "Dune (2nd ed)", "Frank Herbert", 1965, 1))
+        check(LIBRARY["K5"], st == 200 and st404 == 404 and st_upd == 200 and isinstance(upd, dict)
+              and upd.get("title") == "Dune (2nd ed)", where, str((st, st404, st_upd)))
+        st, page = ask("POST", "/book/search", {"pageNumber": 0, "pageSize": 2})
+        titles = [r.get("title") for r in page.get("content", [])] if isinstance(page, dict) else page
+        check(LIBRARY["K6"], st == 200 and titles == ["Animal Farm", "Dune (2nd ed)"]
+              and page.get("totalElements") == 3, where, str(titles))
+        st, f1 = ask("POST", "/book/search", {"title": "mma"})
+        st2, f2 = ask("POST", "/book/search", {"author": "Orwell"})
+        isbns = [[r.get("isbn") for r in f.get("content", [])] if isinstance(f, dict) else f for f in (f1, f2)]
+        check(LIBRARY["K7"], st == 200 and st2 == 200 and isbns == [["9780000000002"], ["9780000000003"]], where,
+              str(isbns))
+
+        st, m1 = ask("POST", "/member", {"name": "Kim", "email": "kim@example.com", "joinedAt": "2000-01-01"})
+        check(LIBRARY["M1"], st == 200 and isinstance(m1, dict) and m1.get("memberId")
+              and m1.get("joinedAt") == today, where, "%s %s" % (st, str(m1)[:160]))
+        if not isinstance(m1, dict) or not m1.get("memberId"):
+            return
+        st_bad = ask("POST", "/member", {"name": "Lee", "email": "not-an-email"})[0]
+        st_dup, dup = ask("POST", "/member", {"name": "Kim2", "email": "kim@example.com"})
+        check(LIBRARY["M2"], st_bad == 400 and st_dup == 409 and isinstance(dup, dict) and dup.get("code") == "unique",
+              where, "%s %s %s" % (st_bad, st_dup, str(dup)[:160]))
+        st, m2 = ask("POST", "/member", {"name": "Lee", "email": "lee@example.com"})
+        st_get = ask("GET", "/member/%s" % m1["memberId"])[0]
+        st_upd, mu = ask("PUT", "/member", {"memberId": m1["memberId"], "name": "Kim Updated", "email": "kim@example.com"})
+        st_list, ml = ask("POST", "/member/search", {})
+        check(LIBRARY["M3"], st_get == 200 and st_upd == 200 and isinstance(mu, dict) and mu.get("name") == "Kim Updated"
+              and st_list == 200 and isinstance(ml, dict) and ml.get("totalElements") == 2, where,
+              str((st_get, st_upd, st_list)))
+        if not isinstance(m2, dict) or not m2.get("memberId"):
+            return
+
+        st, l1 = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9780000000001", "loanDate": "2000-01-01",
+                                       "dueDate": "2000-01-02", "returnedDate": "2000-01-03"})
+        check(LIBRARY["L1"], st == 200 and isinstance(l1, dict) and l1.get("loanDate") == today
+              and l1.get("dueDate") == plus14 and l1.get("returnedDate") is None, where, "%s %s" % (st, str(l1)[:200]))
+        if not isinstance(l1, dict) or not l1.get("loanId"):
+            return
+        st, body = ask("POST", "/loan", {"bookIsbn": "9780000000001"})
+        check(LIBRARY["L1b"], st == 400 and "memberId" in fields(body), where, "%s %s" % (st, str(body)[:160]))
+        st_m, am = ask("POST", "/loan", {"memberId": 999999, "bookIsbn": "9780000000001"})
+        st_b, ab = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9999999999999"})
+        check(LIBRARY["L2"], st_m == 404 and detail(am) == "Member 999999 not found"
+              and st_b == 404 and detail(ab) == "Book 9999999999999 not found", where,
+              "%s %s; %s %s" % (st_m, str(am)[:120], st_b, str(ab)[:120]))
+        st_full, full = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000001"})
+        st_zero, zero = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000003"})
+        st_ret, ret = ask("POST", "/loan/%s/return" % l1["loanId"])
+        st_again, l3 = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000001"})
+        check(LIBRARY["L3"], st_full == 409 and detail(full) == "No copies of book 9780000000001 left: 1 of 1 are on loan"
+              and isinstance(full, dict) and full.get("code") == "conflict"
+              and st_zero == 409 and detail(zero) == "No copies of book 9780000000003 left: 0 of 0 are on loan"
+              and st_ret == 200 and st_again == 200, where,
+              "%s %s; %s %s; return %s; again %s" % (st_full, str(full)[:120], st_zero, str(zero)[:120], st_ret, st_again))
+        check(LIBRARY["L4"], isinstance(ret, dict) and ret.get("returnedDate") == today, where, str(ret)[:200])
+        st_twice, twice = ask("POST", "/loan/%s/return" % l1["loanId"])
+        st_none, none = ask("POST", "/loan/987654/return")
+        check(LIBRARY["L5"], st_twice == 409 and detail(twice) == "Loan %s was already returned on %s" % (l1["loanId"], today)
+              and st_none == 404 and detail(none) == "Loan 987654 not found", where,
+              "%s %s; %s %s" % (st_twice, str(twice)[:120], st_none, str(none)[:120]))
+        st, l4 = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9780000000002"})
+        _, mine = ask("POST", "/loan/search", {"memberId": m1["memberId"]})
+        _, still_out = ask("POST", "/loan/search", {"memberId": m1["memberId"], "returnedDateEmpty": True})
+        _, back = ask("POST", "/loan/search", {"memberId": m1["memberId"], "returnedDateEmpty": False})
+        l4_id = l4.get("loanId") if isinstance(l4, dict) else None
+        check(LIBRARY["L6"], st == 200 and l4_id is not None and ids(mine) == sorted([l1["loanId"], l4_id])
+              and ids(still_out) == [l4_id] and ids(back) == [l1["loanId"]], where,
+              str((st, ids(mine), ids(still_out), ids(back))))
+        _, by_book = ask("POST", "/loan/search", {"bookIsbn": "9780000000001"})
+        l3_id = l3.get("loanId") if isinstance(l3, dict) else None
+        check(LIBRARY["L7"], l3_id is not None and ids(by_book) == sorted([l1["loanId"], l3_id]), where,
+              str(ids(by_book)))
+    finally:
+        app.terminate()
+        try:
+            app.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            app.kill()
+        log.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gradle", default=os.environ.get("GRADLE", "gradle"))
@@ -193,14 +472,14 @@ def main():
     check("new-project.md has the five files of the template", sorted(template) == wanted,
           "references/new-project.md", "found: %s" % sorted(template))
     wrapped = os.path.join(work, "wrapper")
-    write(os.path.join(wrapped, "settings.gradle"), template.get("settings.gradle", ""))
+    write(os.path.join(wrapped, "settings.gradle"), render(template.get("settings.gradle", ""), version))
     rc, out = run(wrapped, "wrapper", "--gradle-version", "8.14.3")
     check("the Gradle wrapper is made with settings.gradle alone, before build.gradle exists",
           rc == 0 and os.path.isfile(os.path.join(wrapped, "gradlew")), "references/new-project.md",
           "exit %d: %s" % (rc, out.strip()[-300:]))
     project = os.path.join(work, "shop")
     for name, text in template.items():
-        write(os.path.join(project, name), text.replace("VERSION", version))
+        write(os.path.join(project, name), render(text, version))
     model = os.path.join(project, "src", "main", "resources", "blueprint", "shop", "model")
     blueprint = os.path.dirname(os.path.dirname(model))
     java = os.path.join(project, "src", "main", "java")
@@ -371,7 +650,7 @@ def main():
     # --- a DTO named in @dtype that nobody defines, in a fresh project -----------------------
     fresh = os.path.join(work, "fresh")
     for name, text in template.items():
-        write(os.path.join(fresh, name), text.replace("VERSION", version))
+        write(os.path.join(fresh, name), render(text, version))
     for name, text in example.items():
         if not name.endswith("dto.yml"):
             write(os.path.join(fresh, "src", "main", "resources", "blueprint", "shop", "model",
@@ -389,7 +668,7 @@ def main():
     for name, text in template.items():
         if name == "build.gradle":
             text = re.sub(r"architecture = '\w+'", "architecture = 'layered'", text)
-        write(os.path.join(layered, name), text.replace("VERSION", version))
+        write(os.path.join(layered, name), render(text, version))
     rc, out = run(layered, "compileJava")
     write(os.path.join(work, "layered.log"), out)
     check("on layered Java the generator warns that @access is not enforced",
@@ -478,7 +757,7 @@ def main():
           "references/quick-reference.md", "found: %s" % list(sample))
     board = os.path.join(work, "board")
     for name in ("settings.gradle", "build.gradle"):
-        write(os.path.join(board, name), template[name].replace("VERSION", version)
+        write(os.path.join(board, name), render(template[name], version)
               .replace("rootProject.name = 'shop'", "rootProject.name = 'board'"))
     for name, text in list(recipe.items()) + list(sample.items()):
         write(os.path.join(board, name), text)
@@ -657,6 +936,9 @@ def main():
                 if os.path.isfile(pid_file):
                     subprocess.run(["taskkill", "/PID", read(pid_file).strip(), "/F"], capture_output=True)
 
+    # --- the library recipe: rules on other rows, server-set values, an operation of its own ------
+    check_library(work, version, template, run, args.java, temp)
+
     # --- the 2.x generator: a build without the elasticore { } block -------------------------
     legacy = os.path.join(work, "legacy")
     for name, text in template.items():
@@ -664,7 +946,7 @@ def main():
             continue
         if name == "build.gradle":
             text = re.sub(r"\nelasticore \{.*?\n\}\n", "\n", text, flags=re.S)
-        write(os.path.join(legacy, name), text.replace("VERSION", version))
+        write(os.path.join(legacy, name), render(text, version))
     legacy_model = os.path.join(legacy, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
     plain = ("entity:\n  Product:\n    meta: entity @root @expose(20) -- product\n    fields:\n"
              "      productId: long @id @sequence\n      name:      string(100)! @search(like)\n")
@@ -709,13 +991,18 @@ def main():
           "SKILL.md section 5; skills/generate; hooks/elasticore-hook.sh post-bash")
 
     failed = [r for r in results if not r[0]]
+    line = "ElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results))
+    if skipped:
+        line += ", %d skipped (needs %s)" % (len(skipped), ".".join(map(str, LIBRARY_SINCE)))
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
         with open(summary_file, "a", encoding="utf-8") as f:
-            f.write("### ElastiCORE %s: %d of %d contracts hold\n\n" % (version, len(results) - len(failed), len(results)))
+            f.write("### %s\n\n" % line)
             for ok, name, where, detail in results:
                 f.write("- %s %s%s\n" % ("PASS" if ok else "**FAIL**", name, "" if ok else " - " + where))
-    print("\nElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results)), flush=True)
+            for name, why in skipped:
+                f.write("- SKIP %s - %s\n" % (name, why))
+    print("\n" + line, flush=True)
     sys.exit(1 if failed else 0)
 
 
