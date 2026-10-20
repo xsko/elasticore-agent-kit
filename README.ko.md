@@ -17,15 +17,27 @@ claude plugin install elasticore@elasticore-agent-kit
 
 세션 안에서는 `/plugin marketplace add xsko/elasticore-agent-kit` 다음 `/plugin install elasticore@elasticore-agent-kit`.
 
-업데이트: `claude plugin marketplace update elasticore-agent-kit`, `claude plugin update elasticore@elasticore-agent-kit`
-후 Claude Code를 다시 시작합니다.
-
 이미 있는 ElastiCORE 3.0 프로젝트에서 쓰고, 새 프로젝트도 시작합니다. "ElastiCORE로" 애플리케이션을 만들어 달라고 하면 Claude는
 Maven Central의 릴리스와, CI가 매주 실제로 빌드하는 템플릿으로 프로젝트를 만듭니다. ElastiCORE를 소스에서 빌드하거나 PC의 다른
 프로젝트를 뒤지지 않습니다.
 
 hook은 bash로 돕니다. macOS와 Linux에는 기본으로 있고, Windows에서는 Claude Code가 Git Bash로 hook을 실행합니다.
 Git Bash가 없는 Windows에서는 편집·명령마다 hook 오류가 표시되니, Git for Windows를 설치하거나 플러그인을 끄세요.
+
+## 업데이트
+
+Claude Code는 이런 마켓플레이스의 플러그인을 저절로 업데이트하지 않습니다. 최신 버전은 이렇게 받습니다.
+
+```bash
+claude plugin marketplace update elasticore-agent-kit
+claude plugin update elasticore@elasticore-agent-kit
+```
+
+그다음 Claude Code 세션을 새로 시작하거나, 열려 있는 세션에서 `/reload-plugins`를 실행합니다.
+설치된 버전은 `claude plugin list`로 보고, 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+
+세션 안에서는 `/plugin` → **Installed** 탭 → `elasticore` → **Update now**. 자동으로 받으려면 `/plugin` → **Marketplaces** 탭 →
+`elasticore-agent-kit` → **Enable auto-update**. 그러면 세션을 시작할 때 업데이트되고, 다음 세션부터 새 버전이 적용됩니다.
 
 ## 들어 있는 것
 

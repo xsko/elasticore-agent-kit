@@ -19,9 +19,6 @@ claude plugin install elasticore@elasticore-agent-kit
 In a session: `/plugin marketplace add xsko/elasticore-agent-kit`, then
 `/plugin install elasticore@elasticore-agent-kit`.
 
-To update: `claude plugin marketplace update elasticore-agent-kit`, then
-`claude plugin update elasticore@elasticore-agent-kit`, and restart Claude Code.
-
 It works in an existing ElastiCORE 3.0 project, and starts a new one: ask for an application "with
 ElastiCORE" and Claude sets it up from the release on Maven Central with a template that CI builds
 every week - it does not build ElastiCORE from source or look through other projects on your machine.
@@ -29,6 +26,23 @@ every week - it does not build ElastiCORE from source or look through other proj
 The hooks run in bash: macOS and Linux have it, and on Windows Claude Code runs hooks with Git Bash.
 On Windows without Git Bash, Claude Code reports a hook error on every edit and command - install
 Git for Windows, or disable the plugin.
+
+## Update
+
+Claude Code does not update plugins from a marketplace like this one on its own. To get the newest
+version:
+
+```bash
+claude plugin marketplace update elasticore-agent-kit
+claude plugin update elasticore@elasticore-agent-kit
+```
+
+Then start a new Claude Code session, or run `/reload-plugins` in one that is open.
+`claude plugin list` shows the version you have; [CHANGELOG.md](CHANGELOG.md) says what changed.
+
+In a session: `/plugin`, the **Installed** tab, `elasticore`, **Update now**. To have it updated
+automatically: `/plugin`, the **Marketplaces** tab, `elasticore-agent-kit`, **Enable auto-update** -
+Claude Code then updates it when a session starts, and the next session loads the new version.
 
 ## What you get
 
