@@ -31,6 +31,8 @@ bootRun` (which never returns and held the shell for minutes), and left the crea
   the server exited (a run sat for ten minutes on it). For the same reason a Gradle run that
   starts the Gradle daemon never returns to opencode's PowerShell shell on Windows: the page says
   to build with `--no-daemon` there, or to start opencode with `GRADLE_OPTS=-Dorg.gradle.daemon=false`.
+  The wait for the server stops as soon as the server process is gone and shows its log, instead
+  of waiting the full 90 seconds for a server that failed at startup.
 - The skill starts with a five-step fast path that sends the agent to these pages first.
 - `new-project.md` gives the template its test setup, so a project's tests run with
   `./gradlew build`.

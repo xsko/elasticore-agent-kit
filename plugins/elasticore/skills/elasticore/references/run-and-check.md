@@ -30,7 +30,10 @@ JAR=$(ls build/libs/*.jar | grep -v -- -plain.jar | head -1)
 mkdir -p build/tmp
 java -Djava.io.tmpdir="$PWD/build/tmp" -jar "$JAR" --server.port=PORT > build/app.log 2>&1 &
 echo $! > build/app.pid
-for i in $(seq 1 90); do curl -s -o /dev/null localhost:PORT/v3/api-docs && break; sleep 1; done
+for i in $(seq 1 90); do
+  kill -0 "$(cat build/app.pid)" 2>/dev/null || { echo "the server stopped:"; tail -30 build/app.log; break; }
+  curl -s -o /dev/null localhost:PORT/v3/api-docs && break; sleep 1
+done
 curl -s localhost:PORT/v3/api-docs > build/api-docs.json   # the generated API: every path and field
 
 curl -s -X POST localhost:PORT/api/DOMAIN/ENTITY/search -H 'Content-Type: application/json' -d '{}'
@@ -50,7 +53,10 @@ New-Item -ItemType Directory -Force build\tmp | Out-Null
 $app = Start-Process java -PassThru -WindowStyle Hidden `
        -ArgumentList "`"-Djava.io.tmpdir=$PWD\build\tmp`"", '-jar', "`"$($jar.FullName)`"", '--server.port=PORT', "`"--logging.file.name=$PWD\build\app.log`""
 $app.Id | Set-Content build\app.pid
-for ($i = 0; $i -lt 90; $i++) { try { Invoke-WebRequest -UseBasicParsing http://localhost:PORT/v3/api-docs | Out-Null; break } catch { Start-Sleep 1 } }
+for ($i = 0; $i -lt 90; $i++) {
+  if (-not (Get-Process -Id (Get-Content build\app.pid) -ErrorAction SilentlyContinue)) { "the server stopped:"; Get-Content build\app.log -Tail 30 -ErrorAction SilentlyContinue; break }
+  try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:PORT/v3/api-docs | Out-Null; break } catch { Start-Sleep 1 }
+}
 Invoke-RestMethod -Method Post -ContentType 'application/json' -Body '{}' http://localhost:PORT/api/DOMAIN/ENTITY/search
 Stop-Process -Id (Get-Content build\app.pid); Remove-Item build\app.pid   # stop the server you started
 ```
