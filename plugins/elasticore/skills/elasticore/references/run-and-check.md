@@ -16,6 +16,9 @@ Stop a server you started before building again - on Windows the running jar is 
 
 The jar is the file in `build/libs/` that does not end in `-plain.jar`.
 
+On Windows, when `./gradlew` in Git Bash fails with `ClassNotFoundException: GradleWrapperMain`,
+run `sh ./gradlew ...` or `./gradlew.bat ...` instead - the wrapper is fine, do not regenerate it.
+
 In opencode on Windows, when its shell tool runs PowerShell, a Gradle run that starts the Gradle
 daemon does not return: the daemon keeps the tool's output pipe open. Build with `--no-daemon`
 there (`./gradlew --no-daemon compileJava`), or start opencode with
