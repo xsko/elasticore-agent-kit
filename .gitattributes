@@ -1,0 +1,4 @@
+# LF everywhere: the hook script runs in bash, which a CR at the end of a line
+# breaks, also when Git checks the repository out on Windows with autocrlf.
+* text=auto eol=lf
+*.sh text eol=lf

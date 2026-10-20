@@ -1,0 +1,15 @@
+{
+  "name": "elasticore-agent-kit",
+  "description": "ElastiCORE for Claude Code",
+  "owner": {
+    "name": "The ElastiCORE Authors",
+    "url": "https://github.com/xsko/ElastiCORE"
+  },
+  "plugins": [
+    {
+      "name": "elasticore",
+      "source": "./plugins/elasticore",
+      "description": "Work on ElastiCORE projects through their YAML DSL: generated files stay generated, every DSL change is generated and compiled, and changes are reported in business terms."
+    }
+  ]
+}

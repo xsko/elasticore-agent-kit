@@ -1,0 +1,7 @@
+entity:
+  Product:
+    meta: entity @root @editable @expose(20) @access(read=public) @sort(name+) -- product
+    fields:
+      productId: long @id @sequence
+      name:      string(100)! @search(like)
+      price:     money(10.2)! @min(0.01, 'price must be positive')

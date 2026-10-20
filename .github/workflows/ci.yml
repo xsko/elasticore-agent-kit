@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Every Monday: the newest ElastiCORE release against the kit, so a change in
+  # ElastiCORE that the kit has not followed shows up without a commit here.
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      elasticore-version:
+        description: ElastiCORE version to check (empty - the newest on Maven Central)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  hooks:
+    name: Hook script (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Git Bash on Windows, the bash Claude Code runs hooks with there
+      - name: Hook tests
+        shell: bash
+        run: bash tests/hooks/test-hooks.sh
+
+  manifests:
+    name: Plugin and marketplace manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Claude Code
+        run: npm install --global @anthropic-ai/claude-code
+
+      - name: Validate
+        run: |
+          claude plugin validate ./plugins/elasticore --strict
+          claude plugin validate . --strict
+
+  contract:
+    name: ElastiCORE behaviour the kit relies on
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Spring Boot 4's Gradle plugin needs Gradle 8.14 or later
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Build a project with ElastiCORE and check the kit's assumptions
+        env:
+          ELASTICORE_VERSION: ${{ inputs.elasticore-version }}
+        run: python3 tests/contract/check.py --gradle gradle
