@@ -53,7 +53,7 @@ Claude Code then updates it when a session starts, and the next session loads th
 
 | Part | What it does |
 |---|---|
-| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It starts with a fast path: a one-page DSL reference, a complete recipe (posts and comments - CRUD, validation, search, paging, time stamps), and how an agent runs and checks the application. Then: which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. Everything the reference and the recipe show is generated, built and called in CI; for the rest it sends Claude to the guides ElastiCORE copies into the project. |
+| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It starts with a fast path: a one-page DSL reference, two complete recipes - posts and comments (CRUD, validation, search, paging, time stamps), and books, members and loans (rules on other rows, values the server sets, an operation of its own; ElastiCORE 3.0.261021 or later) - and how an agent runs and checks the application. Then: which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. Everything the reference and the recipes show is generated, built and called by the contract test - the library recipe when the ElastiCORE under test is 3.0.261021 or later; for the rest it sends Claude to the guides ElastiCORE copies into the project. |
 | Hooks | Stop edits to generated files and `-Pforce` runs, say what to run after a DSL change, pass on the generator's warnings, and keep Claude from finishing with a DSL change that no successful build has generated and compiled. |
 | Agent `elasticore:modeler` | Turns a requirement into a DSL change that generates and compiles, and reports it in business terms. |
 | Agent `elasticore:reviewer` | Reviews a change: hand edits to generated files, DSL the guides or the generator do not know, generated code out of step with the DSL, and who gains or loses what. |
@@ -109,7 +109,11 @@ claude plugin validate . --strict
 claude --plugin-dir ./plugins/elasticore           # try the working copy in an ElastiCORE project
 ```
 
-`ELASTICORE_VERSION=3.0.261015-alpha1 python3 tests/contract/check.py` checks a given release.
+`ELASTICORE_VERSION=3.0.261015-alpha1 python3 tests/contract/check.py` checks a given release. A
+version ending in `-SNAPSHOT` is also looked up in the local Maven repository, so a build of
+ElastiCORE published there with `publishToMavenLocal` can be checked before its release. The library
+recipe's contracts run with 3.0.261021 or later; with an older version the summary line counts them
+as skipped.
 
 ## License
 

@@ -3,6 +3,44 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.3.0
+
+A second recipe, the five DSL additions of ElastiCORE 3.0.261021 on the quick reference, and a
+contract test that also checks an ElastiCORE build not yet on Maven Central.
+
+A harder task than the board - books, members and loans - showed where an agent still wrote Java
+by hand: dates the server sets that a request could overwrite, "loans not yet returned" as a
+search, an ISBN format rule, a loan that had to send the nested member instead of `memberId`, and a
+409 with its own reason ("no copy left to lend"). ElastiCORE 3.0.261021 covers each in the DSL or
+the runtime; the kit now shows how.
+
+- **`references/recipe-library.md`:** books, members and loans as a complete project - an ISBN key
+  checked by `@pattern`, a unique e-mail address, loans that name their member and book by key
+  (`member: Member!`), dates set in `beforeSave` and kept out of requests by `@readonly`, a rule
+  that counts the loans of a book and refuses with `ConflictException` (409, the message as
+  `detail`), returning a loan as a method of `LoanService` with one small controller of its own,
+  and `returnedDateEmpty` to find what is still out - with every request and answer, the
+  400/404/409 refusals included. It needs 3.0.261021 or later and says what to write instead on
+  3.0.261020 (built and called by hand with 3.0.261020-alpha2), and how to add the
+  `ConflictException` handler to an error handler generated before 3.0.261021.
+- The skill's fast path names both recipes and when to pick which, and allows one small controller
+  for an operation the CRUD does not have.
+- **`references/quick-reference.md`:** the five additions, each marked "(from 3.0.261021)":
+  `@readonly` for a value the server sets, `@search(isnull)` (a `<field>Empty` search),
+  `@pattern('regex', 'message')`, `post: Post!` requiring the key field, and `ConflictException`
+  for a 409 with your message. Also the key names of references under `hexagonal`/`ddd`
+  (`memberId`, `bookIsbn`), the two 409s that come for free (a key that exists, a unique index),
+  and `entityManager` for reading and counting rows in a service. `recipe-board.md` says that from
+  3.0.261021 `post: Post!` makes its `postId` check unnecessary.
+- **Contract test:** a version ending in `-SNAPSHOT` is also taken from the local Maven repository
+  (`mavenLocal()` before `mavenCentral()` in both repository blocks of the template), so
+  `ELASTICORE_VERSION=3.0.261021-SNAPSHOT` checks a build published with `publishToMavenLocal`. The
+  library recipe is built as written - generate, add the methods and the controller, `bootJar` -
+  started, and called with every request of its API table, the 404 and 409 answers with the
+  messages the recipe throws; 24 contracts. They run only when the version is 3.0.261021 or later;
+  with an older one each is reported `SKIP` and the summary line ends `, 24 skipped (needs
+  3.0.261021)`. The other contracts are unchanged.
+
 ## 0.2.0
 
 Guidance a small model can follow, opencode support, and the fixes that were to be 0.1.2.
