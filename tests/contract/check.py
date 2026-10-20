@@ -37,6 +37,7 @@ NEW_PROJECT = os.path.join(REFERENCES, "new-project.md")
 EXAMPLE = os.path.join(REFERENCES, "example-order.md")
 RECIPE_BOARD = os.path.join(REFERENCES, "recipe-board.md")
 QUICK_REFERENCE = os.path.join(REFERENCES, "quick-reference.md")
+RUN_AND_CHECK = os.path.join(REFERENCES, "run-and-check.md")
 HOOK = os.path.join(PLUGIN, "hooks", "elasticore-hook.sh")
 METADATA = "https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml"
 
@@ -606,6 +607,55 @@ def main():
             except subprocess.TimeoutExpired:
                 app.kill()
             log.close()
+
+    # --- the PowerShell start in run-and-check.md, as three tool calls through a shell whose pipes
+    # the caller holds, as opencode's bash tool does: the start must return while the server runs --
+    if jars and os.name == "nt":
+        block = re.search(r"```powershell\n(.*?)```", read(RUN_AND_CHECK), re.S)
+        lines = block.group(1).rstrip("\n").split("\n") if block else []
+        cut = next((i for i, l in enumerate(lines) if l.startswith("$app.Id")), None)
+        if check("run-and-check.md has the PowerShell block, the start before the wait", block and cut is not None,
+                 "references/run-and-check.md"):
+            port = free_port()
+            lines = [l.replace("PORT", str(port)).replace("DOMAIN", "board").replace("ENTITY", "post") for l in lines]
+            calls = [("start", lines[:cut + 1]), ("wait and call", lines[cut + 1:-1]), ("stop", lines[-1:])]
+            pid_file = os.path.join(board, "build", "app.pid")
+            where = "references/run-and-check.md - the PowerShell block"
+
+            def alive(pid):
+                return bool(pid) and pid in subprocess.run(["tasklist", "/FI", "PID eq " + pid],
+                                                           capture_output=True, text=True).stdout
+
+            outcome, pid = {}, ""
+            try:
+                for name, script in calls:
+                    began = time.time()
+                    try:
+                        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "\n".join(script)],
+                                              cwd=board, capture_output=True, text=True, timeout=150,
+                                              env=dict(os.environ, TEMP=temp, TMP=temp))
+                        outcome[name] = (time.time() - began, done.returncode, done.stdout + done.stderr)
+                    except subprocess.TimeoutExpired:
+                        outcome[name] = (time.time() - began, None, "the call did not return")
+                    if name == "start":
+                        pid = read(pid_file).strip() if os.path.isfile(pid_file) else ""
+                        took, rc, out = outcome[name]
+                        check("the PowerShell start returns while the server runs (no -RedirectStandardOutput)",
+                              rc == 0 and took < 60 and alive(pid), where,
+                              "took %.0fs, exit %s, pid %r alive %s: %s" % (took, rc, pid, alive(pid), out.strip()[:160]))
+                took, rc, out = outcome["wait and call"]
+                check("the PowerShell wait and search answer a page", rc == 0 and "content" in out, where,
+                      "exit %s: %s" % (rc, out.strip()[:160]))
+                app_log = os.path.join(board, "build", "app.log")
+                check("the server writes build\\app.log itself (--logging.file.name)", os.path.isfile(app_log)
+                      and "Started" in open(app_log, encoding="utf-8", errors="replace").read(), where)
+                took, rc, out = outcome["stop"]
+                check("the PowerShell stop ends the server and removes build\\app.pid",
+                      rc == 0 and not alive(pid) and not os.path.isfile(pid_file), where,
+                      "exit %s, pid %r alive %s" % (rc, pid, alive(pid)))
+            finally:
+                if os.path.isfile(pid_file):
+                    subprocess.run(["taskkill", "/PID", read(pid_file).strip(), "/F"], capture_output=True)
 
     # --- the 2.x generator: a build without the elasticore { } block -------------------------
     legacy = os.path.join(work, "legacy")

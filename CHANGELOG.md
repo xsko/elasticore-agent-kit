@@ -25,7 +25,12 @@ bootRun` (which never returns and held the shell for minutes), and left the crea
   generated DTO require the nested object instead of `postId`.
 - **`references/run-and-check.md`:** how an agent builds, starts, calls and stops the application:
   a jar in the background with its process id written down, in bash and in PowerShell; never
-  `bootRun` from a tool's shell, never stopping processes by name.
+  `bootRun` from a tool's shell, never stopping processes by name. The PowerShell start lets the
+  server write its own log (`--logging.file.name`) instead of `-RedirectStandardOutput`: with the
+  redirect the server holds the shell's pipe, and in opencode the tool call did not return until
+  the server exited (a run sat for ten minutes on it). For the same reason a Gradle run that
+  starts the Gradle daemon never returns to opencode's PowerShell shell on Windows: the page says
+  to build with `--no-daemon` there, or to start opencode with `GRADLE_OPTS=-Dorg.gradle.daemon=false`.
 - The skill starts with a five-step fast path that sends the agent to these pages first.
 - `new-project.md` gives the template its test setup, so a project's tests run with
   `./gradlew build`.

@@ -68,6 +68,20 @@ input opencode sends, but not seen live: the notes after a Gradle build (DSL val
 YAML file that could not be read, hand-edited generated files), the whole output opencode saves when
 it cuts a long one, and `apply_patch`, the edit tool opencode gives some models instead of `edit`.
 
+On Windows, two things stop a session that have nothing to do with the kit, seen in the same runs:
+
+- When opencode's shell tool runs PowerShell (it does when opencode is started from PowerShell,
+  cmd or Windows Terminal; from Git Bash it runs bash), a Gradle run that starts the Gradle daemon
+  never returns - the daemon keeps the tool's output pipe open, and the session sits until the
+  daemon is stopped. Start opencode with `GRADLE_OPTS=-Dorg.gradle.daemon=false` in its
+  environment, or build with `./gradlew --no-daemon ...`; `run-and-check.md` tells the agent so.
+  The same holds for a server started with `Start-Process -RedirectStandardOutput`, which is why
+  the PowerShell start in `run-and-check.md` lets the server write its own log instead.
+- `opencode run` asks before a tool touches a file outside the project (`$env:TEMP`, `~/.gradle`),
+  and with nobody to answer, the run waits forever. For unattended runs add
+  `"external_directory": "allow"` to `permission` in `opencode.json`; in the TUI you answer the
+  question.
+
 Does not work everywhere: the reminder when the session goes idle. The plugin sends it as a new
 message to the session; `opencode run` has finished by then and does not go on. In the TUI or
 `opencode serve` the session should take it up - that has not been checked.

@@ -16,6 +16,12 @@ Stop a server you started before building again - on Windows the running jar is 
 
 The jar is the file in `build/libs/` that does not end in `-plain.jar`.
 
+In opencode on Windows, when its shell tool runs PowerShell, a Gradle run that starts the Gradle
+daemon does not return: the daemon keeps the tool's output pipe open. Build with `--no-daemon`
+there (`./gradlew --no-daemon compileJava`), or start opencode with
+`GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment. In bash (Git Bash) and in Claude Code
+the daemon is no problem.
+
 ## Start, wait, call, stop - bash (macOS, Linux, Git Bash on Windows)
 
 ```bash
@@ -42,15 +48,16 @@ if (Test-Path build\app.pid) { Stop-Process -Id (Get-Content build\app.pid) -Err
 $jar = Get-ChildItem build\libs\*.jar | Where-Object { $_.Name -notlike '*-plain.jar' } | Select-Object -First 1
 New-Item -ItemType Directory -Force build\tmp | Out-Null
 $app = Start-Process java -PassThru -WindowStyle Hidden `
-       -ArgumentList "`"-Djava.io.tmpdir=$PWD\build\tmp`"", '-jar', "`"$($jar.FullName)`"", '--server.port=PORT' `
-       -RedirectStandardOutput build\app.log -RedirectStandardError build\app.err
+       -ArgumentList "`"-Djava.io.tmpdir=$PWD\build\tmp`"", '-jar', "`"$($jar.FullName)`"", '--server.port=PORT', "`"--logging.file.name=$PWD\build\app.log`""
 $app.Id | Set-Content build\app.pid
 for ($i = 0; $i -lt 90; $i++) { try { Invoke-WebRequest -UseBasicParsing http://localhost:PORT/v3/api-docs | Out-Null; break } catch { Start-Sleep 1 } }
 Invoke-RestMethod -Method Post -ContentType 'application/json' -Body '{}' http://localhost:PORT/api/DOMAIN/ENTITY/search
 Stop-Process -Id (Get-Content build\app.pid); Remove-Item build\app.pid   # stop the server you started
 ```
 
-In PowerShell the server's errors go to `build\app.err`.
+The server writes its own log to `build\app.log` (`--logging.file.name`). Do not add
+`-RedirectStandardOutput` or `-RedirectStandardError` to `Start-Process`: the server then holds the
+shell's output pipe, and in opencode the tool call does not return until the server exits.
 
 ## Never
 
