@@ -168,8 +168,14 @@ def main():
                            env=dict(os.environ, CLAUDE_PLUGIN_DATA=data))
         return p.returncode, p.stdout, p.stderr
 
-    def bash_payload(session, command, out):
-        return {"session_id": session, "tool_name": "Bash", "tool_input": {"command": command},
+    def bash_payload(session, command, out, rc=0):
+        """What Claude Code sends after a command: PostToolUse, or PostToolUseFailure when it exited non-zero."""
+        if rc != 0:
+            return {"session_id": session, "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                    "tool_input": {"command": command}, "error": "Exit code %d\n%s" % (rc, out),
+                    "is_interrupt": False}
+        return {"session_id": session, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                "tool_input": {"command": command},
                 "tool_response": {"stdout": out, "stderr": "", "interrupted": False, "isImage": False}}
 
     def edit_payload(session, path):
@@ -322,6 +328,23 @@ def main():
     write(entity, original_entity)
     run(project, "elcore3")
 
+    # --- a YAML file that does not parse: left out, and the build passes ----------------------
+    review = os.path.join(model, "review.yml")
+    write(review, "entity:\n  Review:\n    meta: entity @root\n    fields:\n"
+                  "      reviewId: long @id @sequence\n     text: string(200)\n")
+    hook("post-edit", edit_payload("broken", review))
+    rc, out = run(project, "compileJava")
+    check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
+          rc == 0 and "LOAD ERROR" in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
+          and not find(java, "Review.java"),
+          "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
+    check("the hook reports it and keeps the note",
+          "could not be read" in note and os.path.exists(os.path.join(data, "dsl-changed-broken")),
+          "hooks/elasticore-hook.sh post-bash", "hook said: %s" % note.strip()[:200])
+    os.remove(review)
+    run(project, "elcore3")
+
     # --- a DTO the model no longer has: the generated file goes --------------------------
     dto_yml = os.path.join(model, "dto.yml")
     kept = read(dto_yml)
@@ -347,6 +370,25 @@ def main():
     check("without dto.yml generation warns unresolved type 'OrderLineDTO' and compileJava fails",
           rc != 0 and "unresolved type 'OrderLineDTO'" in out and "DSL validation warnings:" in out,
           "SKILL.md section 4; references/example-order.md")
+    _, note, _ = hook("post-bash", bash_payload("fresh", "./gradlew compileJava", out, rc))
+    check("the hook passes the warnings on from the failed build", "rule engine" in note,
+          "hooks/elasticore-hook.sh post-bash (PostToolUseFailure)", "hook said: %s" % note.strip()[:200])
+
+    # --- layered Java: the 2.x-compatible output on the rule engine ---------------------------
+    layered = os.path.join(work, "layered")
+    for name, text in template.items():
+        if name == "build.gradle":
+            text = re.sub(r"architecture = '\w+'", "architecture = 'layered'", text)
+        write(os.path.join(layered, name), text.replace("VERSION", version))
+    rc, out = run(layered, "compileJava")
+    write(os.path.join(work, "layered.log"), out)
+    check("on layered Java the generator warns that @access is not enforced",
+          "DSL validation warnings:" in out and "which the selected rules do not enforce" in out,
+          "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
+    check("on layered Java a money field does not compile ('package Money does not exist')",
+          rc != 0 and "package Money does not exist" in out,
+          "SKILL.md section 3; references/new-project.md - when this fails, ElastiCORE fixed it: update both",
+          "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
 
     # --- the tasks the skill names ------------------------------------------------------------
     rc, out = run(project, "tasks", "--all")
@@ -424,16 +466,21 @@ def main():
     legacy_model = os.path.join(legacy, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
     plain = ("entity:\n  Product:\n    meta: entity @root @expose(20) -- product\n    fields:\n"
              "      productId: long @id @sequence\n      name:      string(100)! @search(like)\n")
-    write(legacy_model, plain)
+    write(legacy_model, plain.replace("@expose(20)", "@expose(20) @access(read=public)"))
     rc, out = run(legacy, "elcore")
     write(os.path.join(work, "legacy.log"), out)
     check("a 2.x model generates, and the 2.x generator prints 'ModelExtractor execution mode'",
           rc == 0 and "ModelExtractor execution mode" in out and "BUILD SUCCESSFUL" in out,
           "skills/generate; hooks/elasticore-hook.sh post-bash", "exit %d; see %s" % (rc, os.path.join(work, "legacy.log")))
-    hook("post-edit", edit_payload("legacy", legacy_model))
-    _, after, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out))
-    check("the hook takes a successful 2.x generation as generating",
-          not os.path.exists(os.path.join(data, "dsl-changed-legacy")), "hooks/elasticore-hook.sh post-bash")
+    legacy_java = os.path.join(legacy, "src", "main", "java")
+    generated = "".join(read(os.path.join(d, f)) for d, _, files in os.walk(legacy_java) for f in files)
+    check("the 2.x generator ignores @access without a warning",
+          rc == 0 and not re.search(r"(?i)(warn|error)[^\n]*access|access[^\n]*(ignored|not enforced)", out)
+          and "AccessPolicy" not in generated and generated,
+          "SKILL.md section 3; agents; hooks/elasticore-hook.sh post-edit",
+          "see %s" % os.path.join(work, "legacy.log"))
+    write(legacy_model, plain)
+    run(legacy, "elcore")
     rc, out = run(legacy, "compileJava")
     write(os.path.join(work, "legacy-compile.log"), out)
     check("on Spring Boot 4 the 2.x generator's services do not compile (Spring Data 4 delete API)",
@@ -453,7 +500,7 @@ def main():
         run(legacy, "elcore")
     write(legacy_model, plain + "      weight:    kilogramz\n")
     rc, out = run(legacy, "elcore")
-    _, note, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out))
+    _, note, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out, rc))
     check("on the 2.x generator an unknown type fails the build under '[WARN] DSL Validation Warnings:'",
           rc != 0 and "[WARN] DSL Validation Warnings:" in out and "[ERROR] DSL Validation" in out
           and "stopped the build" in note,

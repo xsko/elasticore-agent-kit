@@ -1,7 +1,7 @@
 {
   "name": "elasticore",
   "displayName": "ElastiCORE",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Work on ElastiCORE projects through their YAML DSL: a skill that knows which files the generator owns, hooks that stop hand edits to generated code and have the agent generate and compile before it finishes, a modeler and a reviewer agent, and /elasticore:generate, /elasticore:change-report and /elasticore:review.",
   "author": {
     "name": "The ElastiCORE Authors",

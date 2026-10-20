@@ -9,13 +9,15 @@ uses a released version from there and nothing else.
   working on ElastiCORE itself and gives the project a build no user has.
 - **Do not** look through other projects or repositories on the machine for a template, and do not
   change them. A local `~/.m2` without ElastiCORE 3 only means it was never downloaded.
-- **The version:** the newest is the `<latest>` element of
-  `https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml`. Use the same
-  version in the three places marked `VERSION` below. If the machine cannot reach Maven Central, say
-  so to the user instead of working around it.
+- **The version:** the last `3.` entry in the `<versions>` list of
+  `https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml` - the newest
+  3.x release, the one the agent kit's CI checks. Use the same version in the three places marked
+  `VERSION` below. If the machine cannot reach Maven Central, say so to the user instead of working
+  around it.
 - **Tools:** Java 17 or later. Spring Boot 4's Gradle plugin needs Gradle 8.14 or later. A project
-  without a Gradle wrapper gets one with `gradle wrapper --gradle-version 8.14.3` when Gradle is
-  installed; otherwise ask the user.
+  without a Gradle wrapper gets one first, in the empty folder, before `build.gradle` exists - an
+  installed Gradle older than 8.14 cannot run a build that applies Spring Boot 4:
+  `gradle wrapper --gradle-version 8.14.3`. Without an installed Gradle, ask the user.
 
 The files below are the ElastiCORE README's quick start. The agent kit's CI builds this exact
 project with the newest ElastiCORE release every week. Rename `shop` and `com.acme.shop` together:
@@ -48,7 +50,7 @@ repositories {
 }
 
 elasticore {
-    architecture = 'hexagonal'    // layered | ddd | hexagonal
+    architecture = 'hexagonal'    // or 'ddd'; not 'layered' - see below
     language     = 'java'         // java | kotlin
 }
 
@@ -68,7 +70,10 @@ dependencies {
 
 The `elasticore { }` block is what selects the 3.0 rule engine. Without it the build runs the 2.x
 generator, which ignores `@access`, `@owner`, `@password`, `states:`, `@compute` and `@snapshot`
-without a warning and does not support `money` - this very model does not compile there.
+without a warning, and whose services do not compile on Spring Boot 4 with 3.0.261015-alpha1.
+`architecture = 'layered'` in Java is the 2.x-compatible output on the rule engine: `@access` is not
+enforced (the generator warns), and with 3.0.261015-alpha1 the `money` field below does not compile
+there.
 
 ## `src/main/resources/blueprint/shop/env.yml`
 
