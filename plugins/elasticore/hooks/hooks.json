@@ -1,5 +1,5 @@
 {
-  "description": "Keep an agent on the DSL side of an ElastiCORE project: no hand edits to generated files, and a DSL change is generated and compiled before the agent finishes.",
+  "description": "Keep an agent on the DSL side of an ElastiCORE project: no hand edits to generated files, no -Pforce without asking, and a DSL change is generated and compiled before the agent finishes.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/elasticore-hook.sh\" pre-edit",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/elasticore-hook.sh\" pre-bash",
             "timeout": 15
           }
         ]

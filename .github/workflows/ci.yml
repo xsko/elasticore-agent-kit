@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       elasticore-version:
-        description: ElastiCORE version to check (empty - the newest on Maven Central)
+        description: ElastiCORE version to check (empty - the newest 3.x on Maven Central)
         required: false
 
 permissions:
@@ -25,6 +25,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,14 +36,22 @@ jobs:
         shell: bash
         run: bash tests/hooks/test-hooks.sh
 
+      # macOS's own /bin/bash is 3.2; the bash on the PATH may be a newer one
+      - name: Hook tests with /bin/bash
+        if: runner.os == 'macOS'
+        shell: bash
+        run: HOOK_BASH=/bin/bash bash tests/hooks/test-hooks.sh
+
   manifests:
     name: Plugin and marketplace manifests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # Not pinned on purpose: the manifests have to pass the validator users run.
       - name: Install Claude Code
         run: npm install --global @anthropic-ai/claude-code
 
@@ -54,6 +63,7 @@ jobs:
   contract:
     name: ElastiCORE behaviour the kit relies on
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,7 +79,7 @@ jobs:
         with:
           gradle-version: '8.14.3'
 
-      - name: Build a project with ElastiCORE and check the kit's assumptions
+      - name: Build the template, the example and a 2.x project, and check the kit's assumptions
         env:
           ELASTICORE_VERSION: ${{ inputs.elasticore-version }}
         run: python3 tests/contract/check.py --gradle gradle
