@@ -1,7 +1,8 @@
 # ElastiCORE agent kit
 
 [ElastiCORE](https://github.com/xsko/ElastiCORE)로 만든 프로젝트(YAML DSL에서 생성하는 Spring Boot 애플리케이션)를 위한
-[Claude Code](https://code.claude.com) 플러그인입니다. [opencode](https://opencode.ai)용 패키지도 들어 있습니다.
+[Claude Code](https://code.claude.com) 플러그인입니다. 같은 skill을 [opencode](https://opencode.ai)용으로도 패키징했고,
+[Codex CLI](https://github.com/openai/codex)에서도 씁니다.
 
 그냥 두면 에이전트는 생성된 Java를 고칩니다. 다음 빌드가 그 수정을 덮어쓰거나, 그 파일이 더 이상 모델을 따라가지 않게 되는데
 아무도 모르고 지나갑니다. 이 플러그인을 쓰면 에이전트는 DSL을 고치고, 다시 생성하고, 컴파일한 뒤 업무에 무엇이 바뀌었는지 알려 줍니다.
@@ -10,29 +11,23 @@
 
 ## 측정: 같은 과제를 kit 없이, kit과 함께
 
-어느 에이전트도 처음 보는 과제 - 도서 대출 API: 13자리 ISBN이 키인 도서, 이메일이 유일하고 가입일은 서버가 정하는 회원,
-대출일·반납 예정일을 서버가 정하는 대출, 남은 권수가 없으면 409, 반납이라는 업무 동작, "아직 반납 안 된 것" 검색. 같은 글을
-kit 없이 한 번, kit과 함께 한 번 주었고, 별도의 채점자가 프로젝트마다 직접 빌드·실행·호출해 21개 항목을 확인했습니다
-(2026-10-21, Windows PC 한 대, Gradle 빌드 시간 포함; kit 0.3.0, ElastiCORE 3.0.261021 릴리스 전 빌드).
+세 에이전트에 처음 보는 과제 - 도서·회원·대출, 남은 권수가 없으면 409, 반납이라는 업무 동작이 있는 도서 대출 API - 를 과제
+그대로 한 번, kit과 함께 한 번 주었습니다. 별도의 채점자가 프로젝트마다 직접 빌드·실행·호출해 같은 21개 항목으로 확인했습니다
+(2026-10-21, Windows PC 한 대, Gradle 빌드 시간 포함, kit 0.3.0, ElastiCORE 3.0.261021 릴리스 전 빌드).
 
 | 에이전트 | kit 없이 | kit과 함께 |
 |---|---|---|
-| Claude Code, Sonnet | 4분 41초, 21점 중 20.5 - 엔티티·DTO·리포지토리·서비스·컨트롤러·오류 처리기를 전부 손으로 작성 | **2분 18초, 21점 중 20.5** - 27줄짜리 YAML 하나, 서비스 메서드 둘, 컨트롤러 하나 |
-| Codex CLI, `gpt-5.6-sol`(reasoning low) | 7분 13초, 21점 중 21 - Java 파일 23개를 손으로 작성, Spring Boot 4에서 옮겨진 `@AutoConfigureMockMvc`를 찾느라 빌드 네 번 실패, `~/.gradle`의 jar를 30초 뒤짐 | **3분 45초, 21점 중 21** - 같은 27줄 YAML, 레시피의 서비스 메서드, 25줄짜리 컨트롤러 하나 |
-| opencode, 작은 로컬 모델(`qwen3.8-flash-next-a5b`) | 네 번 시도해 한 번도 못 끝냄 - 매번 돌아오지 않는 셸 호출에서 멈춤 | **11분 42초, 21점 중 21** |
+| Claude Code, Sonnet | 4분 41초, 21점 중 20.5 | **2분 18초, 21점 중 20.5** |
+| Codex CLI, `gpt-5.6-sol` | 7분 13초, 21점 중 21 | **3분 45초, 21점 중 21** |
+| opencode, 작은 로컬 모델(`qwen3.8-flash-next-a5b`) | 네 번 시도해 한 번도 못 끝냄 | **11분 42초, 21점 중 21** |
 
-kit과 함께 한 Claude Code는 한 장짜리 요약과 도서관 레시피를 읽고, YAML을 쓰고, 생성하고, 레시피가 주는 메서드 둘과 컨트롤러
-하나를 넣고, 빌드하고, 서버를 띄워 요청 열다섯 개를 보내고(잘못된 ISBN 400, 중복·남은 권수 없음·재반납 409, 없는 회원 404),
-프로세스 ID로 서버를 끄고, 확인하지 못한 것까지 적어 보고했습니다. 가이드도 jar도 한 번도 열지 않았습니다. 채점자는 사실과
-다른 주장을 하나도 찾지 못했고, 깎인 0.5점은 README에 적은 jar 이름입니다. Codex도 kit과 함께 같은 길을 갔습니다 - 스킬과
-그 페이지 넷을 읽고, YAML을 쓰고, 생성하고, 한 번에 빌드하고, 400·404·409 둘까지 API를 호출하고, 적어 둔 PID로 서버를 끄기까지
-모델 호출 23번(kit 없이는 29번), 읽은 컨텍스트는 14% 적게. Codex의 시간은 최종 답까지입니다: `codex exec` 프로세스 자체는 그
-뒤에도 살아 있었는데, 셸 호출 하나가 띄운 Gradle 데몬이 붙들고 있었습니다. 대처는 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트롤러·오류 처리기를 전부 손으로 씁니다. kit과 함께면 같은 에이전트가
+27줄짜리 YAML 하나, 서비스 메서드 둘, 컨트롤러 하나를 쓰고 나머지는 생성기가 합니다: Claude Code는 모델 호출 16번 대신 10번에
+끝내고 읽은 컨텍스트가 3분의 1 줄었고, Codex는 29번 대신 23번. ElastiCORE 3.0.261021의 DSL 추가 다섯 가지도 이 과제에서
+나왔습니다 - kit으로 처음 돌려 보니 에이전트가 아직 Java로 써야 하는 것이 보였고, 그것을 DSL이 가져갔습니다.
 
-ElastiCORE 3.0.261021의 `@readonly`, `@search(isnull)`, 메시지가 있는 `@pattern`, `ref: Entity!`, `ConflictException`은 이
-과제에서 나왔습니다. kit으로 처음 돌려 보니 에이전트가 아직 Java로 써야 하는 것이 보였고, 그것을 DSL이 가져갔습니다. 이전
-안내는 Windows에서 돌아오지 않는 Gradle 호출로 에이전트를 보내 한 실행에서 10분을 잃게 했는데, 그 전후 수치는
-[CHANGELOG.md](CHANGELOG.md)에 있습니다.
+과제 원문, 채점표, 실행 스크립트, 토큰 수, 에이전트마다 한 일, 이전 실행, 유의할 점은
+[benchmarks/library](benchmarks/library/README.ko.md)에 있습니다.
 
 ## 설치
 
@@ -50,8 +45,14 @@ Maven Central의 릴리스와, CI가 매주 실제로 빌드하는 템플릿으�
 hook은 bash로 돕니다. macOS와 Linux에는 기본으로 있고, Windows에서는 Claude Code가 Git Bash로 hook을 실행합니다.
 Git Bash가 없는 Windows에서는 편집·명령마다 hook 오류가 표시되니, Git for Windows를 설치하거나 플러그인을 끄세요.
 
+새 프로젝트를 만들려면 PATH에 JDK 17 이상과 Gradle 8.14 이상이 있어야 합니다.
+
 **opencode:** 이 저장소를 받아 `opencode/install.sh`(또는 `opencode/install.ps1`)를 실행합니다. 같은 skill과 hook 스크립트,
 그것을 돌리는 opencode 플러그인, opencode 형식의 에이전트·명령이 설치됩니다. 자세한 내용은 [opencode/README.md](opencode/README.md).
+
+**Codex CLI:** `plugins/elasticore/skills/elasticore`를 프로젝트의 `.agents/skills/elasticore`로(모든 프로젝트에 쓰려면
+`~/.agents/skills/elasticore`로) 복사합니다. Codex는 skill - 빠른 길, 요약, 레시피 - 을 받고, hook은 Claude Code와 opencode의
+것입니다. 위 비교의 Codex도 그렇게 돌렸습니다.
 
 ## 업데이트
 

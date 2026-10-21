@@ -70,6 +70,10 @@ the runtime; the kit now shows how.
   minutes and after twenty, with `--no-daemon` it ended with the answer), and Codex looked for the
   skill's pages under `~/.agents/skills` first, four failed reads before it opened the copy next to
   `SKILL.md` - the skill now says where its pages are.
+- **`benchmarks/library/`:** the comparison as a folder anyone can read and repeat - the task
+  (Korean original and English), the grader's checklist, the runners for Claude Code, Codex and
+  opencode, the token and timeline scripts, and the write-up with every run's numbers, what each
+  agent did, the earlier runs and the caveats. The README keeps the table and links there.
 
 ## 0.2.0
 
