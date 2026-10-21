@@ -114,14 +114,9 @@ insertion. The names are written in full, so they need no imports:
     protected void beforeSave(com.acme.library.domain.model.Loan entity,
                               com.acme.library.application.dto.LoanDTO request) {
         if (entity.getLoanId() == null) {
+            // The member and the book exist: the generated check answered 404 before this runs.
             com.acme.library.domain.model.Book book =
                     entityManager.find(com.acme.library.domain.model.Book.class, request.getBookIsbn());
-            if (book == null) {
-                throw new jakarta.persistence.EntityNotFoundException("Book " + request.getBookIsbn() + " not found");
-            }
-            if (entityManager.find(com.acme.library.domain.model.Member.class, request.getMemberId()) == null) {
-                throw new jakarta.persistence.EntityNotFoundException("Member " + request.getMemberId() + " not found");
-            }
             long out = entityManager.createQuery(
                     "select count(l) from Loan l where l.book.isbn = :isbn and l.returnedDate is null", Long.class)
                     .setParameter("isbn", book.getIsbn()).getSingleResult();
@@ -171,6 +166,11 @@ insertion. The names are written in full, so they need no imports:
 so an update keeps the stored dates. `entityManager` is a field of the service - `find` reads a row,
 `createQuery` counts. `ConflictException` answers 409 and `EntityNotFoundException` 404, each with
 your message as `detail`.
+
+Do not look up the member and the book to answer 404 yourself: a reference held by its key
+(`member: Member!`, `book: Book!`) is checked by the generated service before `beforeSave` runs,
+and a key that names no row answers 404 `Member 999999 does not exist`, `code`
+`reference.Loan.member`.
 
 `returnLoan` is the operation the generated CRUD does not have. It changes the loan in a
 transaction and answers it as `GET /api/library/loan/{loanId}` does. Then write the one controller
@@ -247,7 +247,7 @@ invalid input also has `fieldErrors`, naming each field. A book is
 | Member: read, update, list | `GET /api/library/member/1`; `PUT /api/library/member` `{"memberId":1,"name":"Kim Updated","email":"kim@example.com"}`; `POST /api/library/member/search` `{}` | 200 each |
 | Lend | `POST /api/library/loan` `{"memberId":1,"bookIsbn":"9780000000001"}` | 200 with `loanId`, `loanDate` today, `dueDate` today + 14 and no `returnedDate`; dates in the request are ignored |
 | Lend without `memberId` | `{"bookIsbn":"9780000000001"}` | 400, `fieldErrors`: `memberId` |
-| Unknown member or book | `{"memberId":999999,"bookIsbn":"9780000000001"}`; `{"memberId":1,"bookIsbn":"9999999999999"}` | 404, `detail` "Member 999999 not found"; "Book 9999999999999 not found" |
+| Unknown member or book | `{"memberId":999999,"bookIsbn":"9780000000001"}`; `{"memberId":1,"bookIsbn":"9999999999999"}` | 404, `detail` "Member 999999 does not exist"; "Book 9999999999999 does not exist" (generated) |
 | No copy left | a second loan of a book with 1 copy; a loan of a book with 0 | 409, `code` `conflict`, `detail` "No copies of book 9780000000001 left: 1 of 1 are on loan" |
 | Return | `POST /api/library/loan/1/return` | 200, the loan with `returnedDate` today; the copy can be lent again |
 | Return again | the same request | 409, `detail` "Loan 1 was already returned on " and the date |
@@ -282,6 +282,10 @@ with 3.0.261020-alpha2; the contract test does not build it.
   `beforeSave` in `BookService.java`:
   `if (request.getIsbn() == null || !request.getIsbn().matches("[0-9]{13}")) throw new io.elasticore.springboot3.validation.BadRequestException("isbn: ISBN must be 13 digits");`
   It answers 400 with that `detail` and no `fieldErrors`.
+- No check that the member and the book exist: an unknown key fails on the foreign key as a 409.
+  Look them up first in the `getLoanId() == null` branch of `beforeSave`:
+  `if (entityManager.find(com.acme.library.domain.model.Member.class, request.getMemberId()) == null) throw new jakarta.persistence.EntityNotFoundException("Member " + request.getMemberId() + " not found");`
+  and the same for the book - 404 with that message.
 - No `ConflictException`: throw `org.springframework.dao.DataIntegrityViolationException` with the
   same message. It answers 409 too, but its `detail` is "A unique value is already taken, or the
   row is still referenced by another." instead of your message.

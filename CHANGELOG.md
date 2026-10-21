@@ -3,6 +3,37 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.4.0
+
+A third recipe - a shop with members who sign in - and the quick reference filled in with what
+three agents looked up in the long guides or in the runtime jar.
+
+Claude Code built the pet store three times with the kit (Java hexagonal, Java ddd, Kotlin
+hexagonal). Each time it searched the guides in its first two minutes for value objects, `@login`
+and `@access`, `states:` and `@snapshot`/`@compute`, ran `javap` on `CurrentUser`,
+`SessionCurrentUser` and `Money`, and wrote by hand a sign-in controller, an existence check for
+every referenced row, a role check for an administrator's report and a start-up loader. ElastiCORE
+3.0.261021 now generates the sign-in and the existence check; the kit shows the rest.
+
+- **`references/recipe-shop.md`:** members, products and orders as a complete project - sign-up and
+  the generated sign-in (`@signin` on the entity line), `@access`/`@owner` with a role only an administrator sets, an address and a
+  card as values (`@embeddable`, `@writeonly`, `@pattern`), an order's lifecycle (`states:`, 409 for a
+  refused step), prices kept with `@snapshot` and summed with `@compute`, a reference that must exist
+  (404), `@minsize`, `CreatedDate`, an `@event` listener, start-up data in `CurrentUser.runAsSystem`,
+  and an administrator's report behind `ACCESS.require(currentUser, "report")` - with every request
+  and answer. The contract test builds, starts and calls it (S1-S12).
+- **`references/quick-reference.md`:** `@past`/`@future`, `@writeonly`, `@password`, `@minsize`,
+  values with `@Embedded`; a section on who may do what and the generated sign-in; a lifecycle and
+  derived values; the runtime classes a file of yours uses (`ACCESS.require`, `CurrentUser`,
+  `runAsSystem`, `SessionCurrentUser`, `Money`, the exceptions and their statuses); the 404 for a key
+  that names no row.
+- **`references/recipe-library.md`:** the generated existence check replaces the recipe's own lookups
+  of the member and the book (404 `Member 999999 does not exist`); its 3.0.261020 section keeps them.
+- **`references/run-and-check.md`:** the bash start detaches stdin (`< /dev/null`); start the server
+  and call it in separate tool calls (a Kotlin run lost close to seven minutes doing both in one);
+  scratch files under `build/`, not `/tmp`.
+- The skill's fast path names the shop recipe.
+
 ## 0.3.0
 
 A second recipe, the five DSL additions of ElastiCORE 3.0.261021 on the quick reference, and a

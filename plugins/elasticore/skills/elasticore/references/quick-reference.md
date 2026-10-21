@@ -5,7 +5,9 @@ template of `new-project.md` does. Without that block the 2.x generator runs, an
 does not apply (SKILL.md section 3).
 
 Everyday work needs only this page and a recipe: `recipe-board.md` for plain CRUD, `recipe-library.md`
-for rules on other rows, server-set values and an operation of its own. Open the project's long guides
+for rules on other rows, server-set values and an operation of its own, `recipe-shop.md` for members
+who sign in, who may do what, an order's lifecycle, prices kept and summed, an administrator's report,
+events and start-up data. Open the project's long guides
 (`src/main/resources/blueprint/elasticore-*.md`) only for something this page does not have. Every
 line in the sample at the end is generated, compiled and called by the agent kit's CI.
 
@@ -34,6 +36,11 @@ run `./gradlew.bat`, from Git Bash too (`run-and-check.md` says why). To run the
 | `string(100) @email` | an e-mail address |
 | `string(13)! @pattern('^[0-9]{13}$', 'ISBN must be 13 digits')` | a format rule: 400 with that message when the value does not match (from 3.0.261021; write a backslash doubled, `\\d`, or use `[0-9]`) |
 | `int @min(1) @max(10)` | a whole number from 1 to 10 |
+| `date @past`, `date @future` | a date before today, after today (`@pastorpresent`, `@futureorpresent` include today) |
+| `string(30)! @writeonly` | accepted in requests, never in answers (a card number) |
+| `string(255)! @password` | kept as a hash, never in answers or searches; with a `@login` field the entity signs in (below) |
+| `lines: List<OrderLine> @OneToMany(mappedBy="order") @dtype(List<OrderLineDTO>) @minsize(1, 'an order needs a line')` | at least one member: 400 when the list is empty or left out (from 3.0.261021) |
+| `address: Address! @Embedded` | a value (an `Address` entity with `meta: entity @embeddable`): its fields are columns of this table; `!` makes the value required, and its own `!` fields are required whenever it is sent |
 | `long`, `int`, `boolean`, `date`, `datetime`, `money(10.2)` | the other types; `datetime` is `"yyyy-MM-dd HH:mm:ss"` in JSON |
 | `kind: ItemKind` | an enum of the model (an `enumeration:` entry) |
 | `post: Post` | a reference to another root: requests and answers carry its id field (`postId`) |
@@ -86,7 +93,41 @@ Base path `/api/<domain>/<entity>` - the entity name with a small first letter: 
 | `POST /search` with `{field: value, "pageNumber": 0, "pageSize": 20, "sortCode": "title+"}` | a page: `content`, `totalElements`, `totalPages`, `number` |
 
 There is no `GET` for a list. `pageNumber` starts at 0. Invalid input answers 400 with `fieldErrors`;
-a row still referenced answers 409.
+a row still referenced answers 409. A key of another aggregate that names no row (`"productId": 99`)
+answers 404 `Product 99 does not exist` - generated, do not look it up yourself (from 3.0.261021).
+
+## Who may do what, and signing in (rule engine, from 3.0.261021)
+
+| Write | Means |
+|---|---|
+| `meta: entity ... @access(read=public)` | anyone reads and searches; every operation the line does not name is the administrator's |
+| `@access(read=owner, create=user, cancel=owner) @owner(memberId)` | a signed-in member creates (and becomes the owner whatever the request says), reads and cancels only their own (another's answers 404); the rest is the administrator's |
+| levels | `public`, `user` (signed in), `owner`, `admin`, `none`; `*=user` sets the default |
+| `meta: entity @root @editable @expose(20) @signin ...` with `login: string(20)! @login` and `password: string(255)! @password` | sign-in is generated: `POST /api/<domain>/<entity>/signin` `{"login": "...", "password": "..."}` (401 `Wrong login or password`), `POST .../signout` (204), `GET .../me` (401 for a visitor); TypeScript `signIn`, `signOut`, `me()`. One entity of the application says `@signin`. Do not write a sign-in controller |
+| `role: MemberRole @default(MemberRole.USER) @access(admin)` | the role the session holds (`ADMIN` is the administrator); only an administrator sets it - a sign-up sending `ADMIN` is stored as `USER`. Without `@access(admin)` it is not put in the session (a DSL warning) |
+
+A visitor gets 401, a signed-in member who may not 403. `recipe-shop.md` is a whole model with all of it.
+
+## A lifecycle and values the server works out (`hexagonal`, `ddd`)
+
+```yaml
+      status:    OrderStatus -- status (an enum with PLACED, SHIPPED, CANCELLED)
+      total:     money(12.2) @compute(sum(lines.subTotal)) -- the lines added up
+    states:
+      status:
+        initial: PLACED
+        ship:    PLACED -> SHIPPED
+        cancel:  PLACED -> CANCELLED
+        delete:  CANCELLED            # a row is deleted only in these states
+```
+
+`states:` gives `POST /api/<domain>/<entity>/{id}/ship` and `.../cancel`; a step the state does not
+allow answers 409 (`code` `state.PurchaseOrder.status.cancel`). On an order line,
+`unitPrice: money(10.2) @snapshot(product.price)` keeps the price as it was when ordered and
+`subTotal: money(12.2) @compute(unitPrice * quantity)` works it out on every save; `@compute` takes
+`a * b`, `a + b`, `a - b` or `sum(members.field)`. Neither is taken from a request.
+`@event(Shipped(total))` on the entity line publishes `PurchaseOrderShippedEvent` (package
+`domain.event`) when `ship` is saved; an `@EventListener` method receives it.
 
 ## Time stamps
 
@@ -123,6 +164,22 @@ plus one small `@RestController` of your own that calls it; everything else - co
 repositories, security, the error handler - is generated, so do not write those by hand.
 `entityManager` is a field of the service: `entityManager.find(Book.class, isbn)` reads a row,
 `entityManager.createQuery("select count(l) from Loan l where ...", Long.class)` counts.
+
+The runtime classes a file of yours uses - no need to open the jar:
+
+| Class or field | What |
+|---|---|
+| `ACCESS.require(currentUser, "report")` (fields of the generated service) | the entity's `@access` for an operation of your own: 401 for a visitor, 403 for who may not; an operation the line does not name is the administrator's |
+| `io.elasticore.springboot3.security.CurrentUser` - `currentUser.id()`, `signedIn()`, `hasRole("ADMIN")` | who is asking, as the generated services see it |
+| `CurrentUser.runAsSystem(() -> ...)` | the application itself: every `@access` check passes inside it - start-up data, a nightly job |
+| `io.elasticore.springboot3.security.SessionCurrentUser.signIn(request, id, role)`, `signOut(request)` | the session the generated sign-in uses - only for a flow of your own (sign up and sign in at once) |
+| `io.elasticore.springboot3.domain.Money` - `Money.of("10.00")`, `plus`, `minus`, `times(BigDecimal)`, `times(Quantity)`, `toBigDecimal()`, `rounded(2)` | the type of a `money` field |
+| `io.elasticore.springboot3.security.NotSignedInException`, `ForbiddenException` | 401, 403 |
+| `io.elasticore.springboot3.validation.BadRequestException`, `ConflictException`, `jakarta.persistence.EntityNotFoundException` | 400, 409, 404 - your message as `detail` |
+
+A file of yours that writes rows at start-up is an `ApplicationRunner` calling the generated
+services inside `CurrentUser.runAsSystem`; it runs once the server already answers requests.
+`recipe-shop.md` has one, an `@EventListener`, and a report behind `ACCESS.require`.
 
 ## Names to avoid
 

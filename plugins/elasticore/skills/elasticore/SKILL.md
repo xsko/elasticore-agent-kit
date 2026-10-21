@@ -25,7 +25,10 @@ The `references/` pages named below are in this skill's folder, next to this fil
    - `references/recipe-library.md` (books, members, loans) - when a rule reads other rows (no copy
      left to lend), the server sets values, or the task has an operation besides create, read,
      update and delete (return a loan). It is for ElastiCORE 3.0.261021 or later; its last section
-     says what to write instead on 3.0.261020.
+     says what to write instead on 3.0.261020;
+   - `references/recipe-shop.md` (members, products, orders) - when users sign in and see only their
+     own, an administrator does more, a record moves along (placed, shipped, cancelled), prices are
+     kept and summed, or the application starts with data. ElastiCORE 3.0.261021 or later.
 2. DSL syntax: `references/quick-reference.md`, one page. Open the long guides only for what it does
    not have.
 3. Change the YAML, run `./gradlew compileJava` (`./gradlew.bat` on Windows, from Git Bash too -
