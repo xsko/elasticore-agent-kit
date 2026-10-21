@@ -32,6 +32,13 @@ does not return either, with `gradlew.bat` too: build with `--no-daemon` there
 (`./gradlew.bat --no-daemon compileJava`), or start opencode with
 `GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment.
 
+In Codex (`codex exec`) on Windows the answer arrives, but the `codex` process does not end while
+a Gradle daemon that one of its shell calls started is alive - the daemon holds that call's pipe
+(seen with `gradle wrapper`: still running after five minutes and after twenty; with `--no-daemon`
+the process ended the moment the answer was written). Bootstrap and build with the daemon off
+there - `gradle --no-daemon wrapper --gradle-version 8.14.3`, `./gradlew.bat --no-daemon build` -
+or start Codex with `GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment.
+
 ## Start, wait, call, stop - bash (macOS, Linux, Git Bash on Windows)
 
 ```bash

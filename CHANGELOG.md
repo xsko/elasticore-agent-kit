@@ -58,6 +58,18 @@ the runtime; the kit now shows how.
 - **`references/recipe-library.md`:** insert the service methods with the file-editing tool, not
   with a script - an agent spent a minute and a half on an awk splice that put them in the wrong
   place, then wrote the files by hand anyway.
+- **Codex CLI on the same task** (`codex exec`, `gpt-5.6-sol` with reasoning low, the skill copied
+  to the project's `.agents/skills/elasticore`): without the kit 7 minutes 13 seconds to its answer,
+  29 model calls, 21 of 21 - 23 Java files by hand, four failed builds before it found where Spring
+  Boot 4 had moved `@AutoConfigureMockMvc`, half a minute searching the jars in `~/.gradle`; with
+  the kit 3 minutes 45 seconds, 23 calls, 21 of 21, 14 percent less context read - the skill and
+  four of its pages, the recipe's YAML, one `--no-daemon` build. Two things that run showed, both
+  fixed: the `codex` process did not end after its answer, held by the Gradle daemon that
+  `gradle wrapper` had started (`run-and-check.md` and `new-project.md` now say
+  `gradle --no-daemon wrapper ...` and why - with the daemon the process was still alive after five
+  minutes and after twenty, with `--no-daemon` it ended with the answer), and Codex looked for the
+  skill's pages under `~/.agents/skills` first, four failed reads before it opened the copy next to
+  `SKILL.md` - the skill now says where its pages are.
 
 ## 0.2.0
 

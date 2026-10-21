@@ -16,6 +16,8 @@ logic the DSL cannot express, in the files the generator hands over to you.
 
 ## Fast path - do this first
 
+The `references/` pages named below are in this skill's folder, next to this file.
+
 0. An existing project: check that `build.gradle` has an `elasticore { }` block with
    `architecture = 'hexagonal'` or `'ddd'` (section 3). The pages below are for that build.
 1. A new project: `references/new-project.md`. Then copy the recipe that fits, rename and adjust:

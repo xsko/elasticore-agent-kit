@@ -12,16 +12,17 @@ DSL, regenerates, compiles, and tells you what changed for the business.
 
 ## Measured: one task, with and without the kit
 
-A task neither agent had seen before - a library loan API: books keyed by a 13-digit ISBN, members
-with a unique e-mail and a joining date the server sets, loans whose dates the server sets, a 409
-when no copy is left, a return operation, and "not yet returned" as a search. Each agent got the
-same text, once with the kit and once without, and an independent grader built, started and called
-every project against 21 checks (2026-10-21, one Windows PC, the Gradle builds inside the times;
-kit 0.3.0 with a pre-release build of ElastiCORE 3.0.261021).
+A task none of the agents had seen before - a library loan API: books keyed by a 13-digit ISBN,
+members with a unique e-mail and a joining date the server sets, loans whose dates the server sets,
+a 409 when no copy is left, a return operation, and "not yet returned" as a search. Each agent got
+the same text, once with the kit and once without, and an independent grader built, started and
+called every project against 21 checks (2026-10-21, one Windows PC, the Gradle builds inside the
+times; kit 0.3.0 with a pre-release build of ElastiCORE 3.0.261021).
 
 | Agent | Without the kit | With the kit |
 |---|---|---|
 | Claude Code, Sonnet | 4 min 41 s, 20.5 of 21 - every entity, DTO, repository, service, controller and error handler written by hand | **2 min 18 s, 20.5 of 21** - one 27-line YAML, two service methods, one controller |
+| Codex CLI, `gpt-5.6-sol` (reasoning low) | 7 min 13 s, 21 of 21 - 23 Java files by hand, four failed builds before it found where Spring Boot 4 had moved `@AutoConfigureMockMvc`, half a minute searching the jars in `~/.gradle` | **3 min 45 s, 21 of 21** - the same 27-line YAML, the recipe's service methods, one controller of 25 lines |
 | opencode, a small local model (`qwen3.8-flash-next-a5b`) | did not finish in four attempts - each stalled in a shell call that never returned | **11 min 42 s, 21 of 21** |
 
 With the kit, Claude Code read the one-page reference and the library recipe, wrote the YAML,
@@ -29,7 +30,12 @@ generated, added the two methods and the controller the recipe gives, built, sta
 sent fifteen requests - 400 for a bad ISBN, 409 for a duplicate, for a loan with no copy left and
 for a second return, 404 for an unknown member - stopped the server by its process id and reported,
 naming what it had not checked. It opened no guide and no jar. The grader found no claim that did
-not hold; the half point is the jar name in its README.
+not hold; the half point is the jar name in its README. Codex did the same with the kit - read the
+skill and four of its pages, wrote the YAML, generated, built once, called its API through 400, 404
+and both 409s, stopped the server by the pid it had saved - in 23 model calls against 29 without
+it, and with 14 percent less context read. Its times are to its final answer: the `codex exec` process
+itself stayed alive afterwards, held by a Gradle daemon one of its shell calls had started;
+[CHANGELOG.md](CHANGELOG.md) says what to do about that.
 
 The same task is where ElastiCORE 3.0.261021 got `@readonly`, `@search(isnull)`, `@pattern` with a
 message, `ref: Entity!` and `ConflictException`: the kit's first run on it showed what an agent
