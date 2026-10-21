@@ -61,10 +61,10 @@ LIBRARY_SINCE = (3, 0, 261021)
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
-    "methods": "recipe-library.md has the methods to add to LoanService.java and MemberService.java",
+    "methods": "recipe-library.md has the methods to add to LoanService.java (the dates are @default(now))",
     "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
     "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "LoanService and MemberService with the added methods are left alone: SKIP(user-owned)",
+    "kept": "LoanService with the added methods is left alone: SKIP(user-owned)",
     "starts": "the library starts",
     "K1": "K1 create a book: 200",
     "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
@@ -519,8 +519,8 @@ def check_library(work, version, template, run, java, temp):
         found = re.search(r"^## Add to `%s`\s*\n+```java\n(.*?)```" % re.escape(service), text, re.S | re.M)
         if found:
             added[service] = found.group(1)
-    check(LIBRARY["methods"], sorted(added) == ["LoanService.java", "MemberService.java"], where,
-          "found: %s" % sorted(added))
+    # The joining date is @readonly @default(now): MemberService needs nothing added.
+    check(LIBRARY["methods"], sorted(added) == ["LoanService.java"], where, "found: %s" % sorted(added))
 
     library = os.path.join(work, "library")
     for name in ("settings.gradle", "build.gradle"):
@@ -538,9 +538,11 @@ def check_library(work, version, template, run, java, temp):
     owned_first = rc == 0 and all(k == "owned" for k in kinds.values())
     check(LIBRARY["owned"], owned_first, where, "exit %d, %s; see %s"
           % (rc, kinds, os.path.join(work, "library-generate.log")))
-    if not owned_first or len(added) != 2:
+    if not owned_first or len(added) != 1:
         return
     for service, path in services.items():
+        if service not in added:
+            continue
         current = read(path)
         cut = current.rstrip().rfind("}")
         write(path, current[:cut] + "\n" + added[service] + current[cut:])
@@ -552,8 +554,10 @@ def check_library(work, version, template, run, java, temp):
           and "LOAD ERROR" not in out, where + "; references/new-project.md",
           "exit %d; see %s" % (rc, os.path.join(work, "library.log")))
     statuses = {s: status_of(out, s) for s in services}
-    check(LIBRARY["kept"], all(st == "SKIP(user-owned)" for st in statuses.values())
-          and "returnLoan" in read(services["LoanService.java"]) and "beforeSave" in read(services["MemberService.java"]),
+    # LoanService was edited, so it is the developer's; MemberService was not, and follows the DSL.
+    check(LIBRARY["kept"], statuses.get("LoanService.java") == "SKIP(user-owned)"
+          and statuses.get("MemberService.java") in ("UNCHANGED", "REGENERATED(owned, never edited)", "SKIP(user-owned)")
+          and "returnLoan" in read(services["LoanService.java"]),
           where + "; SKILL.md section 5", "status: %s" % statuses)
     libs = os.path.join(library, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
@@ -900,10 +904,17 @@ def main():
                   "      reviewId: long @id @sequence\n     text: string(200)\n")
     hook("post-edit", edit_payload("broken", review))
     rc, out = run(project, "compileJava")
-    check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
-          rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
-          and not find(java, "Review.java"),
-          "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    if at_least(version, LIBRARY_SINCE):
+        # From 3.0.261021 the rule engine stops the build on it, naming the file and the parser's message.
+        check("a YAML file that does not parse is printed as 'LOAD ERROR' and stops the build, naming the file",
+              rc != 0 and "* LOAD ERROR: " in out and "the model check failed" in out
+              and "review.yml - not read, nothing it declares was generated" in out and not find(java, "Review.java"),
+              "SKILL.md section 5; references/quick-reference.md; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    else:
+        check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
+              rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
+              and not find(java, "Review.java"),
+              "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
     _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
     check("the hook reports it and keeps the note",
           "could not be read" in note and os.path.exists(os.path.join(data, "dsl-changed-broken")),
@@ -1179,8 +1190,9 @@ def main():
             where = "references/run-and-check.md - the PowerShell block"
 
             def alive(pid):
-                return bool(pid) and pid in subprocess.run(["tasklist", "/FI", "PID eq " + pid],
-                                                           capture_output=True, text=True).stdout
+                # errors="replace": tasklist answers in the console's code page (CP949 on a Korean Windows).
+                return bool(pid) and pid in (subprocess.run(["tasklist", "/FI", "PID eq " + pid], capture_output=True,
+                                                            text=True, errors="replace").stdout or "")
 
             outcome, pid = {}, ""
             try:

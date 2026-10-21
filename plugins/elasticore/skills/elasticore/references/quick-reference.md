@@ -59,8 +59,9 @@ columnList="email", unique=true)` on the entity line for a unique field.
 Not types: `uuid`, `short`, `char`, `OffsetDateTime`. Use `string(36)` for a uuid, `int` for a
 short, `string(1)` for a char, `timestamp` (an instant, ISO-8601 in JSON) for an offset time.
 
-YAML: a label with `: ` in it breaks the file (`* LOAD ERROR:` in the build output, and the whole
-file is left out); ` #` cuts the label off there. Write `-- title, required`, not `-- title: required`.
+YAML: a label with `: ` in it breaks the file (`* LOAD ERROR:` in the build output, the whole file is
+left out, and from 3.0.261021 the build stops naming it); ` #` cuts the label off there. Write
+`-- title, required`, not `-- title: required`.
 
 ## Keys
 
@@ -131,12 +132,23 @@ allow answers 409 (`code` `state.PurchaseOrder.status.cancel`). On an order line
 
 ## Time stamps
 
+A time set once, when the row is made - no `beforeSave`, no setup:
+
+```yaml
+orderedAt: datetime @readonly @default(now) -- ordered at, set by the server
+joinedOn:  date @readonly @default(now) -- joined on (today)
+```
+
+`@default(now)` is the entity's initial value (`LocalDateTime.now()`; `date`, `time` and `timestamp`
+too) and `@readonly` keeps a request's value out; an update keeps the stored one. A time that changes
+on every save, or the audit pair:
+
 ```yaml
 createdAt:  datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- written at
 modifiedAt: datetime @jpa:org.springframework.data.annotation.LastModifiedDate -- changed at
 ```
 
-They are set by the server and never taken from a request - only with `@EnableJpaAuditing`
+These two are set by the server and never taken from a request - only with `@EnableJpaAuditing`
 (`org.springframework.data.jpa.repository.config.EnableJpaAuditing`) on the application class.
 There is no `@createtime`.
 

@@ -106,7 +106,7 @@ entity:
       orderId:   long @id @sequence
       memberId:  long -- who ordered it, the signed-in member set by the server
       status:    OrderStatus -- status
-      orderedAt: datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- ordered at, set by the server
+      orderedAt: datetime @readonly @default(now) -- ordered at, set by the server
       shipTo:    Address @Embedded -- delivery address
       card:      Card! @Embedded -- payment card
       total:     money(12.2) @compute(sum(lines.subTotal)) -- the lines added up
@@ -165,8 +165,9 @@ Why each piece is there:
   values sent for them are ignored. A `productId` that names no product answers 404
   `Product 99 does not exist` (`code` `reference.OrderLine.product`) - generated, do not look it up.
 - `@minsize(1, ...)` refuses an order without lines, sent as `[]` or left out: 400.
-- `orderedAt` with `CreatedDate` is set by the server once (`@EnableJpaAuditing` on the application
-  class, below). `@event(Shipped(total), Cancelled(total))`: the `ship` and `cancel` steps publish
+- `orderedAt: datetime @readonly @default(now)` is the time the order is made: the entity's initial
+  value, never taken from a request, kept on every later save - no `beforeSave` for it.
+  `@event(Shipped(total), Cancelled(total))`: the `ship` and `cancel` steps publish
   `PurchaseOrderShippedEvent` and `PurchaseOrderCancelledEvent` (`domain.event`) when the order is saved.
 
 ## `src/main/java/com/acme/store/StoreApplication.java`
@@ -176,10 +177,8 @@ package com.acme.store;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 
 @SpringBootApplication
-@EnableJpaAuditing
 public class StoreApplication {
     public static void main(String[] args) {
         SpringApplication.run(StoreApplication.class, args);

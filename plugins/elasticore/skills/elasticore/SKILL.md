@@ -187,9 +187,12 @@ Problems in the model are listed one line each, for example
 Either way the model is wrong until they are gone.
 
 A YAML file that does not parse is not a warning. The model loader prints `* LOAD ERROR: <path>`
-and the parser's exception (`MarkedYAMLException: while parsing ...`), leaves that file out and goes
-on: generation and the build succeed without what the file declares. Look for `LOAD ERROR` after
-every DSL change and fix the YAML at the line the exception names.
+and the parser's exception (`MarkedYAMLException: while parsing ...`) and leaves that file out. From
+3.0.261021 the rule engine then stops the build: `[elcore3] the model check failed (1) - fix these
+and build again:` names the file and the parser's message (`mapping values are not allowed here ...
+line 41, column 40`). Before 3.0.261021 generation and the build succeeded without what the file
+declares, and the compile errors that followed pointed elsewhere. Look for `LOAD ERROR` after every
+DSL change and fix the YAML at the line the message names.
 
 ## 6. Ask the user before you
 
