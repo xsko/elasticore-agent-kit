@@ -9,13 +9,17 @@ uses a released version from there and nothing else.
   working on ElastiCORE itself and gives the project a build no user has.
 - **Do not** look through other projects or repositories on the machine for a template, and do not
   change them. A local `~/.m2` without ElastiCORE 3 only means it was never downloaded.
-- **The version:** the newest is the `<latest>` element of
-  `https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml`. Use the same
-  version in the three places marked `VERSION` below. If the machine cannot reach Maven Central, say
-  so to the user instead of working around it.
-- **Tools:** Java 17 or later. Spring Boot 4's Gradle plugin needs Gradle 8.14 or later. A project
-  without a Gradle wrapper gets one with `gradle wrapper --gradle-version 8.14.3` when Gradle is
-  installed; otherwise ask the user.
+- **The version:** the last `3.` entry in the `<versions>` list of
+  `https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml` - the newest
+  3.x release, the one the agent kit's CI checks. Use the same version in the three places marked
+  `VERSION` below. If the machine cannot reach Maven Central, say so to the user instead of working
+  around it.
+- **Tools:** Java 17 or later. Spring Boot 4's Gradle plugin needs Gradle 8.14 or later. Make the
+  Gradle wrapper after writing `settings.gradle` and before writing `build.gradle`: the wrapper
+  task needs a settings file to run at all, and an installed Gradle older than 8.14 cannot run a
+  build that applies Spring Boot 4. Run `gradle --no-daemon wrapper --gradle-version 8.14.3` there,
+  never `gradle init` (`--no-daemon`: a daemon this call starts keeps a Codex run from ending -
+  `run-and-check.md`). Without an installed Gradle, ask the user.
 
 The files below are the ElastiCORE README's quick start. The agent kit's CI builds this exact
 project with the newest ElastiCORE release every week. Rename `shop` and `com.acme.shop` together:
@@ -48,7 +52,7 @@ repositories {
 }
 
 elasticore {
-    architecture = 'hexagonal'    // layered | ddd | hexagonal
+    architecture = 'hexagonal'    // or 'ddd'; not 'layered' - see below
     language     = 'java'         // java | kotlin
 }
 
@@ -63,12 +67,22 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     runtimeOnly 'com.h2database:h2'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
 }
 ```
 
 The `elasticore { }` block is what selects the 3.0 rule engine. Without it the build runs the 2.x
 generator, which ignores `@access`, `@owner`, `@password`, `states:`, `@compute` and `@snapshot`
-without a warning and does not support `money` - this very model does not compile there.
+without a warning, and whose services do not compile on Spring Boot 4 with 3.0.261015-alpha1.
+`architecture = 'layered'` in Java is the 2.x-compatible output on the rule engine: `@access` is not
+enforced (the generator warns), and with 3.0.261015-alpha1 the `money` field below does not compile
+there.
 
 ## `src/main/resources/blueprint/shop/env.yml`
 
@@ -116,7 +130,8 @@ public class ShopApplication {
 ## Run it and try it in a browser
 
 1. `./gradlew bootRun` generates, compiles and starts the application on port 8080, with an
-   in-memory H2 database that starts empty on every run.
+   in-memory H2 database that starts empty on every run. From an agent's shell, start it as
+   `run-and-check.md` says instead - `bootRun` does not return.
 2. Open `http://localhost:8080/swagger-ui.html`: every operation the model exposes can be called
    from there. For `Product` they are, under `/api/shop/product`: `POST` creates, `GET /{productId}`
    reads one, `POST /search` returns a page (`{}` as the body lists everything), `PUT` updates,

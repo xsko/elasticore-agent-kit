@@ -10,6 +10,10 @@ unless ELASTICORE_VERSION names one - and a second project on the 2.x
 generator, and fails, naming the assumption and where the kit states it, as
 soon as one no longer holds.
 
+A version ending in -SNAPSHOT is taken from the local Maven repository as well
+(mavenLocal() before mavenCentral()). The contracts of references/recipe-library.md
+need ElastiCORE 3.0.261021 or later; with an older one they are reported SKIP.
+
 usage: python tests/contract/check.py [--gradle GRADLE] [--bash BASH] [--java JAVA] [--work DIR]
   GRADLE  the Gradle command, Gradle 8.14 or later (default: gradle on the PATH)
   BASH    the bash that runs the hook script (default: Git Bash on Windows, else bash on the PATH)
@@ -17,6 +21,7 @@ usage: python tests/contract/check.py [--gradle GRADLE] [--bash BASH] [--java JA
   DIR     an empty directory for the projects (default: a new temporary one, kept)
 """
 import argparse
+import datetime
 import json
 import os
 import re
@@ -35,6 +40,10 @@ REFERENCES = os.path.join(PLUGIN, "skills", "elasticore", "references")
 SKILL = os.path.join(PLUGIN, "skills", "elasticore", "SKILL.md")
 NEW_PROJECT = os.path.join(REFERENCES, "new-project.md")
 EXAMPLE = os.path.join(REFERENCES, "example-order.md")
+RECIPE_BOARD = os.path.join(REFERENCES, "recipe-board.md")
+RECIPE_LIBRARY = os.path.join(REFERENCES, "recipe-library.md")
+QUICK_REFERENCE = os.path.join(REFERENCES, "quick-reference.md")
+RUN_AND_CHECK = os.path.join(REFERENCES, "run-and-check.md")
 HOOK = os.path.join(PLUGIN, "hooks", "elasticore-hook.sh")
 METADATA = "https://repo1.maven.org/maven2/io/elasticore/elasticore-base/maven-metadata.xml"
 
@@ -43,6 +52,39 @@ SUMMARY = re.compile(r"=== elcore3: (\d+) written / (\d+) unchanged / (\d+) skip
 GRADLE_TIMEOUT = 900
 
 results = []
+skipped = []
+
+# What references/recipe-library.md uses came with this version: a required reference by its key,
+# @readonly, @search(isnull), @pattern('regex', 'message') and ConflictException.
+LIBRARY_SINCE = (3, 0, 261021)
+
+# The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
+LIBRARY = {
+    "files": "recipe-library.md has its four files",
+    "methods": "recipe-library.md has the methods to add to LoanService.java and MemberService.java",
+    "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
+    "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
+    "kept": "LoanService and MemberService with the added methods are left alone: SKIP(user-owned)",
+    "starts": "the library starts",
+    "K1": "K1 create a book: 200",
+    "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
+    "K3": "K3 an ISBN that exists: 409 already-exists",
+    "K4": "K4 empty or 201-char title, year 1449 or 2101, copies -1, no author: 400 each",
+    "K5": "K5 read a book, unknown ISBN 404, update",
+    "K6": "K6 books paged in title order",
+    "K7": "K7 search by part of the title and of the author",
+    "M1": "M1 a member is created with joinedAt set by the server, the request's ignored (@readonly)",
+    "M2": "M2 an invalid e-mail 400, a taken one 409 unique (@Index unique)",
+    "M3": "M3 a member is read, updated and listed",
+    "L1": "L1 a loan gets its dates from the server, the request's ignored, no returnedDate",
+    "L1b": "L1b a loan without memberId: 400 naming memberId (Member! by key)",
+    "L2": "L2 an unknown member or book: 404 with the thrown message",
+    "L3": "L3 no copy left 409 and zero copies 409 with the thrown message (ConflictException), lent again after a return",
+    "L4": "L4 a return records today's date",
+    "L5": "L5 a second return 409 and an unknown loan 404, with the thrown messages",
+    "L6": "L6 a member's loans, and only the unreturned or returned ones (returnedDateEmpty)",
+    "L7": "L7 a book's loans",
+}
 
 
 def check(name, ok, where, detail=""):
@@ -53,6 +95,31 @@ def check(name, ok, where, detail=""):
         print("FAIL  " + name + "\n      the kit relies on it in: " + where
               + ("\n      " + detail if detail else ""), flush=True)
     return bool(ok)
+
+
+def skip(name, why):
+    skipped.append((name, why))
+    print("SKIP  " + name + " (" + why + ")", flush=True)
+
+
+def version_key(version):
+    """(3, 0, 261021, 0) for '3.0.261021', '3.0.261021-SNAPSHOT' or '3.0.261021.0-alpha3'; None otherwise."""
+    found = re.match(r"(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?$", version)
+    return tuple(int(part or 0) for part in found.groups()) if found else None
+
+
+def at_least(version, since):
+    """Whether the version is since or later; a pre-release of a version (-SNAPSHOT, -alpha3) counts as it."""
+    key = version_key(version)
+    return key is not None and key >= tuple(since) + (0,) * (4 - len(since))
+
+
+def render(text, version):
+    """A file of new-project.md as a project gets it; a -SNAPSHOT also comes from the local Maven repository."""
+    text = text.replace("VERSION", version)
+    if version.endswith("-SNAPSHOT"):
+        text = re.sub(r"^([ \t]*)mavenCentral\(\)", r"\1mavenLocal()\n\1mavenCentral()", text, flags=re.M)
+    return text
 
 
 def newest_3x():
@@ -138,6 +205,221 @@ def free_port():
         return s.getsockname()[1]
 
 
+def asker(base):
+    """ask(method, path, body): the status and the answer - JSON read as JSON, refusals too - else its text."""
+    def ask(method, path, body=None):
+        data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(base + path, data=data_bytes, method=method,
+                                         headers={"Content-Type": "application/json"} if data_bytes else {})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                status, text = response.status, response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            status, text = e.code, e.read().decode("utf-8", "replace")
+        try:
+            return status, json.loads(text)
+        except ValueError:
+            return status, text
+    return ask
+
+
+def check_library(work, version, template, run, java, temp):
+    """references/recipe-library.md built as written - generate, add the methods and the controller,
+    build - then started and called with every request of its API table."""
+    where = "references/recipe-library.md"
+    if not at_least(version, LIBRARY_SINCE):
+        for name in LIBRARY.values():
+            skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
+        return
+    recipe = blocks_by_heading(RECIPE_LIBRARY)
+    controller_file = "src/main/java/com/acme/library/adapter/in/web/LoanReturnController.java"
+    wanted = sorted(["src/main/java/com/acme/library/LibraryApplication.java", controller_file,
+                     "src/main/resources/blueprint/library/env.yml",
+                     "src/main/resources/blueprint/library/model/entity.yml"])
+    check(LIBRARY["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
+    text = read(RECIPE_LIBRARY)
+    added = {}
+    for service in ("LoanService.java", "MemberService.java"):
+        found = re.search(r"^## Add to `%s`\s*\n+```java\n(.*?)```" % re.escape(service), text, re.S | re.M)
+        if found:
+            added[service] = found.group(1)
+    check(LIBRARY["methods"], sorted(added) == ["LoanService.java", "MemberService.java"], where,
+          "found: %s" % sorted(added))
+
+    library = os.path.join(work, "library")
+    for name in ("settings.gradle", "build.gradle"):
+        write(os.path.join(library, name), render(template[name], version)
+              .replace("rootProject.name = 'shop'", "rootProject.name = 'library'"))
+    for name, body in recipe.items():
+        if name != controller_file:
+            write(os.path.join(library, name), body)
+    # As the recipe says: generate, add the methods to the generated services, write the controller, build.
+    rc, out = run(library, "compileJava")
+    write(os.path.join(work, "library-generate.log"), out)
+    application = os.path.join(library, "src", "main", "java", "com", "acme", "library", "application")
+    services = {s: os.path.join(application, s) for s in ("LoanService.java", "MemberService.java")}
+    kinds = {s: kind(p) if os.path.isfile(p) else "missing" for s, p in services.items()}
+    owned_first = rc == 0 and all(k == "owned" for k in kinds.values())
+    check(LIBRARY["owned"], owned_first, where, "exit %d, %s; see %s"
+          % (rc, kinds, os.path.join(work, "library-generate.log")))
+    if not owned_first or len(added) != 2:
+        return
+    for service, path in services.items():
+        current = read(path)
+        cut = current.rstrip().rfind("}")
+        write(path, current[:cut] + "\n" + added[service] + current[cut:])
+    if controller_file in recipe:
+        write(os.path.join(library, controller_file), recipe[controller_file])
+    rc, out = run(library, "bootJar")
+    write(os.path.join(work, "library.log"), out)
+    check(LIBRARY["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
+          and "LOAD ERROR" not in out, where + "; references/new-project.md",
+          "exit %d; see %s" % (rc, os.path.join(work, "library.log")))
+    statuses = {s: status_of(out, s) for s in services}
+    check(LIBRARY["kept"], all(st == "SKIP(user-owned)" for st in statuses.values())
+          and "returnLoan" in read(services["LoanService.java"]) and "beforeSave" in read(services["MemberService.java"]),
+          where + "; SKILL.md section 5", "status: %s" % statuses)
+    libs = os.path.join(library, "build", "libs")
+    jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
+    if not jars:
+        return
+
+    port = free_port()
+    base = "http://127.0.0.1:%d" % port
+    log = open(os.path.join(work, "library-app.log"), "w", encoding="utf-8")
+    app = subprocess.Popen([java, "-Djava.io.tmpdir=" + temp, "-jar", os.path.join(libs, jars[0]),
+                            "--server.port=%d" % port], stdout=log, stderr=subprocess.STDOUT)
+    ask = asker(base + "/api/library")
+    try:
+        started = False
+        deadline = time.time() + 180
+        while time.time() < deadline and app.poll() is None:
+            try:
+                if asker(base)("GET", "/v3/api-docs")[0] == 200:
+                    started = True
+                    break
+            except OSError:
+                pass
+            time.sleep(1)
+        if not check(LIBRARY["starts"], started, "references/run-and-check.md",
+                     "see %s" % os.path.join(work, "library-app.log")):
+            return
+        where = "references/recipe-library.md, the API table"
+
+        def detail(answer):
+            return answer.get("detail") if isinstance(answer, dict) else None
+
+        def fields(answer):
+            return [e.get("field") for e in answer.get("fieldErrors", [])] if isinstance(answer, dict) else []
+
+        def ids(page):
+            return sorted(r.get("loanId") for r in page.get("content", [])) if isinstance(page, dict) else page
+
+        today = datetime.date.today().isoformat()
+        plus14 = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+
+        def book(isbn, title="Dune", author="Frank Herbert", year=1965, copies=1, **change):
+            return dict({"isbn": isbn, "title": title, "author": author, "pubYear": year, "copies": copies}, **change)
+
+        st, b1 = ask("POST", "/book", book("9780000000001", "Dune", "Frank Herbert", 1965, 1))
+        check(LIBRARY["K1"], st == 200 and isinstance(b1, dict) and b1.get("isbn") == "9780000000001", where,
+              "%s %s" % (st, str(b1)[:160]))
+        bad = [ask("POST", "/book", book(i)) for i in ("978000000000", "97800000000011", "978000000000A")]
+        check(LIBRARY["K2"], [s for s, _ in bad] == [400] * 3
+              and all("ISBN must be 13 digits" in str(a) and "isbn" in fields(a) for _, a in bad), where,
+              str([(s, str(a)[:120]) for s, a in bad]))
+        st, body = ask("POST", "/book", book("9780000000001"))
+        check(LIBRARY["K3"], st == 409 and isinstance(body, dict) and body.get("code") == "already-exists", where,
+              "%s %s" % (st, str(body)[:160]))
+        bad = [ask("POST", "/book", book("9780000000002", **c))[0] for c in (
+            {"title": ""}, {"title": "t" * 201}, {"year": 1449}, {"year": 2101}, {"copies": -1})]
+        no_author = ask("POST", "/book", {"isbn": "9780000000002", "title": "x", "pubYear": 2000, "copies": 1})[0]
+        check(LIBRARY["K4"], bad == [400] * 5 and no_author == 400, where, str(bad + [no_author]))
+        ask("POST", "/book", book("9780000000002", "Emma", "Jane Austen", 1815, 2))
+        ask("POST", "/book", book("9780000000003", "Animal Farm", "George Orwell", 1945, 0))
+        st, got = ask("GET", "/book/9780000000001")
+        st404 = ask("GET", "/book/9999999999999")[0]
+        st_upd, upd = ask("PUT", "/book", book("9780000000001", "Dune (2nd ed)", "Frank Herbert", 1965, 1))
+        check(LIBRARY["K5"], st == 200 and st404 == 404 and st_upd == 200 and isinstance(upd, dict)
+              and upd.get("title") == "Dune (2nd ed)", where, str((st, st404, st_upd)))
+        st, page = ask("POST", "/book/search", {"pageNumber": 0, "pageSize": 2})
+        titles = [r.get("title") for r in page.get("content", [])] if isinstance(page, dict) else page
+        check(LIBRARY["K6"], st == 200 and titles == ["Animal Farm", "Dune (2nd ed)"]
+              and page.get("totalElements") == 3, where, str(titles))
+        st, f1 = ask("POST", "/book/search", {"title": "mma"})
+        st2, f2 = ask("POST", "/book/search", {"author": "Orwell"})
+        isbns = [[r.get("isbn") for r in f.get("content", [])] if isinstance(f, dict) else f for f in (f1, f2)]
+        check(LIBRARY["K7"], st == 200 and st2 == 200 and isbns == [["9780000000002"], ["9780000000003"]], where,
+              str(isbns))
+
+        st, m1 = ask("POST", "/member", {"name": "Kim", "email": "kim@example.com", "joinedAt": "2000-01-01"})
+        check(LIBRARY["M1"], st == 200 and isinstance(m1, dict) and m1.get("memberId")
+              and m1.get("joinedAt") == today, where, "%s %s" % (st, str(m1)[:160]))
+        if not isinstance(m1, dict) or not m1.get("memberId"):
+            return
+        st_bad = ask("POST", "/member", {"name": "Lee", "email": "not-an-email"})[0]
+        st_dup, dup = ask("POST", "/member", {"name": "Kim2", "email": "kim@example.com"})
+        check(LIBRARY["M2"], st_bad == 400 and st_dup == 409 and isinstance(dup, dict) and dup.get("code") == "unique",
+              where, "%s %s %s" % (st_bad, st_dup, str(dup)[:160]))
+        st, m2 = ask("POST", "/member", {"name": "Lee", "email": "lee@example.com"})
+        st_get = ask("GET", "/member/%s" % m1["memberId"])[0]
+        st_upd, mu = ask("PUT", "/member", {"memberId": m1["memberId"], "name": "Kim Updated", "email": "kim@example.com"})
+        st_list, ml = ask("POST", "/member/search", {})
+        check(LIBRARY["M3"], st_get == 200 and st_upd == 200 and isinstance(mu, dict) and mu.get("name") == "Kim Updated"
+              and st_list == 200 and isinstance(ml, dict) and ml.get("totalElements") == 2, where,
+              str((st_get, st_upd, st_list)))
+        if not isinstance(m2, dict) or not m2.get("memberId"):
+            return
+
+        st, l1 = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9780000000001", "loanDate": "2000-01-01",
+                                       "dueDate": "2000-01-02", "returnedDate": "2000-01-03"})
+        check(LIBRARY["L1"], st == 200 and isinstance(l1, dict) and l1.get("loanDate") == today
+              and l1.get("dueDate") == plus14 and l1.get("returnedDate") is None, where, "%s %s" % (st, str(l1)[:200]))
+        if not isinstance(l1, dict) or not l1.get("loanId"):
+            return
+        st, body = ask("POST", "/loan", {"bookIsbn": "9780000000001"})
+        check(LIBRARY["L1b"], st == 400 and "memberId" in fields(body), where, "%s %s" % (st, str(body)[:160]))
+        st_m, am = ask("POST", "/loan", {"memberId": 999999, "bookIsbn": "9780000000001"})
+        st_b, ab = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9999999999999"})
+        check(LIBRARY["L2"], st_m == 404 and detail(am) == "Member 999999 not found"
+              and st_b == 404 and detail(ab) == "Book 9999999999999 not found", where,
+              "%s %s; %s %s" % (st_m, str(am)[:120], st_b, str(ab)[:120]))
+        st_full, full = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000001"})
+        st_zero, zero = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000003"})
+        st_ret, ret = ask("POST", "/loan/%s/return" % l1["loanId"])
+        st_again, l3 = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000001"})
+        check(LIBRARY["L3"], st_full == 409 and detail(full) == "No copies of book 9780000000001 left: 1 of 1 are on loan"
+              and isinstance(full, dict) and full.get("code") == "conflict"
+              and st_zero == 409 and detail(zero) == "No copies of book 9780000000003 left: 0 of 0 are on loan"
+              and st_ret == 200 and st_again == 200, where,
+              "%s %s; %s %s; return %s; again %s" % (st_full, str(full)[:120], st_zero, str(zero)[:120], st_ret, st_again))
+        check(LIBRARY["L4"], isinstance(ret, dict) and ret.get("returnedDate") == today, where, str(ret)[:200])
+        st_twice, twice = ask("POST", "/loan/%s/return" % l1["loanId"])
+        st_none, none = ask("POST", "/loan/987654/return")
+        check(LIBRARY["L5"], st_twice == 409 and detail(twice) == "Loan %s was already returned on %s" % (l1["loanId"], today)
+              and st_none == 404 and detail(none) == "Loan 987654 not found", where,
+              "%s %s; %s %s" % (st_twice, str(twice)[:120], st_none, str(none)[:120]))
+        st, l4 = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9780000000002"})
+        _, mine = ask("POST", "/loan/search", {"memberId": m1["memberId"]})
+        _, still_out = ask("POST", "/loan/search", {"memberId": m1["memberId"], "returnedDateEmpty": True})
+        _, back = ask("POST", "/loan/search", {"memberId": m1["memberId"], "returnedDateEmpty": False})
+        l4_id = l4.get("loanId") if isinstance(l4, dict) else None
+        check(LIBRARY["L6"], st == 200 and l4_id is not None and ids(mine) == sorted([l1["loanId"], l4_id])
+              and ids(still_out) == [l4_id] and ids(back) == [l1["loanId"]], where,
+              str((st, ids(mine), ids(still_out), ids(back))))
+        _, by_book = ask("POST", "/loan/search", {"bookIsbn": "9780000000001"})
+        l3_id = l3.get("loanId") if isinstance(l3, dict) else None
+        check(LIBRARY["L7"], l3_id is not None and ids(by_book) == sorted([l1["loanId"], l3_id]), where,
+              str(ids(by_book)))
+    finally:
+        app.terminate()
+        try:
+            app.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            app.kill()
+        log.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gradle", default=os.environ.get("GRADLE", "gradle"))
@@ -168,8 +450,15 @@ def main():
                            env=dict(os.environ, CLAUDE_PLUGIN_DATA=data))
         return p.returncode, p.stdout, p.stderr
 
-    def bash_payload(session, command, out):
-        return {"session_id": session, "tool_name": "Bash", "tool_input": {"command": command},
+    def bash_payload(session, command, out, rc=0):
+        """What Claude Code sends after a command: PostToolUse, or PostToolUseFailure when it exited non-zero."""
+        if rc != 0:
+            # Claude Code passes on the first 10,000 characters of a failed command's output.
+            return {"session_id": session, "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                    "tool_input": {"command": command}, "error": "Exit code %d\n%s" % (rc, out[:10000]),
+                    "is_interrupt": False}
+        return {"session_id": session, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                "tool_input": {"command": command},
                 "tool_response": {"stdout": out, "stderr": "", "interrupted": False, "isImage": False}}
 
     def edit_payload(session, path):
@@ -182,9 +471,15 @@ def main():
               "src/main/resources/blueprint/shop/env.yml", "src/main/resources/blueprint/shop/model/entity.yml"]
     check("new-project.md has the five files of the template", sorted(template) == wanted,
           "references/new-project.md", "found: %s" % sorted(template))
+    wrapped = os.path.join(work, "wrapper")
+    write(os.path.join(wrapped, "settings.gradle"), render(template.get("settings.gradle", ""), version))
+    rc, out = run(wrapped, "wrapper", "--gradle-version", "8.14.3")
+    check("the Gradle wrapper is made with settings.gradle alone, before build.gradle exists",
+          rc == 0 and os.path.isfile(os.path.join(wrapped, "gradlew")), "references/new-project.md",
+          "exit %d: %s" % (rc, out.strip()[-300:]))
     project = os.path.join(work, "shop")
     for name, text in template.items():
-        write(os.path.join(project, name), text.replace("VERSION", version))
+        write(os.path.join(project, name), render(text, version))
     model = os.path.join(project, "src", "main", "resources", "blueprint", "shop", "model")
     blueprint = os.path.dirname(os.path.dirname(model))
     java = os.path.join(project, "src", "main", "java")
@@ -322,6 +617,23 @@ def main():
     write(entity, original_entity)
     run(project, "elcore3")
 
+    # --- a YAML file that does not parse: left out, and the build passes ----------------------
+    review = os.path.join(model, "review.yml")
+    write(review, "entity:\n  Review:\n    meta: entity @root\n    fields:\n"
+                  "      reviewId: long @id @sequence\n     text: string(200)\n")
+    hook("post-edit", edit_payload("broken", review))
+    rc, out = run(project, "compileJava")
+    check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
+          rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
+          and not find(java, "Review.java"),
+          "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
+    check("the hook reports it and keeps the note",
+          "could not be read" in note and os.path.exists(os.path.join(data, "dsl-changed-broken")),
+          "hooks/elasticore-hook.sh post-bash", "hook said: %s" % note.strip()[:200])
+    os.remove(review)
+    run(project, "elcore3")
+
     # --- a DTO the model no longer has: the generated file goes --------------------------
     dto_yml = os.path.join(model, "dto.yml")
     kept = read(dto_yml)
@@ -338,7 +650,7 @@ def main():
     # --- a DTO named in @dtype that nobody defines, in a fresh project -----------------------
     fresh = os.path.join(work, "fresh")
     for name, text in template.items():
-        write(os.path.join(fresh, name), text.replace("VERSION", version))
+        write(os.path.join(fresh, name), render(text, version))
     for name, text in example.items():
         if not name.endswith("dto.yml"):
             write(os.path.join(fresh, "src", "main", "resources", "blueprint", "shop", "model",
@@ -347,6 +659,25 @@ def main():
     check("without dto.yml generation warns unresolved type 'OrderLineDTO' and compileJava fails",
           rc != 0 and "unresolved type 'OrderLineDTO'" in out and "DSL validation warnings:" in out,
           "SKILL.md section 4; references/example-order.md")
+    _, note, _ = hook("post-bash", bash_payload("fresh", "./gradlew compileJava", out, rc))
+    check("the hook passes the warnings on from the failed build", "rule engine" in note,
+          "hooks/elasticore-hook.sh post-bash (PostToolUseFailure)", "hook said: %s" % note.strip()[:200])
+
+    # --- layered Java: the 2.x-compatible output on the rule engine ---------------------------
+    layered = os.path.join(work, "layered")
+    for name, text in template.items():
+        if name == "build.gradle":
+            text = re.sub(r"architecture = '\w+'", "architecture = 'layered'", text)
+        write(os.path.join(layered, name), render(text, version))
+    rc, out = run(layered, "compileJava")
+    write(os.path.join(work, "layered.log"), out)
+    check("on layered Java the generator warns that @access is not enforced",
+          "DSL validation warnings:" in out and "@access" in out and "which the selected rules do not enforce" in out,
+          "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
+    check("on layered Java a money field does not compile ('package Money does not exist')",
+          rc != 0 and "package Money does not exist" in out,
+          "SKILL.md section 3; references/new-project.md - when this fails, ElastiCORE fixed it: update both",
+          "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
 
     # --- the tasks the skill names ------------------------------------------------------------
     rc, out = run(project, "tasks", "--all")
@@ -413,6 +744,201 @@ def main():
                 app.kill()
             log.close()
 
+    # --- the board recipe and the quick reference's sample, built and called as written ---------
+    recipe = blocks_by_heading(RECIPE_BOARD)
+    sample = blocks_by_heading(QUICK_REFERENCE)
+    recipe_files = ["src/main/java/com/acme/board/BoardApplication.java",
+                    "src/main/resources/blueprint/board/env.yml", "src/main/resources/blueprint/board/model/entity.yml"]
+    check("recipe-board.md has its three files", sorted(recipe) == recipe_files,
+          "references/recipe-board.md", "found: %s" % sorted(recipe))
+    added = re.search(r"^## Add to `CommentService\.java`\s*\n+```java\n(.*?)```", read(RECIPE_BOARD), re.S | re.M)
+    check("recipe-board.md has the method to add to CommentService.java", added, "references/recipe-board.md")
+    check("quick-reference.md has its sample model", list(sample) == ["src/main/resources/blueprint/board/model/sample.yml"],
+          "references/quick-reference.md", "found: %s" % list(sample))
+    board = os.path.join(work, "board")
+    for name in ("settings.gradle", "build.gradle"):
+        write(os.path.join(board, name), render(template[name], version)
+              .replace("rootProject.name = 'shop'", "rootProject.name = 'board'"))
+    for name, text in list(recipe.items()) + list(sample.items()):
+        write(os.path.join(board, name), text)
+    # As the recipe says: generate, then add the method to the generated CommentService.
+    rc, out = run(board, "compileJava")
+    service = os.path.join(board, "src", "main", "java", "com", "acme", "board", "application", "CommentService.java")
+    owned_first = os.path.isfile(service) and kind(service) == "owned"
+    check("the first generation writes CommentService.java, owned by the developer", rc == 0 and owned_first,
+          "references/recipe-board.md", "exit %d, kind %s" % (rc, kind(service) if os.path.isfile(service) else "missing"))
+    if owned_first and added:
+        text = read(service)
+        cut = text.rstrip().rfind("}")
+        write(service, text[:cut] + "\n" + added.group(1) + text[cut:])
+    rc, out = run(board, "build", "bootJar")
+    write(os.path.join(work, "board.log"), out)
+    check("the board recipe and the sample generate, compile and pass the generated tests (gradlew build)",
+          rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out and "LOAD ERROR" not in out,
+          "references/recipe-board.md; references/quick-reference.md; references/new-project.md (test setup)",
+          "exit %d; see %s" % (rc, os.path.join(work, "board.log")))
+    check("CommentService with the added method is left alone: SKIP(user-owned)",
+          status_of(out, "CommentService.java") == "SKIP(user-owned)" and "beforeSave" in read(service),
+          "references/recipe-board.md", "status: %s" % status_of(out, "CommentService.java"))
+    libs = os.path.join(board, "build", "libs")
+    jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
+    if jars:
+        port = free_port()
+        base = "http://127.0.0.1:%d" % port
+        log = open(os.path.join(work, "board-app.log"), "w", encoding="utf-8")
+        app = subprocess.Popen([args.java, "-Djava.io.tmpdir=" + temp, "-jar", os.path.join(libs, jars[0]),
+                                "--server.port=%d" % port], stdout=log, stderr=subprocess.STDOUT)
+
+        def ask(method, path, body=None):
+            data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+            request = urllib.request.Request(base + path, data=data_bytes, method=method,
+                                             headers={"Content-Type": "application/json"} if data_bytes else {})
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    text = response.read().decode("utf-8", "replace")
+                    try:
+                        return response.status, json.loads(text)
+                    except ValueError:
+                        return response.status, text
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode("utf-8", "replace")
+
+        try:
+            started = False
+            deadline = time.time() + 180
+            while time.time() < deadline and app.poll() is None:
+                try:
+                    if ask("GET", "/v3/api-docs")[0] == 200:
+                        started = True
+                        break
+                except OSError:
+                    pass
+                time.sleep(1)
+            if check("the board starts", started, "references/run-and-check.md",
+                     "see %s" % os.path.join(work, "board-app.log")):
+                where = "references/recipe-board.md, the API table"
+                P, C = "/api/board/post", "/api/board/comment"
+                st, first = ask("POST", P, {"title": "Hello", "body": "first", "author": "kim"})
+                check("create a post: 200 with postId and createdAt", st == 200 and isinstance(first, dict)
+                      and first.get("postId") and first.get("createdAt"), where, "%s %s" % (st, str(first)[:160]))
+                st, second = ask("POST", P, {"title": "Second", "body": "two", "author": "lee",
+                                             "createdAt": "2000-01-01 00:00:00"})
+                check("a createdAt in the request is ignored", st == 200 and isinstance(second, dict)
+                      and not str(second.get("createdAt", "")).startswith("2000"), where, str(second)[:160])
+                ask("POST", P, {"title": "Hello again", "body": "three", "author": "park"})
+                pid = first.get("postId") if isinstance(first, dict) else 1
+                check("read one: 200, unknown id 404", ask("GET", "%s/%s" % (P, pid))[0] == 200
+                      and ask("GET", P + "/987654")[0] == 404, where)
+                refusals = [ask("POST", P, b)[0] for b in (
+                    {"title": "", "body": "x", "author": "kim"}, {"title": "t" * 101, "body": "x", "author": "kim"},
+                    {"title": "t", "body": "", "author": "kim"}, {"title": "t", "body": "x"})]
+                check("empty title, 101-char title, empty body, no author: 400 each", refusals == [400] * 4, where,
+                      str(refusals))
+                st, upd = ask("PUT", P, {"postId": pid, "title": "Hello (edited)", "body": "first", "author": "kim"})
+                check("update with the id in the body", st == 200 and isinstance(upd, dict)
+                      and upd.get("title") == "Hello (edited)", where, "%s %s" % (st, str(upd)[:160]))
+                st, page = ask("POST", P + "/search", {"pageNumber": 0, "pageSize": 2})
+                ids = [r.get("postId") for r in page.get("content", [])] if isinstance(page, dict) else []
+                check("search pages newest first", st == 200 and len(ids) == 2 and ids == sorted(ids, reverse=True)
+                      and page.get("totalElements") == 3, where, "%s %s" % (st, ids))
+                st, found = ask("POST", P + "/search", {"title": "ell"})
+                titles = [r.get("title") for r in found.get("content", [])] if isinstance(found, dict) else []
+                check("search by part of the title", st == 200 and sorted(titles) == ["Hello (edited)", "Hello again"],
+                      where, "%s %s" % (st, titles))
+                st, com = ask("POST", C, {"postId": pid, "content": "nice", "author": "choi"})
+                check("comment on a post", st == 200 and isinstance(com, dict) and com.get("postId") == pid, where,
+                      "%s %s" % (st, str(com)[:160]))
+                check("comment on an unknown post 404, without postId 400",
+                      ask("POST", C, {"postId": 987654, "content": "x", "author": "han"})[0] == 404
+                      and ask("POST", C, {"content": "x", "author": "han"})[0] == 400, where)
+                lengths = [ask("POST", C, {"postId": pid, "content": c, "author": "han"})[0]
+                           for c in ("c" * 501, "c" * 500, "")]
+                check("a comment of 501 characters 400, of 500 200, empty 400", lengths == [400, 200, 400], where,
+                      str(lengths))
+                st, mine = ask("POST", C + "/search", {"postId": pid})
+                check("a post's comments", st == 200 and isinstance(mine, dict) and mine.get("content")
+                      and all(r.get("postId") == pid for r in mine["content"]), where, "%s %s" % (st, str(mine)[:160]))
+                cid = com.get("commentId") if isinstance(com, dict) else 1
+                st, ed = ask("PUT", C, {"commentId": cid, "content": "edited", "author": "choi"})
+                check("update a comment without postId", st == 200 and isinstance(ed, dict)
+                      and ed.get("content") == "edited", where, "%s %s" % (st, str(ed)[:160]))
+                check("delete a comment, then 404", ask("DELETE", "%s/%s" % (C, cid)) == (200, True)
+                      and ask("GET", "%s/%s" % (C, cid))[0] == 404, where)
+                check("a post with comments answers 409 on delete", ask("DELETE", "%s/%s" % (P, pid))[0] == 409, where)
+
+                where = "references/quick-reference.md"
+                good = {"name": "Dune", "handle": "dune", "memo": "", "contact": "a@b.co", "rating": 5,
+                        "price": 12.5, "releasedOn": "2021-10-22", "inStock": True, "kind": "B"}
+                st, item = ask("POST", "/api/board/item", good)
+                check("the sample creates: a 15-character @genid key, money, enum by code, both time stamps",
+                      st == 200 and isinstance(item, dict) and len(item.get("itemCode") or "") == 15
+                      and item.get("kind") == "B" and item.get("createdAt") and item.get("modifiedAt"),
+                      where, "%s %s" % (st, str(item)[:200]))
+                check("string(n)! lets \"\" through (memo)", st == 200, where)
+                bad = [ask("POST", "/api/board/item", dict(good, **change))[0] for change in (
+                    {"name": ""}, {"handle": "abc"}, {"contact": "not-an-address"}, {"rating": 0}, {"rating": 11})]
+                check("@notblank, @length(min=4), @email, @min(1), @max(10) each refuse: 400", bad == [400] * 5, where,
+                      str(bad))
+        finally:
+            app.terminate()
+            try:
+                app.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                app.kill()
+            log.close()
+
+    # --- the PowerShell start in run-and-check.md, as three tool calls through a shell whose pipes
+    # the caller holds, as opencode's bash tool does: the start must return while the server runs --
+    if jars and os.name == "nt":
+        block = re.search(r"```powershell\n(.*?)```", read(RUN_AND_CHECK), re.S)
+        lines = block.group(1).rstrip("\n").split("\n") if block else []
+        cut = next((i for i, l in enumerate(lines) if l.startswith("$app.Id")), None)
+        if check("run-and-check.md has the PowerShell block, the start before the wait", block and cut is not None,
+                 "references/run-and-check.md"):
+            port = free_port()
+            lines = [l.replace("PORT", str(port)).replace("DOMAIN", "board").replace("ENTITY", "post") for l in lines]
+            calls = [("start", lines[:cut + 1]), ("wait and call", lines[cut + 1:-1]), ("stop", lines[-1:])]
+            pid_file = os.path.join(board, "build", "app.pid")
+            where = "references/run-and-check.md - the PowerShell block"
+
+            def alive(pid):
+                return bool(pid) and pid in subprocess.run(["tasklist", "/FI", "PID eq " + pid],
+                                                           capture_output=True, text=True).stdout
+
+            outcome, pid = {}, ""
+            try:
+                for name, script in calls:
+                    began = time.time()
+                    try:
+                        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "\n".join(script)],
+                                              cwd=board, capture_output=True, text=True, timeout=150,
+                                              env=dict(os.environ, TEMP=temp, TMP=temp))
+                        outcome[name] = (time.time() - began, done.returncode, done.stdout + done.stderr)
+                    except subprocess.TimeoutExpired:
+                        outcome[name] = (time.time() - began, None, "the call did not return")
+                    if name == "start":
+                        pid = read(pid_file).strip() if os.path.isfile(pid_file) else ""
+                        took, rc, out = outcome[name]
+                        check("the PowerShell start returns while the server runs (no -RedirectStandardOutput)",
+                              rc == 0 and took < 60 and alive(pid), where,
+                              "took %.0fs, exit %s, pid %r alive %s: %s" % (took, rc, pid, alive(pid), out.strip()[:160]))
+                took, rc, out = outcome["wait and call"]
+                check("the PowerShell wait and search answer a page", rc == 0 and "content" in out, where,
+                      "exit %s: %s" % (rc, out.strip()[:160]))
+                app_log = os.path.join(board, "build", "app.log")
+                check("the server writes build\\app.log itself (--logging.file.name)", os.path.isfile(app_log)
+                      and "Started" in open(app_log, encoding="utf-8", errors="replace").read(), where)
+                took, rc, out = outcome["stop"]
+                check("the PowerShell stop ends the server and removes build\\app.pid",
+                      rc == 0 and not alive(pid) and not os.path.isfile(pid_file), where,
+                      "exit %s, pid %r alive %s" % (rc, pid, alive(pid)))
+            finally:
+                if os.path.isfile(pid_file):
+                    subprocess.run(["taskkill", "/PID", read(pid_file).strip(), "/F"], capture_output=True)
+
+    # --- the library recipe: rules on other rows, server-set values, an operation of its own ------
+    check_library(work, version, template, run, args.java, temp)
+
     # --- the 2.x generator: a build without the elasticore { } block -------------------------
     legacy = os.path.join(work, "legacy")
     for name, text in template.items():
@@ -420,20 +946,25 @@ def main():
             continue
         if name == "build.gradle":
             text = re.sub(r"\nelasticore \{.*?\n\}\n", "\n", text, flags=re.S)
-        write(os.path.join(legacy, name), text.replace("VERSION", version))
+        write(os.path.join(legacy, name), render(text, version))
     legacy_model = os.path.join(legacy, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
     plain = ("entity:\n  Product:\n    meta: entity @root @expose(20) -- product\n    fields:\n"
              "      productId: long @id @sequence\n      name:      string(100)! @search(like)\n")
-    write(legacy_model, plain)
+    write(legacy_model, plain.replace("@expose(20)", "@expose(20) @access(read=public)"))
     rc, out = run(legacy, "elcore")
     write(os.path.join(work, "legacy.log"), out)
     check("a 2.x model generates, and the 2.x generator prints 'ModelExtractor execution mode'",
           rc == 0 and "ModelExtractor execution mode" in out and "BUILD SUCCESSFUL" in out,
           "skills/generate; hooks/elasticore-hook.sh post-bash", "exit %d; see %s" % (rc, os.path.join(work, "legacy.log")))
-    hook("post-edit", edit_payload("legacy", legacy_model))
-    _, after, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out))
-    check("the hook takes a successful 2.x generation as generating",
-          not os.path.exists(os.path.join(data, "dsl-changed-legacy")), "hooks/elasticore-hook.sh post-bash")
+    legacy_java = os.path.join(legacy, "src", "main", "java")
+    generated = "".join(read(os.path.join(d, f)) for d, _, files in os.walk(legacy_java) for f in files)
+    check("the 2.x generator ignores @access without a warning",
+          rc == 0 and "[WARN]" not in out and not re.search(r"(?i)access[^\n]*(ignored|not enforced)", out)
+          and "AccessPolicy" not in generated and generated,
+          "SKILL.md section 3; agents; hooks/elasticore-hook.sh post-edit",
+          "see %s" % os.path.join(work, "legacy.log"))
+    write(legacy_model, plain)
+    run(legacy, "elcore")
     rc, out = run(legacy, "compileJava")
     write(os.path.join(work, "legacy-compile.log"), out)
     check("on Spring Boot 4 the 2.x generator's services do not compile (Spring Data 4 delete API)",
@@ -453,20 +984,25 @@ def main():
         run(legacy, "elcore")
     write(legacy_model, plain + "      weight:    kilogramz\n")
     rc, out = run(legacy, "elcore")
-    _, note, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out))
+    _, note, _ = hook("post-bash", bash_payload("legacy", "./gradlew elcore", out, rc))
     check("on the 2.x generator an unknown type fails the build under '[WARN] DSL Validation Warnings:'",
           rc != 0 and "[WARN] DSL Validation Warnings:" in out and "[ERROR] DSL Validation" in out
           and "stopped the build" in note,
           "SKILL.md section 5; skills/generate; hooks/elasticore-hook.sh post-bash")
 
     failed = [r for r in results if not r[0]]
+    line = "ElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results))
+    if skipped:
+        line += ", %d skipped (needs %s)" % (len(skipped), ".".join(map(str, LIBRARY_SINCE)))
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
         with open(summary_file, "a", encoding="utf-8") as f:
-            f.write("### ElastiCORE %s: %d of %d contracts hold\n\n" % (version, len(results) - len(failed), len(results)))
+            f.write("### %s\n\n" % line)
             for ok, name, where, detail in results:
                 f.write("- %s %s%s\n" % ("PASS" if ok else "**FAIL**", name, "" if ok else " - " + where))
-    print("\nElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results)), flush=True)
+            for name, why in skipped:
+                f.write("- SKIP %s - %s\n" % (name, why))
+    print("\n" + line, flush=True)
     sys.exit(1 if failed else 0)
 
 

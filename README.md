@@ -1,13 +1,39 @@
 # ElastiCORE agent kit
 
 A [Claude Code](https://code.claude.com) plugin for projects built with
-[ElastiCORE](https://github.com/xsko/ElastiCORE) - Spring Boot applications generated from a YAML DSL.
+[ElastiCORE](https://github.com/xsko/ElastiCORE) - Spring Boot applications generated from a YAML
+DSL. The same skill is packaged for [opencode](https://opencode.ai) and works in
+[Codex CLI](https://github.com/openai/codex).
 
 Left to itself, an agent edits the generated Java. The next build either overwrites the edit or
 stops updating the file from the model, and nobody notices. With this plugin the agent changes the
 DSL, regenerates, compiles, and tells you what changed for the business.
 
 [한국어](README.ko.md)
+
+## Measured: the same task, with and without the kit
+
+Three agents got a task they had not seen - a library loan API with books, members, loans, a 409
+when no copy is left and a return operation - once as written and once with the kit. An
+independent grader built, started and called every project against the same 21 checks
+(2026-10-21, one Windows PC, Gradle builds inside the times, kit 0.3.0 with a pre-release build of
+ElastiCORE 3.0.261021).
+
+| Agent | Without the kit | With the kit |
+|---|---|---|
+| Claude Code, Sonnet | 4 min 41 s, 20.5 of 21 | **2 min 18 s, 20.5 of 21** |
+| Codex CLI, `gpt-5.6-sol` | 7 min 13 s, 21 of 21 | **3 min 45 s, 21 of 21** |
+| opencode, a small local model (`qwen3.8-flash-next-a5b`) | did not finish in four attempts | **11 min 42 s, 21 of 21** |
+
+Without the kit, an agent writes every entity, DTO, repository, service, controller and error
+handler by hand. With it, the same agent writes one 27-line YAML, two service methods and one
+controller, and the generator does the rest: Claude Code finished in 10 model calls instead of 16
+and read a third less context, Codex in 23 instead of 29. The same task is where ElastiCORE
+3.0.261021 got five DSL additions - the kit's first run on it showed what an agent still had to
+write in Java, and the DSL took that over.
+
+The task, the checklist, the runners, the token counts, what each agent did, the earlier runs and
+the caveats are in [benchmarks/library](benchmarks/library/README.md).
 
 ## Install
 
@@ -26,6 +52,17 @@ every week - it does not build ElastiCORE from source or look through other proj
 The hooks run in bash: macOS and Linux have it, and on Windows Claude Code runs hooks with Git Bash.
 On Windows without Git Bash, Claude Code reports a hook error on every edit and command - install
 Git for Windows, or disable the plugin.
+
+A new project needs JDK 17 or later and Gradle 8.14 or later on the PATH.
+
+**opencode:** clone this repository and run `opencode/install.sh` (or `opencode/install.ps1`). It
+installs the same skill and hook script, an opencode plugin that runs them, and the agents and
+commands as opencode's own - see [opencode/README.md](opencode/README.md).
+
+**Codex CLI:** copy `plugins/elasticore/skills/elasticore` into your project as
+`.agents/skills/elasticore` (or into `~/.agents/skills/elasticore` for every project). Codex gets
+the skill - the fast path, the reference and the recipes; the hooks are Claude Code's and
+opencode's. That is how it ran in the comparison above.
 
 ## Update
 
@@ -48,8 +85,8 @@ Claude Code then updates it when a session starts, and the next session loads th
 
 | Part | What it does |
 |---|---|
-| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It says how to start a project, which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. For syntax it sends Claude to the guides ElastiCORE copies into the project. |
-| Hooks | Stop edits to generated files and `-Pforce` runs, say what to run after a DSL change, pass on the generator's warnings, and keep Claude from finishing with a DSL change that no successful build has generated. |
+| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. It starts with a fast path: a one-page DSL reference, two complete recipes - posts and comments (CRUD, validation, search, paging, time stamps), and books, members and loans (rules on other rows, values the server sets, an operation of its own; ElastiCORE 3.0.261021 or later) - and how an agent runs and checks the application. Then: which generator the build runs and what each supports, how to tell generated files from yours, where a change belongs, the loop (change the DSL, `./gradlew compileJava`, read the generator's warnings), what to ask you first, and how to report. Everything the reference and the recipes show is generated, built and called by the contract test - the library recipe when the ElastiCORE under test is 3.0.261021 or later; for the rest it sends Claude to the guides ElastiCORE copies into the project. |
+| Hooks | Stop edits to generated files and `-Pforce` runs, say what to run after a DSL change, pass on the generator's warnings, and keep Claude from finishing with a DSL change that no successful build has generated and compiled. |
 | Agent `elasticore:modeler` | Turns a requirement into a DSL change that generates and compiles, and reports it in business terms. |
 | Agent `elasticore:reviewer` | Reviews a change: hand edits to generated files, DSL the guides or the generator do not know, generated code out of step with the DSL, and who gains or loses what. |
 | `/elasticore:generate [task]` | Regenerates and compiles, then explains every warning, skipped file and error, with the DSL fix. |
@@ -61,15 +98,18 @@ Claude Code then updates it when a session starts, and the next session loads th
 | When | What happens |
 |---|---|
 | Claude uses the edit tools on a generated file - first line `//ecd:`, no `// Initially generated by ElastiCORE;` line, no preserved block | The edit is refused, with where the change belongs instead. Adding one whole preserved block (`// !----------` ... `// ------------!`) goes through. |
-| Claude edits a file ElastiCORE rewrites on every generation - `blueprint/schema.yml`, the copied guides, the default `i18n/<domain>-messages.properties` | Refused |
+| Claude edits a file ElastiCORE rewrites on every generation - `blueprint/schema.yml`, the copied guides, the default `i18n/<domain>-messages.properties`, a generated `orm.xml` | Refused |
 | Claude edits a generated file that has a preserved block | Allowed, with a reminder that only the block survives regeneration |
-| Claude runs Gradle with `-Pforce` | Refused: it overwrites hand edits. You decide |
+| Claude runs Gradle with `-Pforce`, or sets the property another way (`-P force`, `ORG_GRADLE_PROJECT_force`, ...) | Refused: it overwrites hand edits. You decide |
 | Claude changes the model under `src/main/resources/blueprint/<domain>/` | Told to run `./gradlew compileJava` and fix the warnings before finishing; on a build without the `elasticore { }` block, also told that the 2.x generator ignores access rules, lifecycles and derived values |
-| A Gradle build prints DSL validation warnings or reports hand-edited generated files | Told what that means and what to do |
-| Claude is about to finish while no successful build has generated from its DSL change | Sent back once to build. A build in the background, cut short or filtered does not count |
+| A Gradle build - successful or failed - prints DSL validation warnings, a YAML file it could not read, or hand-edited generated files | Told what that means and what to do |
+| Claude is about to finish while no successful build has generated and compiled its DSL change | Sent back once to build. A build in the background, cut short or filtered, or one that only generated, does not count |
 
-The hooks see the edit tools and Gradle runs. An edit made another way - a script through Bash - is
-not stopped; the skill tells Claude not to make one.
+The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
+command too long for Claude Code to pass on is read from the file it saves it to; of a failed one,
+Claude Code passes on only the first 10,000 characters, so in a very large project the warnings may
+be past what the hook sees. An edit made another way - a script through a shell - is not stopped;
+the skill tells Claude not to make one.
 
 To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS=1`, and
 `ELASTICORE_ALLOW_FORCE=1` for `-Pforce`, for example in `.claude/settings.local.json`:
@@ -101,7 +141,11 @@ claude plugin validate . --strict
 claude --plugin-dir ./plugins/elasticore           # try the working copy in an ElastiCORE project
 ```
 
-`ELASTICORE_VERSION=3.0.261015-alpha1 python3 tests/contract/check.py` checks a given release.
+`ELASTICORE_VERSION=3.0.261015-alpha1 python3 tests/contract/check.py` checks a given release. A
+version ending in `-SNAPSHOT` is also looked up in the local Maven repository, so a build of
+ElastiCORE published there with `publishToMavenLocal` can be checked before its release. The library
+recipe's contracts run with 3.0.261021 or later; with an older version the summary line counts them
+as skipped.
 
 ## License
 

@@ -36,11 +36,29 @@ jobs:
         shell: bash
         run: bash tests/hooks/test-hooks.sh
 
-      # macOS's own /bin/bash is 3.2; the bash on the PATH may be a newer one
+      # macOS's own /bin/bash is 3.2; the bash on the PATH may be a newer one.
+      # Runs even when the step above failed, so both results are known.
       - name: Hook tests with /bin/bash
-        if: runner.os == 'macOS'
+        if: always() && runner.os == 'macOS'
         shell: bash
         run: HOOK_BASH=/bin/bash bash tests/hooks/test-hooks.sh
+
+  opencode:
+    name: opencode adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '20'
+
+      # The opencode plugin against the real hook script, and install.sh
+      - name: Adapter tests
+        run: node tests/opencode/test-adapter.mjs
 
   manifests:
     name: Plugin and marketplace manifests
