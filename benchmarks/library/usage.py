@@ -10,7 +10,7 @@ Codex (codex exec --json): turn.completed usage - input_tokens (cached_input_tok
 the cache, cache_write_input_tokens written), output_tokens (reasoning_output_tokens of them) - one
 total for the whole turn. The per-call numbers come from the session rollout that Codex writes to
 ~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl: every token_count event_msg carries
-last_token_usage (that API call) and total_token_usage. Verified on 0.148.0, 2026-10-21.
+last_token_usage (that API call) and total_token_usage. Verified on Codex CLI 0.163.0, 2026-10-21.
 "context processed" = every prompt token the model read over the run (fresh + cache read + cache
 write); "peak context" = the largest single prompt, i.e. how full the window got.
 """

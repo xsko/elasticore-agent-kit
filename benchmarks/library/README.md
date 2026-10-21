@@ -14,17 +14,22 @@ read and repeated.
   Korean text the agents received). Books keyed by a 13-digit ISBN, members with a unique e-mail
   and a joining date the server sets, loans whose dates the server sets, a 409 when no copy is left,
   a return operation, "not yet returned" as a search, 400/404/409 answers, a README with the API.
-  Nothing like it is in the kit's recipes word for word; the library recipe covers the same kind of
-  rules.
+  **The kit's library recipe is this task's model and code**, written after the first round from
+  what that round showed: the three runs with kit 0.3.0 wrote the recipe's 27-line `entity.yml`
+  as it stands (byte for byte in all three) and its service methods and controller. So the
+  with-kit numbers are for a task the kit has a recipe for; the first round (kit 0.2.0, under
+  *Earlier runs*) is the number for a task it has none for.
 - **One prompt, no questions:** each run started in an empty folder with the task, a port of its own
-  and the instruction to decide for itself; nobody answered during a run. Each run had a time limit
-  (25 minutes for the runs in the results table).
+  and the instruction to decide for itself; nobody answered during a run. The Claude Code and
+  Codex runs had a 25-minute limit (only the Codex with-kit run reached it, after its answer -
+  see *Earlier runs*); the opencode rounds had a longer one that no run reached - the attempts
+  without the kit ended on their own, exit code 1, minutes after the call that hung.
 - **The arms:**
 
   | Agent | How it ran | The kit, when given |
   |---|---|---|
   | Claude Code, Sonnet | `claude -p --model sonnet`, permissions bypassed, no user settings or MCP servers ([run_claude.py](run_claude.py)) | the whole plugin through `--plugin-dir`: skill, hooks, agents, commands |
-  | Codex CLI 0.148.0, `gpt-5.6-sol`, reasoning low | `codex exec --json`, no sandbox, no approvals ([run_codex.py](run_codex.py)) | the skill copied to the project's `.agents/skills/elasticore` - the skill only; the hooks are Claude Code's and opencode's |
+  | Codex CLI 0.163.0, `gpt-5.6-sol`, reasoning low | `codex exec --json`, no sandbox, no approvals ([run_codex.py](run_codex.py)) | the skill copied to the project's `.agents/skills/elasticore` - the skill only; the hooks are Claude Code's and opencode's |
   | opencode, `qwen3.8-flash-next-a5b` (a small model on a local vLLM server) | `opencode run --auto` in an isolated config that refuses process kills by name ([run_opencode.py](run_opencode.py)) | the skill and the kit's opencode plugin, which runs the hook script |
 
 - **Versions:** kit 0.3.0 and a pre-release build of ElastiCORE 3.0.261021 (published to the local
@@ -40,7 +45,9 @@ read and repeated.
   tool's own records: Claude Code's `result` events, Codex's session rollout (`token_count` per
   API call), opencode's `step_finish` parts ([usage.py](usage.py)). "Context read" is every prompt
   token the model read over the run, cache hits included; "peak" is the largest single prompt.
-- **Where:** one Windows 11 PC, 2026-10-21, Gradle and dependencies already in the local caches.
+- **Where:** one Windows 11 PC, Gradle and dependencies already in the local caches. The first
+  round (the runs without the kit, kit 0.2.0) ran on 2026-10-20, the kit 0.3.0 and Codex runs on
+  2026-10-21.
 
 ## Results
 
@@ -55,7 +62,7 @@ read and repeated.
 | Claude Code, without | 16 | 657k | 618k | 56k | 26.0k | $0.48 |
 | Claude Code, with | 10 | 437k | 400k | 54k | 7.5k | $0.26 |
 | Codex, without | 29 | 1,000k | 947k | 47k | 14.6k | (subscription) |
-| Codex, with | 23 | 859k | 817k | 45k | 9.5k | (subscription) |
+| Codex, with | 24 | 859k | 817k | 45k | 9.5k | (subscription) |
 | opencode, without (attempt 4) | 66 | 1,396k | 0 | 34k | 16.9k | local |
 | opencode, with | 48 | 1,993k | 0 | 62k | 15.2k | local |
 
@@ -79,9 +86,9 @@ with the kit.
 - **Codex without the kit** (29 calls): 23 Java files by hand, a test among them. Four builds
   failed before it found where Spring Boot 4 had moved `@AutoConfigureMockMvc`, with half a minute
   spent searching the jars under `~/.gradle`; then build, server, checks, README.
-- **Codex with the kit** (23 calls): read `SKILL.md` and four of its pages (after four failed reads
-  - it looked for them under `~/.agents/skills` first), wrote the same 27-line YAML, generated,
-  added the recipe's methods and a 25-line controller, one `--no-daemon` build, server, checks
+- **Codex with the kit** (24 calls): read `SKILL.md` and four of its pages (after four failed reads
+  - it looked for them under `~/.agents/skills` first), wrote the recipe's 27-line YAML, generated,
+  added the recipe's methods and its 25-line controller, one `--no-daemon` build, server, checks
   through 400, 404 and both 409s, stopped the server by the pid it had saved.
 - **opencode without the kit:** four attempts of 9 to 32 minutes; each ended without a final report,
   stuck in a shell call that did not return - in the fourth, the call that started the server. That
@@ -91,14 +98,15 @@ with the kit.
 
 ## Earlier runs, and what they changed
 
-- **Kit 0.2.0 with ElastiCORE 3.0.261020-alpha2.** Claude Code with the kit: 7 min 47 s, 20.5,
-  21 calls, 1.1M context read - it opened the guides and the jars, and wrote Java for what the DSL
-  did not have: dates the server sets that a request could overwrite, "not yet returned" as a
-  search, the ISBN format rule, a loan that had to send the nested member, a 409 with its own
-  message. Those became `@readonly`, `@search(isnull)`, `@pattern('re', 'message')`,
-  `ref: Entity!` and `ConflictException` in ElastiCORE 3.0.261021, and the library recipe in kit
-  0.3.0. opencode with the kit: 18 min 57 s, 19 (no README, no unreturned-only filter) and, on a
-  second attempt, 34 min 2 s, 20.
+- **Kit 0.2.0 with ElastiCORE 3.0.261020-alpha2 - the kit without a recipe for the task.** Claude
+  Code with the kit: 7 min 47 s, 20.5, 21 calls, 1.1M context read - slower than without the kit.
+  It read the kit's pages (the board recipe among them) and the generated sources, and wrote Java
+  for what the DSL did not have: dates the server sets that a request could overwrite, "not yet
+  returned" as a search, the ISBN format rule, a loan that had to send the nested member, a 409
+  with its own message. Those became `@readonly`, `@search(isnull)`, `@pattern('re', 'message')`,
+  `ref: Entity!` and `ConflictException` in ElastiCORE 3.0.261021, and the task's model and code
+  became the library recipe in kit 0.3.0. opencode with the kit: 18 min 57 s, 19 (no README, no
+  unreturned-only filter) and, on a second attempt, 34 min 2 s, 20.
 - **Kit 0.3.0, first Claude Code run: 15 min 32 s, 21.** Ten of those minutes were one
   `sh ./gradlew build` that had finished in twelve seconds: on Windows the Unix wrapper script does
   not return from Claude Code's Bash tool when it starts a Gradle daemon (the daemon inherits the
@@ -116,6 +124,13 @@ with the kit.
 
 ## Caveats
 
+- The library recipe is this task's solution, written from the first round. The with-kit results
+  measure an agent that has a recipe for the task's domain; the kit 0.2.0 run is the one without.
+- The task drove the five DSL additions of the ElastiCORE version under test, and that version
+  (3.0.261021) is not on Maven Central yet; with 3.0.261020-alpha2 the recipe needs the hand-written
+  checks its last section lists.
+- The Claude Code with-kit number is a second run, after a fix the first run exposed (the Gradle
+  call that never returned); the without-kit arm ran once.
 - One run per arm (opencode without the kit: four). Run-to-run variation is not measured.
 - The comparison is within each agent - the same agent, the same model, with and without the kit.
   The three agents differ in model, price and speed, and the numbers do not rank them.
@@ -129,9 +144,12 @@ with the kit.
 
 ## Reproduce
 
-Windows, with the agents installed and signed in, JDK 17 and Gradle 8.14 or later on the PATH, and
-the ElastiCORE release the task names on Maven Central (or a `-SNAPSHOT` in the local Maven
-repository):
+Windows (the runners use `taskkill`, `netstat` and PowerShell), with the agents installed and
+signed in, JDK 17 and Gradle 8.14 or later on the PATH, and the ElastiCORE version the task names.
+Until 3.0.261021 is on Maven Central, build it yourself: clone
+[xsko/ElastiCORE](https://github.com/xsko/ElastiCORE) at the merge of its pull request 4 (commit
+`879716d`), run `./gradlew publishToMavenLocal`, and set `ELASTICORE_VERSION=3.0.261021-SNAPSHOT`
+- the runners then tell the agent to use the local Maven repository.
 
 ```bash
 cd benchmarks/library
