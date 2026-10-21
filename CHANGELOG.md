@@ -32,6 +32,24 @@ every referenced row, a role check for an administrator's report and a start-up 
 - **`references/run-and-check.md`:** the bash start detaches stdin (`< /dev/null`); start the server
   and call it in separate tool calls (a Kotlin run lost close to seven minutes doing both in one);
   scratch files under `build/`, not `/tmp`.
+- **A time set when the row is made** is `@readonly @default(now)` - on the quick reference, in the
+  shop recipe (no `@EnableJpaAuditing`) and in the library recipe, whose `MemberService` method is
+  gone. `Money` on the quick reference says what `times(BigDecimal)` and `rounded` do.
+- **`SKILL.md`, the quick reference and the contract test:** from 3.0.261021 a model file that does
+  not parse stops the build, naming it. The contract test reads `tasklist` with `errors="replace"`
+  (a Korean Windows answered in CP949 and the run crashed).
+- **A change request on a finished project** (stock, reviews, a courier API, BI measures, Korean
+  messages; `benchmarks/petstore/`): every arm searched the long guides for `metrics:` and wrote
+  `ValidationMessages.properties` or `spring.web.locale` by hand. The quick reference now has the
+  measures (`metrics.yml`, `ossie-export`), the message language and translation files, the 502 of a
+  failed port call, `PUT /batch`, `POST /delete` and `GET /schema/info`, `beforeSave` as the place for
+  rules about writes, `@updatable(false)` on a reference, `typescriptClient = true`, and the sign-in
+  rules of 3.0.261021 (only the member or the administrator may change the row; a unique login).
+  `@search(like)` ignores case from 3.0.261021.
+- **`references/example-order.md`:** the login is `@unique` - 3.0.261021 warns about a login two rows
+  could share.
+- **`benchmarks/petstore/`:** the pet store task, its checklist, a change request with its own
+  checklist, the runners and the analysis scripts, and what each round showed.
 - The skill's fast path names the shop recipe.
 
 ## 0.3.0
