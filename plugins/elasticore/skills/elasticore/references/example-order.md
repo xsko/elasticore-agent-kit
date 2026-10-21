@@ -15,7 +15,7 @@ entity:
     meta: entity @root @editable @expose(20) @owner(customerId) @access(read=owner, create=public, update=owner) -- customer
     fields:
       customerId: long @id @sequence
-      login:      string(20)! @search(eq) @login
+      login:      string(20)! @search(eq) @login @unique
       password:   string(255)! @password
       name:       string(50)! @search(like)
 

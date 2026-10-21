@@ -45,7 +45,7 @@ or start Codex with `GRADLE_OPTS=-Dorg.gradle.daemon=false` in its environment.
 [ -f build/app.pid ] && kill "$(cat build/app.pid)" 2>/dev/null; sleep 1   # the server you started before, if any
 JAR=$(ls build/libs/*.jar | grep -v -- -plain.jar | head -1)
 mkdir -p build/tmp
-java -Djava.io.tmpdir="$PWD/build/tmp" -jar "$JAR" --server.port=PORT > build/app.log 2>&1 &
+java -Djava.io.tmpdir="$PWD/build/tmp" -jar "$JAR" --server.port=PORT < /dev/null > build/app.log 2>&1 &
 echo $! > build/app.pid
 for i in $(seq 1 90); do
   kill -0 "$(cat build/app.pid)" 2>/dev/null || { echo "the server stopped:"; tail -30 build/app.log; break; }
@@ -60,6 +60,12 @@ kill "$(cat build/app.pid)" && rm build/app.pid             # stop the server yo
 
 If it does not answer within the wait, read `build/app.log`. "Port PORT was already in use" means
 another program has the port: use another port - do not stop that program.
+
+Start the server in one tool call and call it in the next ones. A script of your own that builds,
+starts the server and runs its requests in one call held a Claude Code call for close to seven
+minutes on Windows (every `curl` in it answered `000`), while the same requests in a later call
+answered at once. Keep scratch files - request bodies, cookie jars, logs - under `build/`, not in
+`/tmp`, which in Git Bash is the user's temporary folder outside the project.
 
 ## The same in PowerShell
 

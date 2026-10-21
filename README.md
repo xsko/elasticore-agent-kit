@@ -38,8 +38,9 @@ the files the generator hands over.
 
 ## The plugin
 
-- **A skill:** the pages the agent reads. A fast path, a one-page DSL reference, two complete
-  recipes - a board (posts and comments) and a library (books, members, loans) - and how to run and
+- **A skill:** the pages the agent reads. A fast path, a one-page DSL reference, three complete
+  recipes - a board (posts and comments), a library (books, members, loans) and a shop (members who
+  sign in, orders) - and how to run and
   check the application from a shell. It knows which files the generator owns and where a change
   belongs.
 - **Hooks:** checks on every edit and build. An edit to a generated file is refused, with where the
@@ -146,7 +147,7 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 
 | Part | What it does |
 |---|---|
-| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. Knows which files the generator owns, holds the one-page DSL reference, the two recipes and the run-and-check page, and says where a change belongs, what to ask you first and how to report. What the reference and the recipes show is generated, built and called by the contract test; for anything else it sends Claude to the guides ElastiCORE copies into the project. |
+| Skill `elasticore` | Loads when Claude works in an ElastiCORE project or starts one. Knows which files the generator owns, holds the one-page DSL reference, the three recipes and the run-and-check page, and says where a change belongs, what to ask you first and how to report. What the reference and the recipes show is generated, built and called by the contract test; for anything else it sends Claude to the guides ElastiCORE copies into the project. |
 | Hooks | Stop edits to generated files and `-Pforce` runs, say what to run after a DSL change, pass on the generator's warnings, and keep Claude from finishing with a DSL change that no successful build has generated and compiled. |
 | Agent `elasticore:modeler` | Turns a requirement into a DSL change that generates and compiles, and reports it in business terms. |
 | Agent `elasticore:reviewer` | Reviews a change: hand edits to generated files, DSL the guides or the generator do not know, generated code out of step with the DSL, and which roles gain or lose access. |

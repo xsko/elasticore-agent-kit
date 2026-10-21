@@ -5,7 +5,9 @@ template of `new-project.md` does. Without that block the 2.x generator runs, an
 does not apply (SKILL.md section 3).
 
 Everyday work needs only this page and a recipe: `recipe-board.md` for plain CRUD, `recipe-library.md`
-for rules on other rows, server-set values and an operation of its own. Open the project's long guides
+for rules on other rows, server-set values and an operation of its own, `recipe-shop.md` for members
+who sign in, who may do what, an order's lifecycle, prices kept and summed, an administrator's report,
+events and start-up data. Open the project's long guides
 (`src/main/resources/blueprint/elasticore-*.md`) only for something this page does not have. Every
 line in the sample at the end is generated, compiled and called by the agent kit's CI.
 
@@ -34,6 +36,11 @@ run `./gradlew.bat`, from Git Bash too (`run-and-check.md` says why). To run the
 | `string(100) @email` | an e-mail address |
 | `string(13)! @pattern('^[0-9]{13}$', 'ISBN must be 13 digits')` | a format rule: 400 with that message when the value does not match (from 3.0.261021; write a backslash doubled, `\\d`, or use `[0-9]`) |
 | `int @min(1) @max(10)` | a whole number from 1 to 10 |
+| `date @past`, `date @future` | a date before today, after today (`@pastorpresent`, `@futureorpresent` include today) |
+| `string(30)! @writeonly` | accepted in requests, never in answers (a card number) |
+| `string(255)! @password` | kept as a hash, never in answers or searches; with a `@login` field the entity signs in (below) |
+| `lines: List<OrderLine> @OneToMany(mappedBy="order") @dtype(List<OrderLineDTO>) @minsize(1, 'an order needs a line')` | at least one member: 400 when the list is empty or left out (from 3.0.261021) |
+| `address: Address! @Embedded` | a value (an `Address` entity with `meta: entity @embeddable`): its fields are columns of this table; `!` makes the value required, and its own `!` fields are required whenever it is sent |
 | `long`, `int`, `boolean`, `date`, `datetime`, `money(10.2)` | the other types; `datetime` is `"yyyy-MM-dd HH:mm:ss"` in JSON |
 | `kind: ItemKind` | an enum of the model (an `enumeration:` entry) |
 | `post: Post` | a reference to another root: requests and answers carry its id field (`postId`) |
@@ -52,8 +59,9 @@ columnList="email", unique=true)` on the entity line for a unique field.
 Not types: `uuid`, `short`, `char`, `OffsetDateTime`. Use `string(36)` for a uuid, `int` for a
 short, `string(1)` for a char, `timestamp` (an instant, ISO-8601 in JSON) for an offset time.
 
-YAML: a label with `: ` in it breaks the file (`* LOAD ERROR:` in the build output, and the whole
-file is left out); ` #` cuts the label off there. Write `-- title, required`, not `-- title: required`.
+YAML: a label with `: ` in it breaks the file (`* LOAD ERROR:` in the build output, the whole file is
+left out, and from 3.0.261021 the build stops naming it); ` #` cuts the label off there. Write
+`-- title, required`, not `-- title: required`.
 
 ## Keys
 
@@ -70,7 +78,7 @@ file is left out); ` #` cuts the label off there. Write `-- title, required`, no
 | `@editable` | it can be updated (`PUT`); without it a root has no update, and its fields go to a generated `XxxBase` class |
 | `@expose(20)` | the REST API; 20 is the page size |
 | `@sort(postId-)` | the default order of lists: `-` descending, `+` ascending |
-| `@search(like)` on a field | search by part of the value (case-sensitive; `@search(%__%)` ignores case); other text fields match the whole value unless it starts or ends with `%`; date fields are searched with `<field>From` and `<field>To` |
+| `@search(like)` on a field | search by part of the value, ignoring case and surrounding spaces (from 3.0.261021; `@search(%_%)` keeps case); other text fields match the whole value unless it starts or ends with `%`; date fields are searched with `<field>From` and `<field>To` |
 
 ## The API of an `@expose` entity
 
@@ -84,20 +92,88 @@ Base path `/api/<domain>/<entity>` - the entity name with a small first letter: 
 | `PUT /` with the key **in the body** | update (needs `@editable`) |
 | `DELETE /{key}` | delete; answers `true` |
 | `POST /search` with `{field: value, "pageNumber": 0, "pageSize": 20, "sortCode": "title+"}` | a page: `content`, `totalElements`, `totalPages`, `number` |
+| `PUT /batch` with a list of rows | update several in one transaction (needs `@editable`) - a rule of yours about writes has to hold here too (`beforeSave`, below) |
+| `POST /delete` with a list of keys | delete several; answers a list of `true`/`false` |
+| `GET /schema/info` | the entity's field descriptions, for a generic screen |
 
 There is no `GET` for a list. `pageNumber` starts at 0. Invalid input answers 400 with `fieldErrors`;
-a row still referenced answers 409.
+a row still referenced answers 409. A key of another aggregate that names no row (`"productId": 99`)
+answers 404 `Product 99 does not exist` - generated, do not look it up yourself (from 3.0.261021).
+
+## Who may do what, and signing in (rule engine, from 3.0.261021)
+
+| Write | Means |
+|---|---|
+| `meta: entity ... @access(read=public)` | anyone reads and searches; every operation the line does not name is the administrator's |
+| `@access(read=owner, create=user, cancel=owner) @owner(memberId)` | a signed-in member creates (and becomes the owner whatever the request says), reads and cancels only their own (another's answers 404); the rest is the administrator's |
+| levels | `public`, `user` (signed in), `owner`, `admin`, `none`; `*=user` sets the default |
+| `meta: entity @root @editable @expose(20) @signin ...` with `login: string(20)! @login` and `password: string(255)! @password` | sign-in is generated: `POST /api/<domain>/<entity>/signin` `{"login": "...", "password": "..."}` (401 `Wrong login or password`), `POST .../signout` (204), `GET .../me` (401 for a visitor); TypeScript `signIn`, `signOut`, `me()`; the login column is made unique (a taken login 409). One entity of the application says `@signin`, and only the row's own member or the administrator may change it: `@owner(<key>) @access(..., update=owner)` or `update=admin` - otherwise a DSL warning and no sign-in. Do not write a sign-in controller |
+| `login: string(20)! @login @unique` without `@signin` | `authenticate(login, password)` in the service only; without `@unique` a DSL warning (two rows with one login can never sign in) |
+| `role: MemberRole @default(MemberRole.USER) @access(admin)` | the role the session holds (`ADMIN` is the administrator); only an administrator sets it - a sign-up sending `ADMIN` is stored as `USER`. Without `@access(admin)` it is not put in the session (a DSL warning) |
+
+A visitor gets 401, a signed-in member who may not 403. `recipe-shop.md` is a whole model with all of it.
+
+## A lifecycle and values the server works out (`hexagonal`, `ddd`)
+
+```yaml
+      status:    OrderStatus -- status (an enum with PLACED, SHIPPED, CANCELLED)
+      total:     money(12.2) @compute(sum(lines.subTotal)) -- the lines added up
+    states:
+      status:
+        initial: PLACED
+        ship:    PLACED -> SHIPPED
+        cancel:  PLACED -> CANCELLED
+        delete:  CANCELLED            # a row is deleted only in these states
+```
+
+`states:` gives `POST /api/<domain>/<entity>/{id}/ship` and `.../cancel`; a step the state does not
+allow answers 409 (`code` `state.PurchaseOrder.status.cancel`). On an order line,
+`unitPrice: money(10.2) @snapshot(product.price)` keeps the price as it was when ordered and
+`subTotal: money(12.2) @compute(unitPrice * quantity)` works it out on every save; `@compute` takes
+`a * b`, `a + b`, `a - b` or `sum(members.field)`. Neither is taken from a request.
+`@event(Shipped(total))` on the entity line publishes `PurchaseOrderShippedEvent` (package
+`domain.event`) when `ship` is saved; an `@EventListener` method receives it.
 
 ## Time stamps
+
+A time set once, when the row is made - no `beforeSave`, no setup:
+
+```yaml
+orderedAt: datetime @readonly @default(now) -- ordered at, set by the server
+joinedOn:  date @readonly @default(now) -- joined on (today)
+```
+
+`@default(now)` is the entity's initial value (`LocalDateTime.now()`; `date`, `time` and `timestamp`
+too) and `@readonly` keeps a request's value out; an update keeps the stored one. A time that changes
+on every save, or the audit pair:
 
 ```yaml
 createdAt:  datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- written at
 modifiedAt: datetime @jpa:org.springframework.data.annotation.LastModifiedDate -- changed at
 ```
 
-They are set by the server and never taken from a request - only with `@EnableJpaAuditing`
+These two are set by the server and never taken from a request - only with `@EnableJpaAuditing`
 (`org.springframework.data.jpa.repository.config.EnableJpaAuditing`) on the application class.
 There is no `@createtime`.
+
+## Measures for BI tools (Apache Ossie)
+
+A business measure is written once in the model; the build exports it, with the tables, to
+`src/main/resources/blueprint/semantic_model.yml` (an Apache Ossie semantic model) for BI and AI tools:
+
+```yaml
+# src/main/resources/blueprint/<domain>/model/metrics.yml
+metrics:
+  revenue:      sum(PurchaseOrder.total) where status != CANCELLED @terms(sales) -- sales, cancelled orders left out
+  orderCount:   count(PurchaseOrder) where status != CANCELLED -- orders
+  averageOrder: revenue / orderCount @terms(AOV) -- average order value
+```
+
+and `rules = ['ossie-export']` in the `elasticore { }` block of `build.gradle`. `sum`, `avg`, `min`,
+`max` of a field and `count` of rows; `where` with `=`, `!=`, `<`, `<=`, `>`, `>=` and `and` on the same
+entity's fields, enum constants by name; `+ - * /` between measures declared above it (a division never
+divides by zero). A line it cannot read is left out with an `[ossie] ... it is left out.` warning. It
+generates no API: an endpoint that answers these numbers is a method of yours (`recipe-shop.md`'s report).
 
 ## Your own logic and checks
 
@@ -105,11 +181,17 @@ Put it in `<Entity>Service` (it extends `<Entity>CoreService`). Override:
 
 ```java
 @Override
-protected void beforeSave(Post entity, PostDTO request) {   // runs on create and on update
+protected void beforeSave(Post entity, PostDTO request) {   // runs on every write of a row
     if (entity.getPostId() == null) { /* only on create - with an @id @sequence key */ }
     super.beforeSave(entity, request);
 }
 ```
+
+`beforeSave` runs on create, `PUT /`, `PUT /batch` and an update by condition, after the request's
+values are on the entity. A rule about writes - who may change a row, a value worked out from others -
+belongs there (from 3.0.261021 `PUT /batch` also goes through `update()`, so an override of it holds
+there too). A reference that must not move after create - a review stays on its item - is
+`item: Item! @updatable(false)`: an update keeps the stored one.
 
 Add the method to the generated `<Entity>Service.java` after the first generation - do not write
 that file yourself before it exists.
@@ -124,6 +206,33 @@ repositories, security, the error handler - is generated, so do not write those 
 `entityManager` is a field of the service: `entityManager.find(Book.class, isbn)` reads a row,
 `entityManager.createQuery("select count(l) from Loan l where ...", Long.class)` counts.
 
+The runtime classes a file of yours uses - no need to open the jar:
+
+| Class or field | What |
+|---|---|
+| `ACCESS.require(currentUser, "report")` (fields of the generated service) | the entity's `@access` for an operation of your own: 401 for a visitor, 403 for who may not; an operation the line does not name is the administrator's |
+| `io.elasticore.springboot3.security.CurrentUser` - `currentUser.id()`, `signedIn()`, `hasRole("ADMIN")` | who is asking, as the generated services see it |
+| `CurrentUser.runAsSystem(() -> ...)` | the application itself: every `@access` check passes inside it - start-up data, a nightly job |
+| `io.elasticore.springboot3.security.SessionCurrentUser.signIn(request, id, role)`, `signOut(request)` | the session the generated sign-in uses - only for a flow of your own (sign up and sign in at once) |
+| `io.elasticore.springboot3.domain.Money` - `Money.of("10.00")`, `Money.of(bigDecimal)` (null for null), `plus`, `minus`, `times(long)`, `times(Quantity)`, `times(BigDecimal)`, `rounded(2)`, `toBigDecimal()`, `isNegative()`, `compareTo` | the type of a `money` field. `times(BigDecimal)` multiplies exactly - a 5.5 % VAT is `net.times(new java.math.BigDecimal("0.055")).rounded(2)`; `rounded(n)` is half-up. `plus(null)` and `minus(null)` give the same amount back. Immutable; 10 and 10.00 are equal |
+| `io.elasticore.springboot3.security.NotSignedInException`, `ForbiddenException` | 401, 403 |
+| `io.elasticore.springboot3.validation.BadRequestException`, `ConflictException`, `jakarta.persistence.EntityNotFoundException` | 400, 409, 404 - your message as `detail` |
+
+A file of yours that writes rows at start-up is an `ApplicationRunner` calling the generated
+services inside `CurrentUser.runAsSystem`; it runs once the server already answers requests.
+`recipe-shop.md` has one, an `@EventListener`, and a report behind `ACCESS.require`.
+
+## Messages in another language (from 3.0.261021)
+
+An error answer is in one language: the request's `Accept-Language` when the application has that
+language, otherwise `spring.web.locale` (English when it is not set) - never the server machine's
+language, so do not write a `ValidationMessages.properties` for it. The generated
+`src/main/resources/i18n/<domain>-messages.properties` holds the codes and the DSL's messages; a
+translation is a file of yours beside it, `<domain>-messages_ko.properties`, with the same keys. Every
+refusal answers problem+json with a `code`, also an unreadable body (an unknown enum value: 400 with
+`fieldErrors`), a wrong path (404) or method (405). A failed call of a port answers 502
+(`io.elasticore.springboot3.http.PortCallException`, which hand code can throw too).
+
 ## Names to avoid
 
 - Entity and enum names that are also annotations the generated code uses, when they cross a domain
@@ -135,7 +244,10 @@ repositories, security, the error handler - is generated, so do not write those 
 
 ## After every change
 
-1. `./gradlew compileJava`, and read the whole output.
+1. `./gradlew compileJava`, and read the whole output. A project with the TypeScript client
+   (`src/main/ts`) sets `typescriptClient = true` in the `elasticore { }` block so the build refreshes
+   it; without it run `./gradlew elcore3ts` after each change (from 3.0.261021 the build warns when the
+   client is older than the model).
 2. Fix each line under `[elcore3] DSL validation warnings:` and each `* LOAD ERROR:` in the YAML.
 3. A compile error in a generated file is fixed in the YAML too - never in that file.
 

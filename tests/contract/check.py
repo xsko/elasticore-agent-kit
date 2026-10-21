@@ -61,10 +61,10 @@ LIBRARY_SINCE = (3, 0, 261021)
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
-    "methods": "recipe-library.md has the methods to add to LoanService.java and MemberService.java",
+    "methods": "recipe-library.md has the methods to add to LoanService.java (the dates are @default(now))",
     "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
     "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "LoanService and MemberService with the added methods are left alone: SKIP(user-owned)",
+    "kept": "LoanService with the added methods is left alone: SKIP(user-owned)",
     "starts": "the library starts",
     "K1": "K1 create a book: 200",
     "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
@@ -78,12 +78,37 @@ LIBRARY = {
     "M3": "M3 a member is read, updated and listed",
     "L1": "L1 a loan gets its dates from the server, the request's ignored, no returnedDate",
     "L1b": "L1b a loan without memberId: 400 naming memberId (Member! by key)",
-    "L2": "L2 an unknown member or book: 404 with the thrown message",
+    "L2": "L2 an unknown member or book: 404 reference.Loan.member, \"Member 999999 does not exist\" (generated check)",
     "L3": "L3 no copy left 409 and zero copies 409 with the thrown message (ConflictException), lent again after a return",
     "L4": "L4 a return records today's date",
     "L5": "L5 a second return 409 and an unknown loan 404, with the thrown messages",
     "L6": "L6 a member's loans, and only the unreturned or returned ones (returnedDateEmpty)",
     "L7": "L7 a book's loans",
+}
+
+
+# The shop recipe's contracts (references/recipe-shop.md): sign-in, access, the lifecycle's 409, a
+# missing reference's 404 and a missing list's 400 came with 3.0.261021 too.
+RECIPE_SHOP = os.path.join(REFERENCES, "recipe-shop.md")
+SHOP = {
+    "files": "recipe-shop.md has its seven files",
+    "method": "recipe-shop.md has the method to add to PurchaseOrderService.java",
+    "owned": "the first generation writes PurchaseOrderService.java, owned by the developer",
+    "build": "the shop recipe generates and builds as written (bootJar), with no DSL warning",
+    "kept": "PurchaseOrderService with the added method is left alone: SKIP(user-owned)",
+    "starts": "the shop starts, with the seed's administrator and products",
+    "S1": "S1 sign up: 200, role U although A was sent, no password in the answer",
+    "S2": "S2 a taken login 409 unique; a birth date tomorrow, a zipcode abc, no address, a 7-character password: 400 each",
+    "S3": "S3 sign in: wrong password 401 'Wrong login or password'; right 200; me 200; sign out 204; me 401 (generated)",
+    "S4": "S4 products read and searched without signing in; create 401 visitor, 403 member, 200 admin",
+    "S5": "S5 an order: PLC, the signed-in member, orderedAt set, unitPrice the product's, totals worked out, no cardNumber",
+    "S6": "S6 an order not signed in: 401",
+    "S7": "S7 lines [] or left out 400; unknown product 404 reference.OrderLine.product; expiry 13/30 400",
+    "S8": "S8 another member: my order 404, their list empty; mine lists only mine, newest first; admin sees all",
+    "S9": "S9 ship 403 member, 200 admin; cancel shipped 409 state.PurchaseOrder.status.cancel; cancel own 200; delete 409 placed, 200 cancelled",
+    "S10": "S10 a price changed by the administrator leaves an earlier order as it was",
+    "S11": "S11 the report: 401 visitor, 403 member, 200 admin with counts per status and the revenue without cancelled",
+    "S12": "S12 a log line for the shipped and for the cancelled order (@event listener)",
 }
 
 
@@ -223,6 +248,257 @@ def asker(base):
     return ask
 
 
+def session_asker(base):
+    """ask(method, path, body) with a cookie jar of its own: one client, signed in or not."""
+    import http.cookiejar
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+    def ask(method, path, body=None):
+        data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(base + path, data=data_bytes, method=method,
+                                         headers={"Content-Type": "application/json"} if data_bytes else {})
+        try:
+            with opener.open(request, timeout=15) as response:
+                status, text = response.status, response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            status, text = e.code, e.read().decode("utf-8", "replace")
+        try:
+            return status, json.loads(text)
+        except ValueError:
+            return status, text
+    return ask
+
+
+def start_app(work, name, jar, java, temp):
+    """The jar started on a free port; (process, base url, log path), or a process that ended."""
+    port = free_port()
+    base = "http://127.0.0.1:%d" % port
+    log_path = os.path.join(work, name + "-app.log")
+    log = open(log_path, "w", encoding="utf-8")
+    app = subprocess.Popen([java, "-Djava.io.tmpdir=" + temp, "-jar", jar, "--server.port=%d" % port],
+                           stdout=log, stderr=subprocess.STDOUT)
+    app.log_file = log
+    deadline = time.time() + 180
+    while time.time() < deadline and app.poll() is None:
+        try:
+            if asker(base)("GET", "/v3/api-docs")[0] == 200:
+                return app, base, log_path
+        except OSError:
+            pass
+        time.sleep(1)
+    return app, None, log_path
+
+
+def stop_app(app):
+    app.terminate()
+    try:
+        app.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        app.kill()
+    app.log_file.close()
+
+
+def check_shop(work, version, template, run, java, temp):
+    """references/recipe-shop.md built as written - generate, add the report, build - then started and
+    called with every request of its API table, signed in as a visitor, two members and the administrator."""
+    where = "references/recipe-shop.md"
+    if not at_least(version, LIBRARY_SINCE):
+        for name in SHOP.values():
+            skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
+        return
+    recipe = blocks_by_heading(RECIPE_SHOP)
+    controller_file = "src/main/java/com/acme/store/adapter/in/web/OrderReportController.java"
+    wanted = sorted(["src/main/java/com/acme/store/StoreApplication.java", "src/main/java/com/acme/store/StoreSeed.java",
+                     "src/main/java/com/acme/store/application/OrderEvents.java", controller_file,
+                     "src/main/resources/blueprint/store/env.yml", "src/main/resources/blueprint/store/model/entity.yml",
+                     "src/main/resources/blueprint/store/model/enum.yml"])
+    check(SHOP["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
+    found = re.search(r"^## Add to `PurchaseOrderService\.java`\s*\n+```java\n(.*?)```", read(RECIPE_SHOP), re.S | re.M)
+    check(SHOP["method"], found, where)
+
+    store = os.path.join(work, "store")
+    for name in ("settings.gradle", "build.gradle"):
+        write(os.path.join(store, name), render(template[name], version)
+              .replace("rootProject.name = 'shop'", "rootProject.name = 'store'"))
+    for name, body in recipe.items():
+        if name != controller_file:
+            write(os.path.join(store, name), body)
+    rc, out = run(store, "compileJava")
+    write(os.path.join(work, "store-generate.log"), out)
+    service = os.path.join(store, "src", "main", "java", "com", "acme", "store", "application", "PurchaseOrderService.java")
+    owned_first = rc == 0 and os.path.isfile(service) and kind(service) == "owned"
+    check(SHOP["owned"], owned_first, where, "exit %d; see %s" % (rc, os.path.join(work, "store-generate.log")))
+    if not owned_first or not found:
+        return
+    current = read(service)
+    cut = current.rstrip().rfind("}")
+    write(service, current[:cut] + "\n" + found.group(1) + current[cut:])
+    write(os.path.join(store, controller_file), recipe[controller_file])
+    rc, out = run(store, "bootJar")
+    write(os.path.join(work, "store.log"), out)
+    check(SHOP["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
+          and "LOAD ERROR" not in out, where + "; references/new-project.md",
+          "exit %d; see %s" % (rc, os.path.join(work, "store.log")))
+    check(SHOP["kept"], status_of(out, "PurchaseOrderService.java") == "SKIP(user-owned)" and "report()" in read(service),
+          where + "; SKILL.md section 5", "status: %s" % status_of(out, "PurchaseOrderService.java"))
+    libs = os.path.join(store, "build", "libs")
+    jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
+    if not jars:
+        return
+
+    app, base, log_path = start_app(work, "store", os.path.join(libs, jars[0]), java, temp)
+    try:
+        api = (base or "") + "/api/store"
+        visitor, admin, kim, lee = (session_asker(api) for _ in range(4))
+        # The seed is an ApplicationRunner: it runs once the server already answers.
+        seeded = False
+        deadline = time.time() + 60
+        while base and not seeded and time.time() < deadline:
+            seeded = admin("POST", "/member/signin", {"login": "admin", "password": "admin-1234"})[0] == 200
+            if not seeded:
+                time.sleep(1)
+        if not check(SHOP["starts"], seeded, "references/run-and-check.md; " + where, "see %s" % log_path):
+            return
+        where = "references/recipe-shop.md, the API table"
+
+        def code(answer):
+            return answer.get("code") if isinstance(answer, dict) else None
+
+        def fields(answer):
+            return [e.get("field") for e in answer.get("fieldErrors", [])] if isinstance(answer, dict) else []
+
+        def num(value):
+            try:
+                return round(float(value), 2)
+            except (TypeError, ValueError):
+                return None
+
+        home = {"street": "1 A St", "city": "Seoul", "zipcode": "12345"}
+
+        def member(login, **change):
+            return dict({"login": login, "password": "pw-12345", "name": login.title(), "email": login + "@example.com",
+                         "birthDate": "1990-05-01", "address": home}, **change)
+
+        st, m1 = visitor("POST", "/member", member("kim", role="A"))
+        check(SHOP["S1"], st == 200 and isinstance(m1, dict) and m1.get("role") == "U" and "password" not in m1
+              and m1.get("memberId"), where, "%s %s" % (st, str(m1)[:200]))
+        if not isinstance(m1, dict) or not m1.get("memberId"):
+            return
+        visitor("POST", "/member", member("lee"))
+        st_dup, dup = visitor("POST", "/member", member("kim"))
+        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        bad = [visitor("POST", "/member", m)[0] for m in (
+            member("park", birthDate=tomorrow), member("choi", address=dict(home, zipcode="abc")),
+            {k: v for k, v in member("jung").items() if k != "address"}, member("yoon", password="pw-1234"))]
+        check(SHOP["S2"], st_dup == 409 and code(dup) == "unique" and bad == [400] * 4, where,
+              "%s %s %s" % (st_dup, code(dup), bad))
+
+        st_wrong, wrong = kim("POST", "/member/signin", {"login": "kim", "password": "nope"})
+        st_in, signed = kim("POST", "/member/signin", {"login": "kim", "password": "pw-12345"})
+        st_me, me = kim("GET", "/member/me")
+        st_out = kim("POST", "/member/signout")[0]
+        st_after = kim("GET", "/member/me")[0]
+        check(SHOP["S3"], st_wrong == 401 and isinstance(wrong, dict) and wrong.get("detail") == "Wrong login or password"
+              and st_in == 200 and isinstance(signed, dict) and "password" not in signed
+              and st_me == 200 and isinstance(me, dict) and me.get("login") == "kim"
+              and st_out == 204 and st_after == 401, where,
+              "%s %s; in %s; me %s %s; out %s; after %s" % (st_wrong, str(wrong)[:80], st_in, st_me, str(me)[:80], st_out, st_after))
+        kim("POST", "/member/signin", {"login": "kim", "password": "pw-12345"})
+        lee("POST", "/member/signin", {"login": "lee", "password": "pw-12345"})
+
+        st_find, fish = visitor("POST", "/product/search", {"name": "fish"})
+        names = [p.get("name") for p in fish.get("content", [])] if isinstance(fish, dict) else fish
+        products = {p.get("name"): p for p in visitor("POST", "/product/search", {})[1].get("content", [])}
+        angelfish = products.get("Angelfish", {}).get("productId")
+        bulldog = products.get("Bulldog", {}).get("productId")
+        st_read = visitor("GET", "/product/%s" % angelfish)[0]
+        koi = {"name": "Koi", "price": 25.00}
+        st_v, st_m = visitor("POST", "/product", koi)[0], kim("POST", "/product", koi)[0]
+        st_a, made = admin("POST", "/product", koi)
+        check(SHOP["S4"], st_find == 200 and names == ["Angelfish"] and st_read == 200 and st_v == 401 and st_m == 403
+              and st_a == 200 and isinstance(made, dict) and made.get("productId"), where,
+              "search %s %s; read %s; create %s %s %s" % (st_find, names, st_read, st_v, st_m, st_a))
+        if not angelfish or not bulldog:
+            return
+
+        card = {"cardNumber": "4111111111111111", "cardType": "VISA", "expiry": "12/30"}
+
+        def order(*lines, **change):
+            return dict({"lines": [{"productId": p, "quantity": q} for p, q in lines], "card": card}, **change)
+
+        st, o1 = kim("POST", "/purchaseOrder", order((angelfish, 2), (bulldog, 1), total=1, memberId=999,
+                                                      status="CAN", orderedAt="2000-01-01 00:00:00"))
+        lines = o1.get("lines", []) if isinstance(o1, dict) else []
+        prices = sorted((num(l.get("unitPrice")), l.get("quantity"), num(l.get("subTotal"))) for l in lines)
+        check(SHOP["S5"], st == 200 and o1.get("status") == "PLC" and o1.get("memberId") == m1["memberId"]
+              and str(o1.get("orderedAt", "")).startswith(datetime.date.today().isoformat())
+              and prices == [(10.0, 2, 20.0), (180.0, 1, 180.0)] and num(o1.get("total")) == 200.0
+              and "4111111111111111" not in json.dumps(o1), where, "%s %s" % (st, str(o1)[:300]))
+        if not isinstance(o1, dict) or not o1.get("orderId"):
+            return
+        check(SHOP["S6"], visitor("POST", "/purchaseOrder", order((angelfish, 1)))[0] == 401, where)
+
+        st_empty, empty = kim("POST", "/purchaseOrder", order())
+        st_none, none = kim("POST", "/purchaseOrder", {"card": card})
+        st_unknown, unknown = kim("POST", "/purchaseOrder", order((99999, 1)))
+        st_exp = kim("POST", "/purchaseOrder", order((angelfish, 1), card=dict(card, expiry="13/30")))[0]
+        check(SHOP["S7"], st_empty == 400 and "lines" in fields(empty) and st_none == 400 and "lines" in fields(none)
+              and st_unknown == 404 and code(unknown) == "reference.OrderLine.product"
+              and isinstance(unknown, dict) and unknown.get("detail") == "Product 99999 does not exist" and st_exp == 400,
+              where, "%s %s; %s %s; %s %s; %s" % (st_empty, fields(empty), st_none, fields(none), st_unknown,
+                                                   str(unknown)[:120], st_exp))
+
+        st, o2 = kim("POST", "/purchaseOrder", order((angelfish, 1)))
+        st_l, o3 = lee("POST", "/purchaseOrder", order((bulldog, 1)))
+        if not all(isinstance(o, dict) and o.get("orderId") for o in (o2, o3)):
+            return
+
+        def ids(page):
+            return [r.get("orderId") for r in page.get("content", [])] if isinstance(page, dict) else page
+
+        st_other = lee("GET", "/purchaseOrder/%s" % o1["orderId"])[0]
+        mine = ids(kim("POST", "/purchaseOrder/search", {})[1])
+        theirs = ids(lee("POST", "/purchaseOrder/search", {"memberId": m1["memberId"]})[1])
+        everyone = ids(admin("POST", "/purchaseOrder/search", {})[1])
+        check(SHOP["S8"], st_other == 404 and mine == [o2["orderId"], o1["orderId"]] and theirs in ([], [o3["orderId"]])
+              and o1["orderId"] not in theirs and sorted(everyone) == sorted([o1["orderId"], o2["orderId"], o3["orderId"]]),
+              where, "other %s; mine %s; theirs %s; all %s" % (st_other, mine, theirs, everyone))
+
+        st_mship = kim("POST", "/purchaseOrder/%s/ship" % o1["orderId"])[0]
+        st_ship, shipped = admin("POST", "/purchaseOrder/%s/ship" % o1["orderId"])
+        st_late, late = kim("POST", "/purchaseOrder/%s/cancel" % o1["orderId"])
+        st_cancel, cancelled = kim("POST", "/purchaseOrder/%s/cancel" % o2["orderId"])
+        st_del_placed = admin("DELETE", "/purchaseOrder/%s" % o3["orderId"])[0]
+        st_del_mine = kim("DELETE", "/purchaseOrder/%s" % o2["orderId"])[0]
+        check(SHOP["S9"], st_mship == 403 and st_ship == 200 and isinstance(shipped, dict) and shipped.get("status") == "SHP"
+              and st_late == 409 and code(late) == "state.PurchaseOrder.status.cancel"
+              and st_cancel == 200 and isinstance(cancelled, dict) and cancelled.get("status") == "CAN"
+              and st_del_placed == 409 and st_del_mine == 403, where,
+              "ship %s/%s; late %s %s; cancel %s; delete placed %s, as member %s"
+              % (st_mship, st_ship, st_late, code(late), st_cancel, st_del_placed, st_del_mine))
+
+        admin("PUT", "/product", {"productId": angelfish, "name": "Angelfish", "price": 12.00})
+        again = admin("GET", "/purchaseOrder/%s" % o1["orderId"])[1]
+        kept = sorted(num(l.get("unitPrice")) for l in again.get("lines", [])) if isinstance(again, dict) else again
+        check(SHOP["S10"], kept == [10.0, 180.0] and num(again.get("total")) == 200.0, where, str(kept))
+
+        st_rv, st_rm = visitor("GET", "/purchaseOrder/report")[0], kim("GET", "/purchaseOrder/report")[0]
+        st_ra, report = admin("GET", "/purchaseOrder/report")
+        counts = report.get("countByStatus") if isinstance(report, dict) else None
+        check(SHOP["S11"], st_rv == 401 and st_rm == 403 and st_ra == 200
+              and counts == {"PLACED": 1, "SHIPPED": 1, "CANCELLED": 1}
+              and num(report.get("revenue")) == round(200.0 + num(o3.get("total")), 2), where,
+              "%s %s %s %s" % (st_rv, st_rm, st_ra, str(report)[:200]))
+        st_del = admin("DELETE", "/purchaseOrder/%s" % o2["orderId"])[0]
+        log = read(log_path)
+        check(SHOP["S12"] + " - and the cancelled order is deleted by the administrator (200)",
+              st_del == 200 and ("order %s SHIPPED total=" % o1["orderId"]) in log
+              and ("order %s CANCELLED total=" % o2["orderId"]) in log, where,
+              "delete %s; see %s" % (st_del, log_path))
+    finally:
+        stop_app(app)
+
+
 def check_library(work, version, template, run, java, temp):
     """references/recipe-library.md built as written - generate, add the methods and the controller,
     build - then started and called with every request of its API table."""
@@ -243,8 +519,8 @@ def check_library(work, version, template, run, java, temp):
         found = re.search(r"^## Add to `%s`\s*\n+```java\n(.*?)```" % re.escape(service), text, re.S | re.M)
         if found:
             added[service] = found.group(1)
-    check(LIBRARY["methods"], sorted(added) == ["LoanService.java", "MemberService.java"], where,
-          "found: %s" % sorted(added))
+    # The joining date is @readonly @default(now): MemberService needs nothing added.
+    check(LIBRARY["methods"], sorted(added) == ["LoanService.java"], where, "found: %s" % sorted(added))
 
     library = os.path.join(work, "library")
     for name in ("settings.gradle", "build.gradle"):
@@ -262,9 +538,11 @@ def check_library(work, version, template, run, java, temp):
     owned_first = rc == 0 and all(k == "owned" for k in kinds.values())
     check(LIBRARY["owned"], owned_first, where, "exit %d, %s; see %s"
           % (rc, kinds, os.path.join(work, "library-generate.log")))
-    if not owned_first or len(added) != 2:
+    if not owned_first or len(added) != 1:
         return
     for service, path in services.items():
+        if service not in added:
+            continue
         current = read(path)
         cut = current.rstrip().rfind("}")
         write(path, current[:cut] + "\n" + added[service] + current[cut:])
@@ -276,8 +554,10 @@ def check_library(work, version, template, run, java, temp):
           and "LOAD ERROR" not in out, where + "; references/new-project.md",
           "exit %d; see %s" % (rc, os.path.join(work, "library.log")))
     statuses = {s: status_of(out, s) for s in services}
-    check(LIBRARY["kept"], all(st == "SKIP(user-owned)" for st in statuses.values())
-          and "returnLoan" in read(services["LoanService.java"]) and "beforeSave" in read(services["MemberService.java"]),
+    # LoanService was edited, so it is the developer's; MemberService was not, and follows the DSL.
+    check(LIBRARY["kept"], statuses.get("LoanService.java") == "SKIP(user-owned)"
+          and statuses.get("MemberService.java") in ("UNCHANGED", "REGENERATED(owned, never edited)", "SKIP(user-owned)")
+          and "returnLoan" in read(services["LoanService.java"]),
           where + "; SKILL.md section 5", "status: %s" % statuses)
     libs = os.path.join(library, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
@@ -381,8 +661,9 @@ def check_library(work, version, template, run, java, temp):
         check(LIBRARY["L1b"], st == 400 and "memberId" in fields(body), where, "%s %s" % (st, str(body)[:160]))
         st_m, am = ask("POST", "/loan", {"memberId": 999999, "bookIsbn": "9780000000001"})
         st_b, ab = ask("POST", "/loan", {"memberId": m1["memberId"], "bookIsbn": "9999999999999"})
-        check(LIBRARY["L2"], st_m == 404 and detail(am) == "Member 999999 not found"
-              and st_b == 404 and detail(ab) == "Book 9999999999999 not found", where,
+        check(LIBRARY["L2"], st_m == 404 and detail(am) == "Member 999999 does not exist"
+              and isinstance(am, dict) and am.get("code") == "reference.Loan.member"
+              and st_b == 404 and detail(ab) == "Book 9999999999999 does not exist", where,
               "%s %s; %s %s" % (st_m, str(am)[:120], st_b, str(ab)[:120]))
         st_full, full = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000001"})
         st_zero, zero = ask("POST", "/loan", {"memberId": m2["memberId"], "bookIsbn": "9780000000003"})
@@ -623,10 +904,17 @@ def main():
                   "      reviewId: long @id @sequence\n     text: string(200)\n")
     hook("post-edit", edit_payload("broken", review))
     rc, out = run(project, "compileJava")
-    check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
-          rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
-          and not find(java, "Review.java"),
-          "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    if at_least(version, LIBRARY_SINCE):
+        # From 3.0.261021 the rule engine stops the build on it, naming the file and the parser's message.
+        check("a YAML file that does not parse is printed as 'LOAD ERROR' and stops the build, naming the file",
+              rc != 0 and "* LOAD ERROR: " in out and "the model check failed" in out
+              and "review.yml - not read, nothing it declares was generated" in out and not find(java, "Review.java"),
+              "SKILL.md section 5; references/quick-reference.md; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    else:
+        check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
+              rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
+              and not find(java, "Review.java"),
+              "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
     _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
     check("the hook reports it and keeps the note",
           "could not be read" in note and os.path.exists(os.path.join(data, "dsl-changed-broken")),
@@ -902,8 +1190,9 @@ def main():
             where = "references/run-and-check.md - the PowerShell block"
 
             def alive(pid):
-                return bool(pid) and pid in subprocess.run(["tasklist", "/FI", "PID eq " + pid],
-                                                           capture_output=True, text=True).stdout
+                # errors="replace": tasklist answers in the console's code page (CP949 on a Korean Windows).
+                return bool(pid) and pid in (subprocess.run(["tasklist", "/FI", "PID eq " + pid], capture_output=True,
+                                                            text=True, errors="replace").stdout or "")
 
             outcome, pid = {}, ""
             try:
@@ -938,6 +1227,7 @@ def main():
 
     # --- the library recipe: rules on other rows, server-set values, an operation of its own ------
     check_library(work, version, template, run, args.java, temp)
+    check_shop(work, version, template, run, args.java, temp)
 
     # --- the 2.x generator: a build without the elasticore { } block -------------------------
     legacy = os.path.join(work, "legacy")
