@@ -22,8 +22,10 @@ and never build ElastiCORE from its source or publish it locally: it comes from 
    `@password`, and `states:`, `@compute` and `@snapshot` need `ddd` or `hexagonal`. If the
    requirement needs what the project's generator does not enforce, stop and tell the user.
 3. Find the constructs you need in the project's guides - `src/main/resources/blueprint/elasticore-*.md`,
-   the version the project uses. Search them; read the matching section. If no guide shows an
-   annotation, it does not exist: do not invent one.
+   the version the project uses. Search `elasticore-guide-index.md` there for the word and read
+   only the line range it gives (ElastiCORE before 3.0.261023 has no index: `grep -n '^#'` a guide
+   for its headings). Never read a whole guide. If no guide shows an annotation, it does not exist:
+   do not invent one.
 
 ## Making the change
 

@@ -3,6 +3,34 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.5.0
+
+Read less of the guides, and ports.
+
+ElastiCORE copies about half a megabyte of Korean guides into every project's `blueprint/`. From
+3.0.261023 it also writes `blueprint/elasticore-guide-index.md` beside them: one line per section with
+its line range and the words it is about. The skill and both agents now search that index and read
+only the range it names, never a whole guide.
+
+- **`SKILL.md`:** the fast path points to the index. A new "Finding a section" explains how: grep the
+  index for a word (`grep -i -F -e 'excludeMethod' blueprint/elasticore-guide-index.md`), read that
+  range with `Read` offset/limit or `sed -n`, and try other words when nothing matches. With an
+  ElastiCORE older than 3.0.261023, which has no index, it says to use `grep -n '^#'` on the guide.
+  The team rule set row names the rule guide's chapter 10, the rule API reference (new in 3.0.261023).
+  The list of regenerated files includes the index.
+- **Agents `modeler` and `reviewer`** (Claude Code and opencode): look things up through the index; do
+  not read a whole guide.
+- **`references/quick-reference.md`:** a section on ports - a DBMS port and an HTTP port with their
+  DTOs, as built and called on 3.0.261022-rc1 (with `@EnableElastiCore`) and on 3.0.261023 (without).
+  It says what the ElastiCORE version decides: up to rc1 the application class needs
+  `@EnableElastiCore` or the start fails with `No qualifying bean`, and a DBMS method that returns one
+  value or takes one `long` does not work (take and return DTOs); from 3.0.261023 the runtime's
+  auto-configuration registers the ports and both work.
+- **Contract test:** for 3.0.261023 and later, checks that the guide index is there and that its rows
+  open on their headings, and that `@access`, `states:` and `excludeMethod` lead to a section.
+- **README:** ElastiCORE 3.0 is a release candidate on Maven Central (was "alpha"); the 3.0.261021
+  additions the measured runs used are on Central since 3.0.261022-rc1.
+
 ## 0.4.0
 
 A third recipe - a shop with members who sign in - and the quick reference filled in with what
