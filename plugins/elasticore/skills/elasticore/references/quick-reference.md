@@ -8,7 +8,9 @@ Everyday work needs only this page and a recipe: `recipe-board.md` for plain CRU
 for rules on other rows, server-set values and an operation of its own, `recipe-shop.md` for members
 who sign in, who may do what, an order's lifecycle, prices kept and summed, an administrator's report,
 events and start-up data. Open the project's long guides
-(`src/main/resources/blueprint/elasticore-*.md`) only for something this page does not have. Every
+(`src/main/resources/blueprint/elasticore-*.md`) only for something this page does not have, one
+section at a time: search `blueprint/elasticore-guide-index.md` for the word and read the line range
+it gives (SKILL.md section 1). Every
 line in the sample at the end is generated, compiled and called by the agent kit's CI.
 
 ## Where things go
@@ -221,6 +223,68 @@ The runtime classes a file of yours uses - no need to open the jar:
 A file of yours that writes rows at start-up is an `ApplicationRunner` calling the generated
 services inside `CurrentUser.runAsSystem`; it runs once the server already answers requests.
 `recipe-shop.md` has one, an `@EventListener`, and a report behind `ACCESS.require`.
+
+## Calling a database query or another server: ports
+
+A port is an interface generated into `application.port.out` from
+`src/main/resources/blueprint/<domain>/port/*.yml`; the runtime library implements it. The whole
+syntax is the port guide (`blueprint/elasticore-dsl-port-guide.md` - search the guide index for
+`port:`, `dbms`, `@url`).
+
+```yaml
+# blueprint/shop/port/ports.yml
+port:
+  ShopReportPort:
+    meta: dbms
+    methods:
+      priceSummary:
+        meta: method
+        params:
+          input: PriceInput            # a DTO: its getters fill :minPrice
+        return: PriceSummary           # a DTO: the columns by alias
+        nativeQuery: true
+        query: |
+          SELECT COUNT(*) AS itemCount, COALESCE(SUM(price), 0) AS total
+          FROM product WHERE price >= :minPrice
+  CatalogPort:
+    meta: http @url("http://localhost:8080/api/shop")
+    methods:
+      getProduct:
+        meta: method @get("/product/{productId}")
+        params:
+          productId: long
+        return: ProductView
+```
+
+```yaml
+# blueprint/shop/port/dto.yml - generated into application.dto, like the entities' DTOs
+dto:
+  PriceInput:
+    meta: dto
+    fields:
+      minPrice: decimal
+  PriceSummary:
+    meta: dto
+    fields:
+      itemCount: long
+      total: decimal
+  ProductView:
+    meta: dto
+    fields:
+      productId: long
+      name: string
+```
+
+A service of yours takes `ShopReportPort` and `CatalogPort` in its constructor and calls
+`report.priceSummary(input)` and `catalog.getProduct(1L)`. A failed HTTP call answers 502, an error
+body from the other server comes back as the value - see the port guide's 2.8.
+
+Which ElastiCORE the project uses decides two things (`build.gradle`):
+
+| | 3.0.261022-rc1 and older | from 3.0.261023 |
+|---|---|---|
+| making the ports beans | `@EnableElastiCore` (`io.elasticore.springboot3.EnableElastiCore`) on the application class - without it the start fails with `No qualifying bean of type '...Port'` | nothing: the runtime's auto-configuration registers the ports in the application class's package and below |
+| a DBMS method that returns one value (`long`, `string`, `decimal`) or takes one `long` | does not work (fails, or binds nothing) - return a DTO and take a DTO, as above | works: the first column, `null` when there is none; `decimal` is `java.math.BigDecimal` |
 
 ## Messages in another language (from 3.0.261021)
 

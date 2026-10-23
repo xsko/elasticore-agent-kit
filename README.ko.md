@@ -47,7 +47,7 @@ entity:
 - JDK 17 이상. 새 프로젝트를 만들려면 PATH에 Gradle 8.14 이상: 템플릿이 그것으로 Gradle wrapper를 만듭니다.
 - Windows에서는 Git for Windows. hook은 bash로 실행되고, Claude Code가 Git Bash로 그것을 실행합니다. 없으면 Claude Code가
   편집·명령마다 hook 오류를 표시하니 Git for Windows를 설치하거나 플러그인을 끄세요.
-- ElastiCORE 3.0. Maven Central에 알파 릴리스로 있고, 새 프로젝트는 거기의 최신 릴리스를 받습니다. 2.x 프로젝트에서는 hook이
+- ElastiCORE 3.0. Maven Central에 정식 전 릴리스(release candidate)로 있고, 새 프로젝트는 거기의 최신 릴리스를 받습니다. 2.x 프로젝트에서는 hook이
   동작하고, 요약과 레시피는 3.0 기준으로 쓰였습니다.
 
 ## 설치
@@ -113,7 +113,7 @@ kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트
 표를 읽을 때 둘을 함께 봐야 합니다. kit의 도서관 레시피는 첫 실행 뒤에 바로 이 과제에서 썼으므로, kit과 함께 한 실행은 과제의
 영역에 맞는 레시피를 갖고 있었고 그 27줄 YAML을 그대로 썼습니다. 그런 레시피가 없던 첫 실행(kit 0.2.0)은 Claude Code가 7분
 47초에 20.5점 - kit 없이보다 느렸고 - 이것이 kit에 레시피가 없는 과제의 수치입니다. 그 실행이 아직 Java로 써야 했던 것이
-ElastiCORE 3.0.261021의 DSL 추가 다섯 가지가 되었는데, 그 버전은 아직 Maven Central에 없습니다. 지금의 최신인 3.0.261020-alpha2
+ElastiCORE 3.0.261021의 DSL 추가 다섯 가지가 되었고, 3.0.261022-rc1 부터 Maven Central에 있습니다. 3.0.261020-alpha2
 에서는 레시피가 대신 손으로 쓸 것을 안내합니다.
 
 과제 원문, 채점표, 실행 스크립트, 토큰 수, 에이전트마다 한 일, 이전 실행, 유의할 점 전부는

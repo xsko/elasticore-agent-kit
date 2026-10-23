@@ -59,7 +59,8 @@ the files the generator hands over.
 - On Windows, Git for Windows. The hooks run in bash, and Claude Code runs them with Git Bash;
   without it Claude Code reports a hook error on every edit and command - install Git for Windows,
   or disable the plugin.
-- ElastiCORE 3.0, which is in alpha on Maven Central; a new project gets the newest release there.
+- ElastiCORE 3.0, a pre-release (release candidate) on Maven Central; a new project gets the newest
+  release there.
   In a 2.x project the hooks work; the reference and the recipes are written for 3.0.
 
 ## Install
@@ -137,8 +138,8 @@ first round, so the runs with the kit had a recipe for the task's domain and wro
 as it stands; the first run, with kit 0.2.0 and no such recipe, took Claude Code 7 min 47 s for 20.5
 - slower than without the kit - and is the number for a task the kit has no recipe for. What that
 run still had to write in Java became five DSL additions in ElastiCORE 3.0.261021, the version
-under test, which is not on Maven Central yet; with today's 3.0.261020-alpha2 the recipe says what
-to write by hand instead.
+under test; they are on Maven Central since 3.0.261022-rc1. With 3.0.261020-alpha2 the recipe says
+what to write by hand instead.
 
 The task, the checklist, the runners, the token counts, what each agent did, the earlier runs and
 every caveat are in [benchmarks/library](benchmarks/library/README.md).

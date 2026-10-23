@@ -58,6 +58,9 @@ skipped = []
 # @readonly, @search(isnull), @pattern('regex', 'message') and ConflictException.
 LIBRARY_SINCE = (3, 0, 261021)
 
+# blueprint/elasticore-guide-index.md, which SKILL.md section 1 searches first, came with this version.
+INDEX_SINCE = (3, 0, 261023)
+
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
@@ -168,6 +171,33 @@ def guides_named_in_skill():
     with open(SKILL, encoding="utf-8") as f:
         section = f.read().split("## 1.", 1)[1].split("## 2.", 1)[0]
     return sorted(set(re.findall(r"`(elasticore-[\w-]+\.md)`", section)))
+
+
+def check_guide_index(blueprint, version):
+    """SKILL.md section 1: search blueprint/elasticore-guide-index.md for a word, then read the range
+    its line gives. Holds when the index is there, a word the skill names finds a line, and every
+    range opens on the heading the line names."""
+    name = "blueprint/elasticore-guide-index.md leads a word to a section of a guide"
+    if not at_least(version, INDEX_SINCE):
+        skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, INDEX_SINCE)))
+        return
+    path = os.path.join(blueprint, "elasticore-guide-index.md")
+    if not os.path.isfile(path):
+        check(name, False, "SKILL.md section 1", "no index in " + blueprint)
+        return
+    index = read(path)
+    rows = re.findall(r"^(elasticore-[\w-]+\.md):(\d+)-(\d+)  (#+ [^\n]*?)(?:  \[[^\n]*\])?$", index, re.M)
+    wrong = []
+    for guide, first, last, heading in rows:
+        lines = read(os.path.join(blueprint, guide)).split("\n")
+        first, last = int(first), int(last)
+        if last > len(lines) or (first > 1 and lines[first - 1].strip() != heading):
+            wrong.append("%s:%d" % (guide, first))
+    entries = [line for line in index.split("\n") if line.startswith("elasticore-")]
+    words = {w: any(w in line for line in entries) for w in ("@access", "states:", "excludeMethod")}
+    check(name, rows and not wrong and all(words.values()), "SKILL.md section 1",
+          "%d lines, wrong ranges: %s, words not found: %s"
+          % (len(rows), wrong[:5], [w for w, ok in words.items() if not ok]))
 
 
 def write(path, text):
@@ -800,6 +830,7 @@ def main():
     missing = [g for g in guides_named_in_skill() if not os.path.isfile(os.path.join(blueprint, g))]
     check("every guide SKILL.md names is copied into blueprint/", not missing,
           "SKILL.md section 1", "missing: %s" % missing)
+    check_guide_index(blueprint, version)
 
     # --- how files are marked ----------------------------------------------------------
     expected = {"ProductDTO.java": "managed", "ProductService.java": "owned",
@@ -1283,7 +1314,9 @@ def main():
     failed = [r for r in results if not r[0]]
     line = "ElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results))
     if skipped:
-        line += ", %d skipped (needs %s)" % (len(skipped), ".".join(map(str, LIBRARY_SINCE)))
+        # Each skip says the version it needs ("needs ElastiCORE 3.0.261023 or later").
+        needs = sorted(set(why.replace("needs ElastiCORE ", "").replace(" or later", "") for _, why in skipped))
+        line += ", %d skipped (needs %s)" % (len(skipped), " / ".join(needs))
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
         with open(summary_file, "a", encoding="utf-8") as f:

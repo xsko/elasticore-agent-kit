@@ -39,7 +39,8 @@ written without their converters. On the rule engine with `architecture = 'layer
 `@access`, `@owner` and `@password` are not enforced either - the generator warns - and `states:`,
 `@compute` and `@snapshot` need `ddd` or `hexagonal`: a blocker as well. Search the
 project's guides (`src/main/resources/blueprint/elasticore-*.md`) for every other annotation and
-construct the change adds; one that no guide shows is a finding.
+construct the change adds - through `elasticore-guide-index.md` there, reading only the line range
+it gives; one that no guide shows is a finding.
 
 ## 4. Does the generated code match the DSL? (only when asked)
 
