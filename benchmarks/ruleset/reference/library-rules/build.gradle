@@ -1,0 +1,22 @@
+plugins {
+    id 'java-library'
+}
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    // The generator runs these rules; they are not part of the application. VERSION: the
+    // ElastiCORE version of the root build.gradle.
+    compileOnly 'io.elasticore:elasticore-base:VERSION'
+    testImplementation 'io.elasticore:elasticore-base:VERSION'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.named('test') { useJUnitPlatform() }
