@@ -3,6 +3,22 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.7.0
+
+ElastiCORE 3.0.261030-rc6 generates hexagonal and ddd over MyBatis. The kit says how, and checks it.
+
+- **`references/mybatis.md` (new):** the three changes that put the new-project template on MyBatis
+  (the MyBatis starter and Spring Data's paging types instead of `spring-boot-starter-data-jpa`,
+  `mode: mybatis`, the generated schema run at start-up), which versions and languages it needs, where
+  the refusals are listed, and what replaces `EntityManager` - a mapper of your own, or a database port.
+- **`recipe-shop.md`, "On MyBatis":** the same shop on MyBatis; its report becomes a `dbms` port whose
+  SQL is in the model and whose mapper and adapter ElastiCORE generates.
+- **Skill, modeler agent (Claude Code and opencode), quick reference:** where MyBatis fits; on MyBatis
+  the audit times are set without `@EnableJpaAuditing`.
+- **Contract test:** the shop recipe is built, started and called twice, on JPA and on MyBatis
+  hexagonal, with every request of its API table. On rc6 a taken login on MyBatis answers
+  `already-exists`; the release after it `unique`, as on JPA (ElastiCORE pull request 63).
+
 ## 0.6.0
 
 ElastiCORE 3.0.261030-rc5 merges hand edits into generated code instead of skipping the file, and from

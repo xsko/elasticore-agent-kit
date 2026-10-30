@@ -390,3 +390,76 @@ curl -s -c jar -b jar -X POST localhost:PORT/api/store/member/signin -H 'Content
 curl -s -c jar -b jar -X POST localhost:PORT/api/store/purchaseOrder/1/ship
 curl -s -c jar -b jar localhost:PORT/api/store/purchaseOrder/report
 ```
+
+## On MyBatis
+
+The same shop with `mode: mybatis` (ElastiCORE 3.0.261030-rc6 or later for `hexagonal`): the build
+and `application.properties` of `mybatis.md` (`classpath:db/store-schema.sql`), `mode: mybatis` in
+`env.yml`, and the files above as they are - except the report, because MyBatis has no
+`entityManager`. Its query becomes a database port: the SQL is in the model, ElastiCORE generates
+the port's interface (`application/port/out/OrderReportPort.java`) and, on MyBatis, its mapper and
+adapter. Add these two files before the first generation:
+
+### `src/main/resources/blueprint/store/port/report_port.yml`
+
+```yaml
+port:
+  OrderReportPort:
+    meta: dbms -- the administrator's report, in SQL
+    methods:
+      revenueByStatus:
+        meta: method
+        return: List<StatusRevenueDTO>
+        nativeQuery: true
+        query: |
+          SELECT status AS status, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS amount
+          FROM purchase_order
+          GROUP BY status
+```
+
+### `src/main/resources/blueprint/store/model/report.yml`
+
+```yaml
+dto:
+  StatusRevenueDTO:
+    meta: dto -- orders and revenue of one status
+    fields:
+      status: string(3) -- the status code, as stored
+      orders: long
+      amount: decimal(14.2)
+```
+
+The table and its columns are the model's names in snake case (`PurchaseOrder` -> `purchase_order`),
+and the status is stored as its code (`PLC`). Then, after the first generation, the method to add to
+`PurchaseOrderService.java` is this one instead:
+
+### Add to `PurchaseOrderService.java` on MyBatis
+
+```java
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.acme.store.application.port.out.OrderReportPort reports;
+
+    /** Orders per status and the revenue of those not cancelled - the administrator's (see above). */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public java.util.Map<String, Object> report() {
+        ACCESS.require(currentUser, "report");
+        java.util.Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        java.math.BigDecimal revenue = java.math.BigDecimal.ZERO;
+        for (com.acme.store.application.dto.StatusRevenueDTO row : reports.revenueByStatus()) {
+            com.acme.store.domain.model.OrderStatus status = com.acme.store.domain.model.OrderStatus.fromCode(row.getStatus());
+            counts.put(status.name(), row.getOrders());
+            if (status != com.acme.store.domain.model.OrderStatus.CANCELLED) {
+                revenue = revenue.add(row.getAmount());
+            }
+        }
+        java.util.Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("countByStatus", counts);
+        report.put("revenue", revenue.setScale(2, java.math.RoundingMode.HALF_UP));
+        return report;
+    }
+```
+
+The controller, the seed, the events and every request of the API table are the same; the agent
+kit's contract test runs them all on this MyBatis shop too. One answer differs on 3.0.261030-rc6: a
+taken login is 409 with `code` `already-exists` instead of `unique` - the releases after it answer
+`unique`, as on JPA.

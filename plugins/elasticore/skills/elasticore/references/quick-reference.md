@@ -157,7 +157,8 @@ modifiedAt: datetime @jpa:org.springframework.data.annotation.LastModifiedDate -
 
 These two are set by the server and never taken from a request - only with `@EnableJpaAuditing`
 (`org.springframework.data.jpa.repository.config.EnableJpaAuditing`) on the application class.
-There is no `@createtime`.
+On MyBatis (`mode: mybatis`, `mybatis.md`) from ElastiCORE 3.0.261030-rc6 the generated service or
+adapter sets them itself: there is no JPA, and no `@EnableJpaAuditing`. There is no `@createtime`.
 
 ## Measures for BI tools (Apache Ossie)
 

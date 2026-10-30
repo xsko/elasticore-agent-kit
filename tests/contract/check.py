@@ -69,6 +69,15 @@ V3_DEFAULT_SINCE = (3, 0, 261028)
 # .elasticore/cache (3.0.261030-rc5).
 MERGE_SINCE = (3, 0, 261030)
 
+# From this version hexagonal and ddd are generated over MyBatis (3.0.261030-rc6; the last number is
+# the release candidate - rc5, of the same date, refuses them). references/mybatis.md.
+MYBATIS_HEX_SINCE = (3, 0, 261030, 6)
+MYBATIS = os.path.join(REFERENCES, "mybatis.md")
+
+# From the release after 3.0.261030-rc6, a unique value taken on MyBatis answers 409 'unique' as on
+# JPA; on rc6 'already-exists' (ElastiCORE pull request 63).
+MYBATIS_UNIQUE_SINCE = (3, 0, 261031)
+
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
@@ -360,12 +369,35 @@ def stop_app(app):
     app.log_file.close()
 
 
-def check_shop(work, version, template, run, java, temp):
+def mybatis_hexagonal(version):
+    """Whether this ElastiCORE generates hexagonal and ddd over MyBatis: 3.0.261030-rc6 and later
+    (rc5, of the same date, stops the build on them)."""
+    key = version_key(version)
+    if key is None or key[:3] < tuple(MYBATIS_HEX_SINCE[:3]):
+        return False
+    if key[:3] > tuple(MYBATIS_HEX_SINCE[:3]):
+        return True
+    rc = re.search(r"-rc(\d+)$", version)
+    return not re.search(r"-(alpha|beta|rc)\d+$", version) or (rc is not None and int(rc.group(1)) >= MYBATIS_HEX_SINCE[3])
+
+
+def blocks_by_sub_heading(text):
+    """The code block under each '### `name`' heading of a part of a reference page."""
+    return dict(re.findall(r"^### `([^`]+)`\s*\n+```\w*\n(.*?)```", text, re.S | re.M))
+
+
+def check_shop(work, version, template, run, java, temp, mybatis=False):
     """references/recipe-shop.md built as written - generate, add the report, build - then started and
-    called with every request of its API table, signed in as a visitor, two members and the administrator."""
-    where = "references/recipe-shop.md"
+    called with every request of its API table, signed in as a visitor, two members and the administrator.
+    With mybatis, the same shop as its section "On MyBatis" and references/mybatis.md say."""
+    where = "references/recipe-shop.md" + (", On MyBatis; references/mybatis.md" if mybatis else "")
+    label = {key: ("[MyBatis] " if mybatis else "") + text for key, text in SHOP.items()}
+    if mybatis and not mybatis_hexagonal(version):
+        for name in label.values():
+            skip(name, "needs ElastiCORE 3.0.261030-rc6 or later")
+        return
     if not at_least(version, LIBRARY_SINCE):
-        for name in SHOP.values():
+        for name in label.values():
             skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
         return
     recipe = blocks_by_heading(RECIPE_SHOP)
@@ -374,22 +406,51 @@ def check_shop(work, version, template, run, java, temp):
                      "src/main/java/com/acme/store/application/OrderEvents.java", controller_file,
                      "src/main/resources/blueprint/store/env.yml", "src/main/resources/blueprint/store/model/entity.yml",
                      "src/main/resources/blueprint/store/model/enum.yml"])
-    check(SHOP["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
-    found = re.search(r"^## Add to `PurchaseOrderService\.java`\s*\n+```java\n(.*?)```", read(RECIPE_SHOP), re.S | re.M)
-    check(SHOP["method"], found, where)
+    page = read(RECIPE_SHOP)
+    extra = {}
+    if mybatis:
+        part = page.split("\n## On MyBatis", 1)[1] if "\n## On MyBatis" in page else ""
+        extra = blocks_by_sub_heading(part)
+        found = re.search(r"^### Add to `PurchaseOrderService\.java` on MyBatis\s*\n+```java\n(.*?)```", part, re.S | re.M)
+        setup = read(MYBATIS)
+        starter = re.search(r"^### Instead of `spring-boot-starter-data-jpa`\s*\n+```gradle\n(.*?)```", setup, re.S | re.M)
+        properties = blocks_by_sub_heading(setup).get("src/main/resources/application.properties")
+        # The new-project template's JPA starter, which mybatis.md says to replace.
+        jpa = "    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'\n"
+        check(label["files"], sorted(recipe) == wanted and sorted(extra) == [
+            "src/main/resources/blueprint/store/model/report.yml", "src/main/resources/blueprint/store/port/report_port.yml"]
+              and starter and properties and jpa in template["build.gradle"],
+              where + "; references/new-project.md (the line mybatis.md replaces)",
+              "found: %s, %s; starter block %s, properties block %s, the template's JPA line %s"
+              % (sorted(recipe), sorted(extra), bool(starter), bool(properties), jpa in template["build.gradle"]))
+        check(label["method"], found, where)
+        if not (starter and properties and jpa in template["build.gradle"]):
+            return
+    else:
+        check(label["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
+        found = re.search(r"^## Add to `PurchaseOrderService\.java`\s*\n+```java\n(.*?)```", page, re.S | re.M)
+        check(label["method"], found, where)
 
-    store = os.path.join(work, "store")
+    project_name = "store-mybatis" if mybatis else "store"
+    store = os.path.join(work, project_name)
     for name in ("settings.gradle", "build.gradle"):
-        write(os.path.join(store, name), render(template[name], version)
-              .replace("rootProject.name = 'shop'", "rootProject.name = 'store'"))
-    for name, body in recipe.items():
+        text = render(template[name], version).replace("rootProject.name = 'shop'", "rootProject.name = 'store'")
+        if mybatis and name == "build.gradle":
+            text = text.replace(jpa, starter.group(1))
+        write(os.path.join(store, name), text)
+    for name, body in list(recipe.items()) + list(extra.items()):
         if name != controller_file:
+            if mybatis and name.endswith("env.yml"):
+                body = body.replace("mode: jpa", "mode: mybatis")
             write(os.path.join(store, name), body)
+    if mybatis:
+        write(os.path.join(store, "src", "main", "resources", "application.properties"),
+              properties.replace("shop-schema", "store-schema"))
     rc, out = run(store, "compileJava")
-    write(os.path.join(work, "store-generate.log"), out)
+    write(os.path.join(work, project_name + "-generate.log"), out)
     service = os.path.join(store, "src", "main", "java", "com", "acme", "store", "application", "PurchaseOrderService.java")
     owned_first = rc == 0 and os.path.isfile(service) and kind(service) == "owned"
-    check(SHOP["owned"], owned_first, where, "exit %d; see %s" % (rc, os.path.join(work, "store-generate.log")))
+    check(label["owned"], owned_first, where, "exit %d; see %s" % (rc, os.path.join(work, project_name + "-generate.log")))
     if not owned_first or not found:
         return
     current = read(service)
@@ -397,18 +458,18 @@ def check_shop(work, version, template, run, java, temp):
     write(service, current[:cut] + "\n" + found.group(1) + current[cut:])
     write(os.path.join(store, controller_file), recipe[controller_file])
     rc, out = run(store, "bootJar")
-    write(os.path.join(work, "store.log"), out)
-    check(SHOP["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
+    write(os.path.join(work, project_name + ".log"), out)
+    check(label["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
           and "LOAD ERROR" not in out, where + "; references/new-project.md",
-          "exit %d; see %s" % (rc, os.path.join(work, "store.log")))
-    check(SHOP["kept"], status_of(out, "PurchaseOrderService.java") in kept_statuses(version) and "report()" in read(service),
+          "exit %d; see %s" % (rc, os.path.join(work, project_name + ".log")))
+    check(label["kept"], status_of(out, "PurchaseOrderService.java") in kept_statuses(version) and "report()" in read(service),
           where + "; SKILL.md section 5", "status: %s" % status_of(out, "PurchaseOrderService.java"))
     libs = os.path.join(store, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
     if not jars:
         return
 
-    app, base, log_path = start_app(work, "store", os.path.join(libs, jars[0]), java, temp)
+    app, base, log_path = start_app(work, project_name, os.path.join(libs, jars[0]), java, temp)
     try:
         api = (base or "") + "/api/store"
         visitor, admin, kim, lee = (session_asker(api) for _ in range(4))
@@ -419,7 +480,7 @@ def check_shop(work, version, template, run, java, temp):
             seeded = admin("POST", "/member/signin", {"login": "admin", "password": "admin-1234"})[0] == 200
             if not seeded:
                 time.sleep(1)
-        if not check(SHOP["starts"], seeded, "references/run-and-check.md; " + where, "see %s" % log_path):
+        if not check(label["starts"], seeded, "references/run-and-check.md; " + where, "see %s" % log_path):
             return
         where = "references/recipe-shop.md, the API table"
 
@@ -442,7 +503,7 @@ def check_shop(work, version, template, run, java, temp):
                          "birthDate": "1990-05-01", "address": home}, **change)
 
         st, m1 = visitor("POST", "/member", member("kim", role="A"))
-        check(SHOP["S1"], st == 200 and isinstance(m1, dict) and m1.get("role") == "U" and "password" not in m1
+        check(label["S1"], st == 200 and isinstance(m1, dict) and m1.get("role") == "U" and "password" not in m1
               and m1.get("memberId"), where, "%s %s" % (st, str(m1)[:200]))
         if not isinstance(m1, dict) or not m1.get("memberId"):
             return
@@ -452,7 +513,10 @@ def check_shop(work, version, template, run, java, temp):
         bad = [visitor("POST", "/member", m)[0] for m in (
             member("park", birthDate=tomorrow), member("choi", address=dict(home, zipcode="abc")),
             {k: v for k, v in member("jung").items() if k != "address"}, member("yoon", password="pw-1234"))]
-        check(SHOP["S2"], st_dup == 409 and code(dup) == "unique" and bad == [400] * 4, where,
+        # On MyBatis before the release after 3.0.261030-rc6 a taken unique value answers 409
+        # already-exists (recipe-shop.md, On MyBatis); from it, unique as on JPA.
+        taken = "already-exists" if mybatis and not at_least(version, MYBATIS_UNIQUE_SINCE) else "unique"
+        check(label["S2"], st_dup == 409 and code(dup) == taken and bad == [400] * 4, where,
               "%s %s %s" % (st_dup, code(dup), bad))
 
         st_wrong, wrong = kim("POST", "/member/signin", {"login": "kim", "password": "nope"})
@@ -460,7 +524,7 @@ def check_shop(work, version, template, run, java, temp):
         st_me, me = kim("GET", "/member/me")
         st_out = kim("POST", "/member/signout")[0]
         st_after = kim("GET", "/member/me")[0]
-        check(SHOP["S3"], st_wrong == 401 and isinstance(wrong, dict) and wrong.get("detail") == "Wrong login or password"
+        check(label["S3"], st_wrong == 401 and isinstance(wrong, dict) and wrong.get("detail") == "Wrong login or password"
               and st_in == 200 and isinstance(signed, dict) and "password" not in signed
               and st_me == 200 and isinstance(me, dict) and me.get("login") == "kim"
               and st_out == 204 and st_after == 401, where,
@@ -477,7 +541,7 @@ def check_shop(work, version, template, run, java, temp):
         koi = {"name": "Koi", "price": 25.00}
         st_v, st_m = visitor("POST", "/product", koi)[0], kim("POST", "/product", koi)[0]
         st_a, made = admin("POST", "/product", koi)
-        check(SHOP["S4"], st_find == 200 and names == ["Angelfish"] and st_read == 200 and st_v == 401 and st_m == 403
+        check(label["S4"], st_find == 200 and names == ["Angelfish"] and st_read == 200 and st_v == 401 and st_m == 403
               and st_a == 200 and isinstance(made, dict) and made.get("productId"), where,
               "search %s %s; read %s; create %s %s %s" % (st_find, names, st_read, st_v, st_m, st_a))
         if not angelfish or not bulldog:
@@ -492,19 +556,19 @@ def check_shop(work, version, template, run, java, temp):
                                                       status="CAN", orderedAt="2000-01-01 00:00:00"))
         lines = o1.get("lines", []) if isinstance(o1, dict) else []
         prices = sorted((num(l.get("unitPrice")), l.get("quantity"), num(l.get("subTotal"))) for l in lines)
-        check(SHOP["S5"], st == 200 and o1.get("status") == "PLC" and o1.get("memberId") == m1["memberId"]
+        check(label["S5"], st == 200 and o1.get("status") == "PLC" and o1.get("memberId") == m1["memberId"]
               and str(o1.get("orderedAt", "")).startswith(datetime.date.today().isoformat())
               and prices == [(10.0, 2, 20.0), (180.0, 1, 180.0)] and num(o1.get("total")) == 200.0
               and "4111111111111111" not in json.dumps(o1), where, "%s %s" % (st, str(o1)[:300]))
         if not isinstance(o1, dict) or not o1.get("orderId"):
             return
-        check(SHOP["S6"], visitor("POST", "/purchaseOrder", order((angelfish, 1)))[0] == 401, where)
+        check(label["S6"], visitor("POST", "/purchaseOrder", order((angelfish, 1)))[0] == 401, where)
 
         st_empty, empty = kim("POST", "/purchaseOrder", order())
         st_none, none = kim("POST", "/purchaseOrder", {"card": card})
         st_unknown, unknown = kim("POST", "/purchaseOrder", order((99999, 1)))
         st_exp = kim("POST", "/purchaseOrder", order((angelfish, 1), card=dict(card, expiry="13/30")))[0]
-        check(SHOP["S7"], st_empty == 400 and "lines" in fields(empty) and st_none == 400 and "lines" in fields(none)
+        check(label["S7"], st_empty == 400 and "lines" in fields(empty) and st_none == 400 and "lines" in fields(none)
               and st_unknown == 404 and code(unknown) == "reference.OrderLine.product"
               and isinstance(unknown, dict) and unknown.get("detail") == "Product 99999 does not exist" and st_exp == 400,
               where, "%s %s; %s %s; %s %s; %s" % (st_empty, fields(empty), st_none, fields(none), st_unknown,
@@ -522,7 +586,7 @@ def check_shop(work, version, template, run, java, temp):
         mine = ids(kim("POST", "/purchaseOrder/search", {})[1])
         theirs = ids(lee("POST", "/purchaseOrder/search", {"memberId": m1["memberId"]})[1])
         everyone = ids(admin("POST", "/purchaseOrder/search", {})[1])
-        check(SHOP["S8"], st_other == 404 and mine == [o2["orderId"], o1["orderId"]] and theirs in ([], [o3["orderId"]])
+        check(label["S8"], st_other == 404 and mine == [o2["orderId"], o1["orderId"]] and theirs in ([], [o3["orderId"]])
               and o1["orderId"] not in theirs and sorted(everyone) == sorted([o1["orderId"], o2["orderId"], o3["orderId"]]),
               where, "other %s; mine %s; theirs %s; all %s" % (st_other, mine, theirs, everyone))
 
@@ -532,7 +596,7 @@ def check_shop(work, version, template, run, java, temp):
         st_cancel, cancelled = kim("POST", "/purchaseOrder/%s/cancel" % o2["orderId"])
         st_del_placed = admin("DELETE", "/purchaseOrder/%s" % o3["orderId"])[0]
         st_del_mine = kim("DELETE", "/purchaseOrder/%s" % o2["orderId"])[0]
-        check(SHOP["S9"], st_mship == 403 and st_ship == 200 and isinstance(shipped, dict) and shipped.get("status") == "SHP"
+        check(label["S9"], st_mship == 403 and st_ship == 200 and isinstance(shipped, dict) and shipped.get("status") == "SHP"
               and st_late == 409 and code(late) == "state.PurchaseOrder.status.cancel"
               and st_cancel == 200 and isinstance(cancelled, dict) and cancelled.get("status") == "CAN"
               and st_del_placed == 409 and st_del_mine == 403, where,
@@ -542,18 +606,18 @@ def check_shop(work, version, template, run, java, temp):
         admin("PUT", "/product", {"productId": angelfish, "name": "Angelfish", "price": 12.00})
         again = admin("GET", "/purchaseOrder/%s" % o1["orderId"])[1]
         kept = sorted(num(l.get("unitPrice")) for l in again.get("lines", [])) if isinstance(again, dict) else again
-        check(SHOP["S10"], kept == [10.0, 180.0] and num(again.get("total")) == 200.0, where, str(kept))
+        check(label["S10"], kept == [10.0, 180.0] and num(again.get("total")) == 200.0, where, str(kept))
 
         st_rv, st_rm = visitor("GET", "/purchaseOrder/report")[0], kim("GET", "/purchaseOrder/report")[0]
         st_ra, report = admin("GET", "/purchaseOrder/report")
         counts = report.get("countByStatus") if isinstance(report, dict) else None
-        check(SHOP["S11"], st_rv == 401 and st_rm == 403 and st_ra == 200
+        check(label["S11"], st_rv == 401 and st_rm == 403 and st_ra == 200
               and counts == {"PLACED": 1, "SHIPPED": 1, "CANCELLED": 1}
               and num(report.get("revenue")) == round(200.0 + num(o3.get("total")), 2), where,
               "%s %s %s %s" % (st_rv, st_rm, st_ra, str(report)[:200]))
         st_del = admin("DELETE", "/purchaseOrder/%s" % o2["orderId"])[0]
         log = read(log_path)
-        check(SHOP["S12"] + " - and the cancelled order is deleted by the administrator (200)",
+        check(label["S12"] + " - and the cancelled order is deleted by the administrator (200)",
               st_del == 200 and ("order %s SHIPPED total=" % o1["orderId"]) in log
               and ("order %s CANCELLED total=" % o2["orderId"]) in log, where,
               "delete %s; see %s" % (st_del, log_path))
@@ -1355,6 +1419,8 @@ def main():
     # --- the library recipe: rules on other rows, server-set values, an operation of its own ------
     check_library(work, version, template, run, args.java, temp)
     check_shop(work, version, template, run, args.java, temp)
+    # --- the same shop on MyBatis, hexagonal (references/mybatis.md) ------------------------------
+    check_shop(work, version, template, run, args.java, temp, mybatis=True)
 
     # --- the 2.x generator: output = 'v2' - before 3.0.261028-rc3, a build without the block ----
     legacy = os.path.join(work, "legacy")
