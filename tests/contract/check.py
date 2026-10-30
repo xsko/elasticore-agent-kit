@@ -74,8 +74,8 @@ MERGE_SINCE = (3, 0, 261030)
 MYBATIS_HEX_SINCE = (3, 0, 261030, 6)
 MYBATIS = os.path.join(REFERENCES, "mybatis.md")
 
-# From the release after 3.0.261030-rc6, a unique value taken on MyBatis answers 409 'unique' as on
-# JPA; on rc6 'already-exists' (ElastiCORE pull request 63).
+# From 3.0.261031-rc7, a unique value taken on MyBatis answers 409 'unique' as on JPA; on rc6
+# 'already-exists' (ElastiCORE pull request 63).
 MYBATIS_UNIQUE_SINCE = (3, 0, 261031)
 
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
@@ -513,8 +513,8 @@ def check_shop(work, version, template, run, java, temp, mybatis=False):
         bad = [visitor("POST", "/member", m)[0] for m in (
             member("park", birthDate=tomorrow), member("choi", address=dict(home, zipcode="abc")),
             {k: v for k, v in member("jung").items() if k != "address"}, member("yoon", password="pw-1234"))]
-        # On MyBatis before the release after 3.0.261030-rc6 a taken unique value answers 409
-        # already-exists (recipe-shop.md, On MyBatis); from it, unique as on JPA.
+        # On MyBatis before 3.0.261031-rc7 a taken unique value answers 409 already-exists
+        # (recipe-shop.md, On MyBatis); from it, unique as on JPA.
         taken = "already-exists" if mybatis and not at_least(version, MYBATIS_UNIQUE_SINCE) else "unique"
         check(label["S2"], st_dup == 409 and code(dup) == taken and bad == [400] * 4, where,
               "%s %s %s" % (st_dup, code(dup), bad))

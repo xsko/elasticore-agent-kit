@@ -461,5 +461,5 @@ and the status is stored as its code (`PLC`). Then, after the first generation, 
 
 The controller, the seed, the events and every request of the API table are the same; the agent
 kit's contract test runs them all on this MyBatis shop too. One answer differs on 3.0.261030-rc6: a
-taken login is 409 with `code` `already-exists` instead of `unique` - the releases after it answer
+taken login is 409 with `code` `already-exists` instead of `unique` - from 3.0.261031-rc7 it is
 `unique`, as on JPA.

@@ -3,6 +3,12 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.7.1
+
+ElastiCORE 3.0.261031-rc7 answers a taken unique value on MyBatis with 409 `unique`, as on JPA.
+`recipe-shop.md` names that release; the contract test, run against it, expects `unique` there
+(`already-exists` on rc6).
+
 ## 0.7.0
 
 ElastiCORE 3.0.261030-rc6 generates hexagonal and ddd over MyBatis. The kit says how, and checks it.
