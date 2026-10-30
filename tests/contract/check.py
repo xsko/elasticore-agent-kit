@@ -61,13 +61,21 @@ LIBRARY_SINCE = (3, 0, 261021)
 # blueprint/elasticore-guide-index.md, which SKILL.md section 1 searches first, came with this version.
 INDEX_SINCE = (3, 0, 261023)
 
+# From this version the Gradle plugin runs the 3.0 rule engine without an elasticore { } block; the
+# 2.x generator only with output = 'v2' (3.0.261028-rc3).
+V3_DEFAULT_SINCE = (3, 0, 261028)
+
+# From this version the 3.0 code is written without //ecd: lines and merged with hand edits against
+# .elasticore/cache (3.0.261030-rc5).
+MERGE_SINCE = (3, 0, 261030)
+
 # The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
     "methods": "recipe-library.md has the methods to add to LoanService.java (the dates are @default(now))",
     "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
     "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "LoanService with the added methods is left alone: SKIP(user-owned)",
+    "kept": "LoanService with the added methods is kept: SKIP(user-owned), or UNCHANGED(your edits kept) from 3.0.261030",
     "starts": "the library starts",
     "K1": "K1 create a book: 200",
     "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
@@ -98,7 +106,7 @@ SHOP = {
     "method": "recipe-shop.md has the method to add to PurchaseOrderService.java",
     "owned": "the first generation writes PurchaseOrderService.java, owned by the developer",
     "build": "the shop recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "PurchaseOrderService with the added method is left alone: SKIP(user-owned)",
+    "kept": "PurchaseOrderService with the added method is kept: SKIP(user-owned), or UNCHANGED(your edits kept) from 3.0.261030",
     "starts": "the shop starts, with the seed's administrator and products",
     "S1": "S1 sign up: 200, role U although A was sent, no password in the answer",
     "S2": "S2 a taken login 409 unique; a birth date tomorrow, a zipcode abc, no address, a 7-character password: 400 each",
@@ -218,10 +226,32 @@ def find(root, name):
     return None
 
 
+def kept_statuses(version):
+    """What the rule engine says of a file of the developer's that was edited, when the DSL did not change it."""
+    return ("UNCHANGED(your edits kept)",) if at_least(version, MERGE_SINCE) else ("SKIP(user-owned)",)
+
+
+def in_cache(path):
+    """Whether .elasticore/cache in a folder above the file names it - the project merges it."""
+    folder = os.path.dirname(os.path.abspath(path))
+    while True:
+        cache = os.path.join(folder, ".elasticore", "cache")
+        if os.path.isfile(cache):
+            key = os.path.relpath(os.path.abspath(path), folder).replace(os.sep, "/")
+            with open(cache, "rb") as f:
+                return key.encode("utf-8") in f.read()
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return False
+        folder = parent
+
+
 def kind(path):
     """The ownership rule the skill states, applied here independently."""
     text = read(path)
     if not text.startswith("//ecd:"):
+        if in_cache(path):
+            return "owned" if OWNED_PREFIX in text[:600] else "merged"
         return "hand"
     if OWNED_PREFIX in text[:600]:
         return "owned"
@@ -231,7 +261,9 @@ def kind(path):
 def status_of(output, file_name):
     for line in output.splitlines():
         if file_name in line:
-            found = re.search(r"\s(WROTE|UNCHANGED|SKIP\([^)]*\)|REGENERATED\([^)]*\)|REMOVED\([^)]*\)|ERROR.*)\s*$", line)
+            found = re.search(r"\s(WROTE|UNCHANGED(?:\(your edits kept\))?|MERGED\([^)]*\)|KEPT\([^)]*\)"
+                              r"|CONFLICT(?:\(unresolved\))?|SKIP\([^)]*\)|REGENERATED\([^)]*\)|REMOVED\([^)]*\)"
+                              r"|ERROR.*)\s*$", line)
             if found:
                 return found.group(1)
     return None
@@ -369,7 +401,7 @@ def check_shop(work, version, template, run, java, temp):
     check(SHOP["build"], rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out
           and "LOAD ERROR" not in out, where + "; references/new-project.md",
           "exit %d; see %s" % (rc, os.path.join(work, "store.log")))
-    check(SHOP["kept"], status_of(out, "PurchaseOrderService.java") == "SKIP(user-owned)" and "report()" in read(service),
+    check(SHOP["kept"], status_of(out, "PurchaseOrderService.java") in kept_statuses(version) and "report()" in read(service),
           where + "; SKILL.md section 5", "status: %s" % status_of(out, "PurchaseOrderService.java"))
     libs = os.path.join(store, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
@@ -585,7 +617,7 @@ def check_library(work, version, template, run, java, temp):
           "exit %d; see %s" % (rc, os.path.join(work, "library.log")))
     statuses = {s: status_of(out, s) for s in services}
     # LoanService was edited, so it is the developer's; MemberService was not, and follows the DSL.
-    check(LIBRARY["kept"], statuses.get("LoanService.java") == "SKIP(user-owned)"
+    check(LIBRARY["kept"], statuses.get("LoanService.java") in kept_statuses(version)
           and statuses.get("MemberService.java") in ("UNCHANGED", "REGENERATED(owned, never edited)", "SKIP(user-owned)")
           and "returnLoan" in read(services["LoanService.java"]),
           where + "; SKILL.md section 5", "status: %s" % statuses)
@@ -833,8 +865,11 @@ def main():
     check_guide_index(blueprint, version)
 
     # --- how files are marked ----------------------------------------------------------
-    expected = {"ProductDTO.java": "managed", "ProductService.java": "owned",
-                "PurchaseOrderBase.java": "managed", "PurchaseOrder.java": "owned",
+    # From 3.0.261030-rc5 a generated file has no //ecd: line; .elasticore/cache names it.
+    merging = at_least(version, MERGE_SINCE)
+    generated_kind = "merged" if merging else "managed"
+    expected = {"ProductDTO.java": generated_kind, "ProductService.java": "owned",
+                "PurchaseOrderBase.java": generated_kind, "PurchaseOrder.java": "owned",
                 "PurchaseOrderService.java": "owned", "PurchaseOrderController.java": "owned",
                 "ShopApiErrors.java": "owned"}
     for name, want in expected.items():
@@ -864,21 +899,69 @@ def main():
                 decisions.append(json.loads(out_one)["hookSpecificOutput"]["permissionDecision"])
             except (ValueError, KeyError, TypeError):
                 decisions.append("allow" if rc_one == 0 and not out_one.strip() else "error")
-        check("the hook refuses the generated files and allows the owned one",
-              decisions == ["deny", "allow", "deny", "deny"], "hooks/elasticore-hook.sh pre-edit",
-              "generated DTO, owned service, schema.yml, messages: %s" % decisions)
+        if merging:
+            # The DTO and the messages are merged: an edit is kept. schema.yml is still rewritten.
+            check("the hook allows edits of the merged generated files and the owned one, and refuses schema.yml",
+                  decisions == ["allow", "allow", "deny", "allow"], "hooks/elasticore-hook.sh pre-edit",
+                  "generated DTO, owned service, schema.yml, messages: %s" % decisions)
+            _, note, _ = hook("post-edit", edit_payload("merged-note", dto))
+            check("the hook says once what an edit of a merged file means", "<<<<<<< yours" in note,
+                  "hooks/elasticore-hook.sh post-edit", "hook said: %s" % note.strip()[:200])
+        else:
+            check("the hook refuses the generated files and allows the owned one",
+                  decisions == ["deny", "allow", "deny", "deny"], "hooks/elasticore-hook.sh pre-edit",
+                  "generated DTO, owned service, schema.yml, messages: %s" % decisions)
 
     # --- the owned file is left alone ---------------------------------------------------------
     if owned:
         with open(owned, "a", encoding="utf-8", newline="\n") as f:
             f.write("// business logic\n")
         rc, out = run(project, "elcore3")
-        check("an edited developer-owned file is reported SKIP(user-owned) and kept",
-              status_of(out, "ProductService.java") == "SKIP(user-owned)" and "// business logic" in read(owned),
+        owned_status = "UNCHANGED(your edits kept)" if merging else "SKIP(user-owned)"
+        check("an edited developer-owned file is reported %s and kept" % owned_status,
+              status_of(out, "ProductService.java") == owned_status and "// business logic" in read(owned),
               "SKILL.md sections 2 and 5", "status: %s" % status_of(out, "ProductService.java"))
 
+    entity = os.path.join(model, "entity.yml")
+    original_entity = read(entity)
+
     # --- a hand edit to a generated file, and how it is undone -----------------------------
-    if dto:
+    if dto and merging:
+        with open(dto, "a", encoding="utf-8", newline="\n") as f:
+            f.write("// edited by hand\n")
+        rc, out = run(project, "elcore3")
+        check("a hand-edited generated file is kept: UNCHANGED(your edits kept)",
+              status_of(out, "ProductDTO.java") == "UNCHANGED(your edits kept)" and "// edited by hand" in read(dto),
+              "SKILL.md sections 2 and 5", "status: %s" % status_of(out, "ProductDTO.java"))
+        # The DSL changes the file elsewhere: merged into the edit.
+        write(entity, original_entity + "      stock:     int\n")
+        rc, out = run(project, "elcore3")
+        text = read(dto)
+        check("a DSL change is merged into a hand-edited generated file: MERGED(your edits kept)",
+              status_of(out, "ProductDTO.java") == "MERGED(your edits kept)" and "// edited by hand" in text
+              and "stock" in text, "SKILL.md sections 2 and 5", "status: %s" % status_of(out, "ProductDTO.java"))
+        # Both change the same line: conflict marks, and the build fails until they are gone.
+        write(dto, read(dto).replace("@Size(max=100)", "@Size(max=80)"))
+        write(entity, original_entity.replace("string(100)!", "string(120)!") + "      stock:     int\n")
+        rc, out = run(project, "elcore3")
+        check("an edit on a line the DSL also changes is a CONFLICT with marks, and the generation fails",
+              rc != 0 and status_of(out, "ProductDTO.java") == "CONFLICT" and "<<<<<<< yours" in read(dto),
+              "SKILL.md section 5; hooks/elasticore-hook.sh post-bash",
+              "exit %d, status: %s" % (rc, status_of(out, "ProductDTO.java")))
+        _, note, _ = hook("post-bash", bash_payload("contract", "./gradlew elcore3", out, rc))
+        check("the hook explains the conflict in real output", "<<<<<<< yours" in note and "Do not delete" in note,
+              "hooks/elasticore-hook.sh post-bash", "hook said: %s" % note.strip()[:200])
+        rc, out = run(project, "elcore3")
+        check("marks left in the file stop the next generation too: CONFLICT(unresolved)",
+              rc != 0 and status_of(out, "ProductDTO.java") == "CONFLICT(unresolved)", "SKILL.md section 5",
+              "exit %d, status: %s" % (rc, status_of(out, "ProductDTO.java")))
+        write(entity, original_entity)
+        os.remove(dto)
+        rc, out = run(project, "elcore3")
+        check("deleting a generated file and generating again restores it",
+              status_of(out, "ProductDTO.java") == "WROTE" and kind(dto) == "merged", "SKILL.md section 5",
+              "status: %s" % status_of(out, "ProductDTO.java"))
+    elif dto:
         with open(dto, "a", encoding="utf-8", newline="\n") as f:
             f.write("// edited by hand\n")
         rc, out = run(project, "elcore3")
@@ -895,10 +978,8 @@ def main():
               status_of(out, "ProductDTO.java") == "WROTE" and kind(dto) == "managed", "SKILL.md section 5",
               "status: %s" % status_of(out, "ProductDTO.java"))
 
-    # --- a preserved block survives regeneration --------------------------------------------
-    entity = os.path.join(model, "entity.yml")
-    original_entity = read(entity)
-    if dto:
+    # --- a preserved block survives regeneration (files with an //ecd: line) ------------------
+    if dto and not merging:
         text = read(dto)
         cut = text.rstrip().rfind("}")
         block = ("\n    // !-----------------------------------------------------------\n"
@@ -959,10 +1040,17 @@ def main():
     line_dto = find(java, "OrderLineDTO.java")
     os.remove(dto_yml)
     rc, out = run(project, "elcore3")
-    check("a generated file the DSL no longer produces is REMOVED(the DSL no longer produces it)",
-          line_dto and status_of(out, "OrderLineDTO.java") == "REMOVED(the DSL no longer produces it)"
-          and not os.path.exists(line_dto), "SKILL.md section 5",
-          "status: %s" % status_of(out, "OrderLineDTO.java"))
+    if merging:
+        # PurchaseOrderDTO still names it (@dtype), so the merging run keeps it and says who uses it.
+        check("a generated file the DSL no longer produces but a kept source uses is kept, with who uses it",
+              line_dto and os.path.exists(line_dto)
+              and re.search(r"OrderLineDTO\.java is no longer generated, but \S*PurchaseOrderDTO\.java still uses it", out),
+              "SKILL.md section 5", "OrderLineDTO.java exists: %s" % (line_dto and os.path.exists(line_dto)))
+    else:
+        check("a generated file the DSL no longer produces is REMOVED(the DSL no longer produces it)",
+              line_dto and status_of(out, "OrderLineDTO.java") == "REMOVED(the DSL no longer produces it)"
+              and not os.path.exists(line_dto), "SKILL.md section 5",
+              "status: %s" % status_of(out, "OrderLineDTO.java"))
     write(dto_yml, kept)
     run(project, "elcore3")
 
@@ -990,13 +1078,21 @@ def main():
         write(os.path.join(layered, name), render(text, version))
     rc, out = run(layered, "compileJava")
     write(os.path.join(work, "layered.log"), out)
-    check("on layered Java the generator warns that @access is not enforced",
-          "DSL validation warnings:" in out and "@access" in out and "which the selected rules do not enforce" in out,
-          "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
-    check("on layered Java a money field does not compile ('package Money does not exist')",
-          rc != 0 and "package Money does not exist" in out,
-          "SKILL.md section 3; references/new-project.md - when this fails, ElastiCORE fixed it: update both",
-          "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
+    if at_least(version, V3_DEFAULT_SINCE):
+        # The 3.0 code: access is enforced and Money compiles.
+        check("on layered Java (the 3.0 code) @access is enforced - no warning that it is not",
+              "which the selected rules do not enforce" not in out, "SKILL.md section 3; references/new-project.md",
+              "see %s" % os.path.join(work, "layered.log"))
+        check("on layered Java (the 3.0 code) the template with its money field compiles", rc == 0,
+              "SKILL.md section 3; references/new-project.md", "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
+    else:
+        check("on layered Java the generator warns that @access is not enforced",
+              "DSL validation warnings:" in out and "@access" in out and "which the selected rules do not enforce" in out,
+              "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
+        check("on layered Java a money field does not compile ('package Money does not exist')",
+              rc != 0 and "package Money does not exist" in out,
+              "SKILL.md section 3; references/new-project.md - when this fails, ElastiCORE fixed it: update both",
+              "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
 
     # --- the tasks the skill names ------------------------------------------------------------
     rc, out = run(project, "tasks", "--all")
@@ -1096,8 +1192,8 @@ def main():
           rc == 0 and SUMMARY.search(out) and "DSL validation warnings" not in out and "LOAD ERROR" not in out,
           "references/recipe-board.md; references/quick-reference.md; references/new-project.md (test setup)",
           "exit %d; see %s" % (rc, os.path.join(work, "board.log")))
-    check("CommentService with the added method is left alone: SKIP(user-owned)",
-          status_of(out, "CommentService.java") == "SKIP(user-owned)" and "beforeSave" in read(service),
+    check("CommentService with the added method is kept: " + " or ".join(kept_statuses(version)),
+          status_of(out, "CommentService.java") in kept_statuses(version) and "beforeSave" in read(service),
           "references/recipe-board.md", "status: %s" % status_of(out, "CommentService.java"))
     libs = os.path.join(board, "build", "libs")
     jars = [j for j in os.listdir(libs) if not j.endswith("-plain.jar")] if rc == 0 and os.path.isdir(libs) else []
@@ -1260,13 +1356,15 @@ def main():
     check_library(work, version, template, run, args.java, temp)
     check_shop(work, version, template, run, args.java, temp)
 
-    # --- the 2.x generator: a build without the elasticore { } block -------------------------
+    # --- the 2.x generator: output = 'v2' - before 3.0.261028-rc3, a build without the block ----
     legacy = os.path.join(work, "legacy")
     for name, text in template.items():
         if name.endswith("model/entity.yml"):
             continue
         if name == "build.gradle":
-            text = re.sub(r"\nelasticore \{.*?\n\}\n", "\n", text, flags=re.S)
+            text = re.sub(r"\nelasticore \{.*?\n\}\n",
+                          "\nelasticore {\n    output = 'v2'\n}\n" if at_least(version, V3_DEFAULT_SINCE) else "\n",
+                          text, flags=re.S)
         write(os.path.join(legacy, name), render(text, version))
     legacy_model = os.path.join(legacy, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
     plain = ("entity:\n  Product:\n    meta: entity @root @expose(20) -- product\n    fields:\n"

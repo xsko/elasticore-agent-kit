@@ -24,6 +24,10 @@ argument-hint: "[gradle task - default compileJava]"
      the edit belongs in. Restoring one means deleting it and generating again: ask the user first
      unless you made that edit in this session;
    - every `SKIP(no ElastiCORE header - yours)` file: the generated one is missing there;
+   - with `.elasticore/cache` (ElastiCORE 3.0.261030-rc5 and later): every `CONFLICT` file - the
+     places marked `<<<<<<< yours` / `>>>>>>> elasticore` and how each should be resolved (the build
+     fails until they are); every `KEPT(yours ...)` file with what the `[elcore3]` lines say to carry
+     over by hand; every `SKIP(not in the cache)` file. `MERGED(your edits kept)` needs no action;
    - every `ERROR` line and every compile error. When a compile error is in a generated file, trace
      it back to the DSL line that caused it - for example a DTO named in `@dtype(...)` that no `dto:`
      section defines.
