@@ -166,9 +166,10 @@ code_of() {
 #   - a build that never applies the io.elasticore plugin - the 2.2 line, a
 #     hand-written task running ModelExtractor, elasticore-base 2.x - unless it
 #     runs the rule engine itself (RulesGenRunner);
-#   - before ElastiCORE 3.0.261028-rc3 (a plugin, classpath or catalog version
-#     older than that), no elasticore { } block, nor elasticore.<setting>, that
-#     sets architecture, language or rules - from rc3 the plugin runs the 3.0
+#   - before ElastiCORE 3.0.261028-rc3 (the plugin's version, its classpath
+#     artifact's, the catalog's, or a gradle.properties value the plugin line
+#     names), no elasticore { } block, nor elasticore.<setting>, that sets
+#     architecture, language, rules or output - from rc3 the plugin runs the 3.0
 #     rule engine without one.
 # A plugin applied with no version the scripts show is taken as a current one.
 runs_2x() {
@@ -185,17 +186,25 @@ runs_2x() {
             code="$(code_of "$script")"
             case "$code" in *elasticore*) mentioned=0 ;; *) continue ;; esac
             printf '%s\n' "$code" | grep -Eq '(^|[^A-Za-z0-9_])output[[:space:]]*(=|\(|\.set[[:space:]]*\()[[:space:]]*["'"'"']v2["'"'"']' && return 0
-            printf '%s\n' "$code" | grep -Eq '(^|[^A-Za-z0-9_])(architecture|language|rules)[[:space:]]*(=|\(|\.)' && declared=0
-            # id 'io.elasticore', id("io.elasticore"), apply plugin: 'io.elasticore', alias(libs.plugins.elasticore)
-            printf '%s\n' "$code" | grep -Eq 'id[[:space:]]*\(?[[:space:]]*["'"'"']io\.elasticore["'"'"']|apply[[:space:]]+plugin:[[:space:]]*["'"'"']io\.elasticore["'"'"']|plugins\.elasticore|RulesGenRunner' && applied=0
-            printf '%s\n' "$code" | grep -Eq 'ModelExtractor|elasticore-base:2\.' && old=0
-            # A version of the plugin, its classpath artifact or a catalog entry: 3.0.YYMMDD before rc3, or not 3.x.
-            for v in $(printf '%s\n' "$code" | grep -E 'io\.elasticore|elasticore-gradle-plugin|elasticore' \
-                       | grep -Eo '["'"'"':][0-9]+\.[0-9]+\.[0-9]+' | tr -d "\"':"); do
+            printf '%s\n' "$code" | grep -Eq '(^|[^A-Za-z0-9_])(architecture|language|rules|output)[[:space:]]*(=|\(|\.)' && declared=0
+            # id 'io.elasticore', id("io.elasticore"), apply plugin: 'io.elasticore', apply(plugin = "io.elasticore"),
+            # pluginManager.apply("io.elasticore"), alias(libs.plugins.elasticore) - or the rule engine run by hand.
+            printf '%s\n' "$code" | grep -Eq 'id[[:space:]]*\(?[[:space:]]*["'"'"']io\.elasticore["'"'"']|apply[[:space:]]*\(?[[:space:]]*plugin[[:space:]]*(:|=)[[:space:]]*["'"'"']io\.elasticore["'"'"']|pluginManager\.apply[[:space:]]*\([[:space:]]*["'"'"']io\.elasticore["'"'"']|plugins\.elasticore|RulesGenRunner' && applied=0
+            # ElastiCORE's own version: the plugin's, its classpath artifact's, or the catalog's.
+            for v in $(printf '%s\n' "$code" | sed -nE \
+                    -e 's/.*io\.elasticore["'"'"')]*[[:space:]]+version[[:space:]]*\(?[[:space:]]*["'"'"']([0-9][^"'"'"']*).*/\1/p' \
+                    -e 's/.*io\.elasticore["'"'"')]*[[:space:]]+version[[:space:]]*\(?[[:space:]]*([A-Za-z_][A-Za-z0-9_.]*).*/@\1/p' \
+                    -e 's/.*elasticore-gradle-plugin:([0-9][^"'"'"')]*).*/\1/p' \
+                    -e 's/.*id[[:space:]]*=[[:space:]]*"io\.elasticore".*version[[:space:]]*=[[:space:]]*"([0-9][^"]*)".*/\1/p' \
+                    -e 's/^[[:space:]]*elasticore[[:space:]]*=[[:space:]]*"([0-9][^"]*)".*/\1/p'); do
                 case "$v" in
-                    3.0.*) day="${v#3.0.}"; [ "$day" -lt 261028 ] 2>/dev/null && old=0 ;;
-                    3.*) ;;
-                    *) old=0 ;;
+                    @*) # a property: gradle.properties beside the script
+                        v="$(sed -nE 's/^[[:space:]]*'"${v#@}"'[[:space:]]*=[[:space:]]*([0-9][^[:space:]]*).*/\1/p' \
+                             "$dir/gradle.properties" 2>/dev/null | head -n 1)" ;;
+                esac
+                case "$v" in
+                    3.0.*) day="${v#3.0.}"; day="${day%%[!0-9]*}"; [ -n "$day" ] && [ "$day" -lt 261028 ] 2>/dev/null && old=0 ;;
+                    [0-2].*) old=0 ;;
                 esac
             done
         done
@@ -506,9 +515,9 @@ post-bash)
     if has 'SKIP(user-modified' || has 'Externally Modified Files'; then
         text="${text}The generator found generated files edited by hand. It skips such a file, which then no longer follows the DSL - except that the 2.x generator rewrites one with a preserved block (listed with [INGORE]), and a hand edit outside the block is gone. If you made those edits in this session, move them into the DSL or into a file you own, then restore each file by deleting it and generating again. If you did not, they are someone's deliberate edits: list them for the user and ask before restoring anything. Never use -Pforce without asking. "
     fi
-    if has 'does not hold were left as they are'; then
-        # Merged sources the cache does not know: they also print SKIP(no ElastiCORE header - yours).
-        text="${text}The generator left sources alone that .elasticore/cache does not hold. If the cache is missing or was replaced, those are generated files whose hand edits it can no longer merge: take .elasticore/cache from git (it is committed with the generated files) and build again - do not delete those files, which would lose the edits in them. "
+    if has 'does not hold were left as they are - the cache is missing'; then
+        # Merged sources the lost cache does not know: they also print SKIP(no ElastiCORE header - yours).
+        text="${text}The generator left sources alone because .elasticore/cache is missing: those are generated files whose hand edits it can no longer merge. Take .elasticore/cache from git (it is committed with the generated files) and build again - do not delete those files, which would lose the edits in them. "
     elif has 'SKIP(no ElastiCORE header'; then
         text="${text}The generator left a file alone because it has no ElastiCORE header, and did not write its own there. If that file was meant to be generated, it has to be deleted and generated again - ask the user if you did not create it. "
     fi

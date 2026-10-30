@@ -364,7 +364,12 @@ for case in \
     "classpathnew~build.gradle~buildscript { dependencies { classpath 'io.elasticore:elasticore-gradle-plugin:3.0.261030-rc5' } }\napply plugin: 'io.elasticore'\n~no" \
     "setv2~build.gradle.kts~plugins { id(\"io.elasticore\") version \"3.0.261030-rc5\" }\nelasticore { output.set(\"v2\") }\n~yes" \
     "commented~build.gradle~plugins { id 'io.elasticore' version '3.0.261030-rc5' }\n// output = 'v2'\n~no" \
-    "nov~build.gradle~plugins { id 'io.elasticore' }\n~no"
+    "nov~build.gradle~plugins { id 'io.elasticore' }\n~no" \
+    "ktsapply~build.gradle.kts~buildscript { dependencies { classpath(\"io.elasticore:elasticore-gradle-plugin:3.0.261030-rc5\") } }\napply(plugin = \"io.elasticore\")\n~no" \
+    "pluginmanager~build.gradle.kts~buildscript { dependencies { classpath(\"io.elasticore:elasticore-gradle-plugin:3.0.261030-rc5\") } }\npluginManager.apply(\"io.elasticore\")\n~no" \
+    "oneline~build.gradle~plugins { id 'org.springframework.boot' version '4.0.8'; id 'io.elasticore' version '3.0.261030-rc5' }\nversion = '0.0.1' // the elasticore demo\n~no" \
+    "leftover~build.gradle~plugins { id 'io.elasticore' version '3.0.261030-rc5' }\nelasticore { output = 'v3' }\ntask legacy(type: JavaExec) { mainClass = 'io.elasticore.base.extract.ModelExtractor' }\n~no" \
+    "property~build.gradle~plugins { id 'io.elasticore' version elasticoreVersion }\n~yes"
 do
     IFS='~' read -r folder script text want <<EOF
 $case
@@ -373,6 +378,7 @@ EOF
     mkdir -p "$p/src/main/resources/blueprint/shop/model"
     cp "$rules" "$p/src/main/resources/blueprint/shop/model/order.yml"
     printf "$text" > "$p/$script"
+    [ "$folder" = property ] && printf 'elasticoreVersion=3.0.261026-rc2\n' > "$p/gradle.properties"
     n=$((n + 1))
     run post-edit "$(edit_json Edit "$p/src/main/resources/blueprint/shop/model/order.yml" "g$n")"
     if [ "$want" = yes ]; then
@@ -474,7 +480,9 @@ check "a file of the developer's the DSL could not reach is explained" eval 'not
 run post-bash "$(bash_json "./gradlew elcore3" "    messages     src/main/resources/i18n/shop-messages.properties  SKIP(not in the cache)\\n$gen3")"
 check "a file the cache does not know is explained" eval 'noted && has "$out" ".elasticore/cache" && has "$out" "ask the user"'
 run post-bash "$(bash_json "./gradlew elcore3" "    dto          src/x/ProductDTO.java  SKIP(no ElastiCORE header - yours)\\n  2 source(s) without a stamp that .elasticore/cache does not hold were left as they are - the cache is missing: take it from git and run again\\n$gen3")"
-check "sources the lost cache no longer knows: take the cache from git, do not delete them" eval 'noted && has "$out" "take .elasticore/cache from git" && ! has "$out" "has to be deleted"'
+check "sources the lost cache no longer knows: take the cache from git, do not delete them" eval 'noted && has "$out" "Take .elasticore/cache from git" && ! has "$out" "has to be deleted"'
+run post-bash "$(bash_json "./gradlew elcore3" "    dto          src/x/ShopController.java  SKIP(no ElastiCORE header - yours)\\n  1 source(s) without a stamp that .elasticore/cache does not hold were left as they are\\n$gen3")"
+check "with the cache there, a file at a generated path is the developer's as before" eval 'noted && has "$out" "no ElastiCORE header" && ! has "$out" "from git"'
 run post-edit "$(edit_json Edit "$model")"
 run post-bash "$(bash_json "./gradlew compileJava" "    dto          src/x/ProductDTO.java  MERGED(your edits kept)\\n    dto          src/x/OrderDTO.java  UNCHANGED(your edits kept)\\n$built3")"
 check "merged edits need no word, and the build clears the note" eval 'quiet && [ ! -f "$marker" ]'
