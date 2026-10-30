@@ -413,13 +413,18 @@ def check_shop(work, version, template, run, java, temp, mybatis=False):
         extra = blocks_by_sub_heading(part)
         found = re.search(r"^### Add to `PurchaseOrderService\.java` on MyBatis\s*\n+```java\n(.*?)```", part, re.S | re.M)
         setup = read(MYBATIS)
-        starter = re.search(r"^## Instead of `spring-boot-starter-data-jpa`\s*\n+```gradle\n(.*?)```", setup, re.S | re.M)
-        properties = blocks_by_heading(MYBATIS).get("src/main/resources/application.properties")
+        starter = re.search(r"^### Instead of `spring-boot-starter-data-jpa`\s*\n+```gradle\n(.*?)```", setup, re.S | re.M)
+        properties = blocks_by_sub_heading(setup).get("src/main/resources/application.properties")
+        # The new-project template's JPA starter, which mybatis.md says to replace.
+        jpa = "    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'\n"
         check(label["files"], sorted(recipe) == wanted and sorted(extra) == [
             "src/main/resources/blueprint/store/model/report.yml", "src/main/resources/blueprint/store/port/report_port.yml"]
-              and starter and properties, where, "found: %s, %s" % (sorted(recipe), sorted(extra)))
+              and starter and properties and jpa in template["build.gradle"],
+              where + "; references/new-project.md (the line mybatis.md replaces)",
+              "found: %s, %s; starter block %s, properties block %s, the template's JPA line %s"
+              % (sorted(recipe), sorted(extra), bool(starter), bool(properties), jpa in template["build.gradle"]))
         check(label["method"], found, where)
-        if not (starter and properties):
+        if not (starter and properties and jpa in template["build.gradle"]):
             return
     else:
         check(label["files"], sorted(recipe) == wanted, where, "found: %s" % sorted(recipe))
@@ -431,8 +436,7 @@ def check_shop(work, version, template, run, java, temp, mybatis=False):
     for name in ("settings.gradle", "build.gradle"):
         text = render(template[name], version).replace("rootProject.name = 'shop'", "rootProject.name = 'store'")
         if mybatis and name == "build.gradle":
-            jpa = "    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'\n"
-            text = text.replace(jpa, starter.group(1)) if jpa in text else text + "\n// no JPA line to replace\n"
+            text = text.replace(jpa, starter.group(1))
         write(os.path.join(store, name), text)
     for name, body in list(recipe.items()) + list(extra.items()):
         if name != controller_file:
