@@ -23,6 +23,10 @@ and never build ElastiCORE from its source or publish it locally: it comes from 
    need `ddd` or `hexagonal`, and `architecture = 'layered'` in Java before rc3 does not enforce
    `@access`, `@owner` or `@password` either. If the
    requirement needs what the project's generator does not enforce, stop and tell the user.
+   A domain with `mode: mybatis` in its `env.yml` is generated with MyBatis (hexagonal and ddd from
+   3.0.261030-rc6, Java only): the model is the same, but a construct MyBatis cannot keep stops the
+   build with the reason - change the model, never work around it in code (the skill's
+   `references/mybatis.md`).
 3. Find the constructs you need in the project's guides - `src/main/resources/blueprint/elasticore-*.md`,
    the version the project uses. Search `elasticore-guide-index.md` there for the word and read
    only the line range it gives (ElastiCORE before 3.0.261023 has no index: `grep -n '^#'` a guide

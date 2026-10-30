@@ -30,6 +30,9 @@ The `references/` pages named below are in this skill's folder, next to this fil
    - `references/recipe-shop.md` (members, products, orders) - when users sign in and see only their
      own, an administrator does more, a record moves along (placed, shipped, cancelled), prices are
      kept and summed, or the application starts with data. ElastiCORE 3.0.261021 or later.
+   - MyBatis instead of JPA (the user asks for it, or SQL must stay visible and editable):
+     `references/mybatis.md` - three changes to `new-project.md`, what MyBatis refuses, a query of
+     your own. Hexagonal and ddd on MyBatis need ElastiCORE 3.0.261030-rc6 or later; Java only.
 2. DSL syntax: `references/quick-reference.md`, one page. For what it does not have, find the one
    section of the project's guides through `blueprint/elasticore-guide-index.md` (section 1).
 3. Change the YAML, run `./gradlew compileJava` (`./gradlew.bat` on Windows, from Git Bash too -

@@ -196,8 +196,9 @@ To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS
   names, the Gradle tasks and what the started application answers are checked by
   [`tests/contract/check.py`](tests/contract/check.py): it builds the template, the example and a
   2.x-generator project with the newest ElastiCORE 3 release from Maven Central, and generates,
-  edits, breaks, restores and starts them. CI runs it on every change and every Monday; a failure
-  names the assumption that no longer holds and where the kit states it.
+  edits, breaks, restores and starts them - the shop recipe twice, on JPA and on MyBatis
+  (hexagonal), with every request of its API table. CI runs it on every change and every Monday; a
+  failure names the assumption that no longer holds and where the kit states it.
 
 ## Develop
 
