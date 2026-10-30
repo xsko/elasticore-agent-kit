@@ -1,8 +1,9 @@
 # ElastiCORE DSL quick reference (3.0 rule engine, `hexagonal` or `ddd`)
 
 For a build whose `elasticore { }` block sets `architecture = 'hexagonal'` or `'ddd'` - the
-template of `new-project.md` does. Without that block the 2.x generator runs, and much of this page
-does not apply (SKILL.md section 3).
+template of `new-project.md` does. From 3.0.261028-rc3 a build without the block runs the rule engine
+as layered Java (no `states:`, `@compute` or `@snapshot`); `output = 'v2'`, or an older version
+without the block, runs the 2.x generator, and much of this page does not apply (SKILL.md section 3).
 
 Everyday work needs only this page and a recipe: `recipe-board.md` for plain CRUD, `recipe-library.md`
 for rules on other rows, server-set values and an operation of its own, `recipe-shop.md` for members

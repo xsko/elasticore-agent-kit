@@ -18,8 +18,9 @@ logic the DSL cannot express, in the files the generator hands over to you.
 
 The `references/` pages named below are in this skill's folder, next to this file.
 
-0. An existing project: check that `build.gradle` has an `elasticore { }` block with
-   `architecture = 'hexagonal'` or `'ddd'` (section 3). The pages below are for that build.
+0. An existing project: check which generator `build.gradle` runs and with which architecture
+   (section 3). The pages below are for an `elasticore { }` block with `architecture = 'hexagonal'`
+   or `'ddd'`.
 1. A new project: `references/new-project.md`. Then copy the recipe that fits, rename and adjust:
    - `references/recipe-board.md` (posts and comments) - CRUD with validation, search and paging;
    - `references/recipe-library.md` (books, members, loans) - when a rule reads other rows (no copy
@@ -112,7 +113,9 @@ then takes only the DSL's changes that merge cleanly - when one does not, the bu
 as it is and says what to carry over (`KEPT(yours ...)`). Still put in the DSL whatever it can say; a
 hand edit is for what it cannot. A file there that still has an `//ecd:` line has not been taken
 over yet: build once, then edit. `.elasticore/cache` is committed with the generated files - never
-delete it, and never edit it.
+delete it, and never edit it. It is a zip: `unzip -Z1 .elasticore/cache` lists the files it holds
+(or `grep -a -c -F '<path>' .elasticore/cache`). With it a preserved block is no longer needed -
+every edit is kept.
 
 Generated without an `//ecd:` line and rewritten on every generation, so never edit them:
 `blueprint/schema.yml`, `blueprint/semantic_model.yml`, `blueprint/context-map.md`, the copied
@@ -145,8 +148,12 @@ Check `build.gradle` first. Which generator runs depends on the ElastiCORE versi
 - **From 3.0.261028-rc3** the build runs the **3.0 rule engine** (`elcore3`) unless it says
   `elasticore { output = 'v2' }` (or a run passes `-Pv2`). No `elasticore { }` block means layered
   Java on the rule engine.
+  A project holding code 2.x generated that sets no `output` is stopped before anything is written,
+  with that choice to make - `output = 'v2'` keeps the 2.x code, `output = 'v3'` moves to the 3.0 code.
 - **Before 3.0.261028-rc3** an `elasticore { }` block that sets `architecture`, `language` or
   `rules` means the rule engine; without one the build runs the 2.x generator.
+- **Without the `io.elasticore` plugin** - the 2.2 line, with `elasticore-base` and a hand-written
+  `elcore` task running `ModelExtractor` - it is the 2.x generator.
 
 The **2.x generator** (`elcore`) ignores `@access`, `@owner`, `@password`, `@login`, `states:`,
 `@compute` and `@snapshot` **without a warning**, and writes `money` and `quantity` fields without the
@@ -214,7 +221,7 @@ The rule engine prints a line per file, then a summary:
 | `REGENERATED(owned, never edited)` | A file of yours you had not edited yet, brought up to date |
 | `SKIP(user-owned)` | Yours; left alone |
 | `SKIP(user-modified; -Pforce to overwrite)` | A generated file edited by hand. If you made that edit in this session, move it into the DSL or a file you own, then restore the file by deleting it and generating again. If you did not, it is someone's deliberate edit: tell the user and ask before restoring it. |
-| `SKIP(no ElastiCORE header - yours)` | A file at that path that ElastiCORE did not write; the generated one is missing |
+| `SKIP(no ElastiCORE header - yours)` | A file at that path that ElastiCORE did not write; the generated one is missing. In a project on the merge, when the summary also says `... source(s) without a stamp that .elasticore/cache does not hold were left as they are`, those are generated files whose base is lost: take `.elasticore/cache` from git and build again - deleting them loses their edits |
 | `MERGED(your edits kept)`, `UNCHANGED(your edits kept)` | With `.elasticore/cache`: a generated file edited by hand, with the DSL's changes merged in (or none to merge) |
 | `CONFLICT` | With the cache: the edit and the DSL change the same lines. The file now holds `<<<<<<< yours` / `=======` / `>>>>>>> elasticore` and the build fails until they are gone. Resolve each place as a git conflict - usually the DSL's new code together with what the edit was for. Ask the user if you did not make the edit. Never delete the file or the cache to get past it. `CONFLICT(unresolved)`: marks are still there from an earlier build |
 | `KEPT(yours - the DSL's changes to it do not merge)` | A file of yours the DSL changes where it was edited: left as it is. The `[elcore3]` lines after the list name what to carry over by hand when they can (an endpoint, a constructor argument, an annotation); do that and build again |

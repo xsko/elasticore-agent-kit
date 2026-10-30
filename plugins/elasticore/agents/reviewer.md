@@ -35,8 +35,10 @@ edit belongs in.
 With `.elasticore/cache` a hand edit of a generated file is kept and merged with the DSL's later
 changes, so it is not a finding by itself. It is one when the DSL could say it (a field, a check, a
 search condition, access) - say where it belongs - and any `<<<<<<<`, `=======` or `>>>>>>>` line
-left in a file is a blocker. A changed `.elasticore/cache` without the generated files it names, or
-the other way round, is a finding: the two are committed together.
+left in a file is a blocker. A build that regenerated files (the DSL changed) changes `.elasticore/cache`
+with them: generated files committed without the matching cache change, or a cache change without
+those files, is a finding - a hand edit alone leaves the cache as it was. Whether a path is in the
+cache (a zip): `unzip -Z1 .elasticore/cache`, or `grep -a -c -F '<path>' .elasticore/cache`.
 
 ## 3. The generator, and the DSL against it
 

@@ -63,7 +63,7 @@ is_dsl() {
 merge_root() {
     dir="$(dirname -- "$1")"
     i=0
-    while [ -n "$dir" ] && [ "$i" -lt 12 ]; do
+    while [ -n "$dir" ] && [ "$i" -lt 40 ]; do
         [ -f "$dir/.elasticore/cache" ] && { printf '%s' "$dir"; return 0; }
         parent="$(dirname -- "$dir")"
         [ "$parent" = "$dir" ] && break
@@ -155,33 +155,59 @@ classify() {
     fi
 }
 
-# Whether the build scripts, in the model's module or above it, have the Gradle
-# plugin run the 2.x generator:
-#   - output = 'v2' (any version);
-#   - else, before ElastiCORE 3.0.261028-rc3, no elasticore { } block, nor
-#     elasticore.<setting>, that sets architecture, language or rules - from rc3
-#     the plugin runs the 3.0 rule engine without one.
-# A plugin version the scripts do not show is taken as a current one.
+# A build script without its comment lines.
+code_of() {
+    grep -v -E '^[[:space:]]*(//|/\*|\*)' -- "$1" 2>/dev/null
+}
+
+# Whether the build scripts, in the model's module or above it, run the 2.x
+# generator:
+#   - output = 'v2' / output.set("v2"), on any version;
+#   - a build that never applies the io.elasticore plugin - the 2.2 line, a
+#     hand-written task running ModelExtractor, elasticore-base 2.x - unless it
+#     runs the rule engine itself (RulesGenRunner);
+#   - before ElastiCORE 3.0.261028-rc3 (a plugin, classpath or catalog version
+#     older than that), no elasticore { } block, nor elasticore.<setting>, that
+#     sets architecture, language or rules - from rc3 the plugin runs the 3.0
+#     rule engine without one.
+# A plugin applied with no version the scripts show is taken as a current one.
 runs_2x() {
     dir="$1"
     i=0
     declared=1
     old=1
-    while [ -n "$dir" ] && [ "$i" -lt 6 ]; do
-        for script in "$dir/build.gradle" "$dir/build.gradle.kts" "$dir/settings.gradle" "$dir/settings.gradle.kts"; do
-            [ -f "$script" ] && grep -q 'elasticore' "$script" 2>/dev/null || continue
-            grep -Eq '(^|[^A-Za-z0-9_])output[[:space:]]*(=|\()[[:space:]]*["'"'"']v2["'"'"']' "$script" 2>/dev/null && return 0
-            grep -Eq '(^|[^A-Za-z0-9_])(architecture|language|rules)[[:space:]]*(=|\(|\.)' "$script" 2>/dev/null && declared=0
-            # id 'io.elasticore' version '3.0.261026-rc2', or id("io.elasticore") version "..."
-            day="$(sed -nE 's/.*io\.elasticore["'"'"')]*[[:space:]]+version[[:space:]]*\(?[[:space:]]*["'"'"']3\.0\.([0-9]+).*/\1/p' "$script" 2>/dev/null | head -n 1)"
-            if [ -n "$day" ] && [ "$day" -lt 261028 ] 2>/dev/null; then old=0; fi
+    applied=1
+    mentioned=1
+    while [ -n "$dir" ] && [ "$i" -lt 8 ]; do
+        for script in "$dir/build.gradle" "$dir/build.gradle.kts" "$dir/settings.gradle" "$dir/settings.gradle.kts" \
+            "$dir/gradle/libs.versions.toml"; do
+            [ -f "$script" ] || continue
+            code="$(code_of "$script")"
+            case "$code" in *elasticore*) mentioned=0 ;; *) continue ;; esac
+            printf '%s\n' "$code" | grep -Eq '(^|[^A-Za-z0-9_])output[[:space:]]*(=|\(|\.set[[:space:]]*\()[[:space:]]*["'"'"']v2["'"'"']' && return 0
+            printf '%s\n' "$code" | grep -Eq '(^|[^A-Za-z0-9_])(architecture|language|rules)[[:space:]]*(=|\(|\.)' && declared=0
+            # id 'io.elasticore', id("io.elasticore"), apply plugin: 'io.elasticore', alias(libs.plugins.elasticore)
+            printf '%s\n' "$code" | grep -Eq 'id[[:space:]]*\(?[[:space:]]*["'"'"']io\.elasticore["'"'"']|apply[[:space:]]+plugin:[[:space:]]*["'"'"']io\.elasticore["'"'"']|plugins\.elasticore|RulesGenRunner' && applied=0
+            printf '%s\n' "$code" | grep -Eq 'ModelExtractor|elasticore-base:2\.' && old=0
+            # A version of the plugin, its classpath artifact or a catalog entry: 3.0.YYMMDD before rc3, or not 3.x.
+            for v in $(printf '%s\n' "$code" | grep -E 'io\.elasticore|elasticore-gradle-plugin|elasticore' \
+                       | grep -Eo '["'"'"':][0-9]+\.[0-9]+\.[0-9]+' | tr -d "\"':"); do
+                case "$v" in
+                    3.0.*) day="${v#3.0.}"; [ "$day" -lt 261028 ] 2>/dev/null && old=0 ;;
+                    3.*) ;;
+                    *) old=0 ;;
+                esac
+            done
         done
         parent="$(dirname -- "$dir")"
         [ "$parent" = "$dir" ] && break
         dir="$parent"
         i=$((i + 1))
     done
-    [ "$old" = 0 ] && [ "$declared" = 1 ]
+    [ "$declared" = 0 ] && return 1
+    [ "$old" = 0 ] && return 0
+    # Elasticore in the build, but neither its plugin nor its rule engine: the 2.x generator.
+    [ "$mentioned" = 0 ] && [ "$applied" = 1 ]
 }
 
 # Trims spaces and escaped line breaks from both ends of a JSON string value.
@@ -373,7 +399,7 @@ pre-edit)
     case "$(classify "$path")" in
     managed)
         adds_block && exit 0
-        deny "ElastiCORE generates $path from the DSL (its first line is //ecd:). A hand edit is not kept in step: from the next build on, the generator skips the file - SKIP(user-modified) - and it no longer follows the DSL. (From ElastiCORE 3.0.261030-rc5 the 3.0 code merges hand edits: if this project is on such a version, build once first - the build takes the file over without its //ecd: line, and an edit made after that is kept.) Make this change in the YAML under src/main/resources/blueprint/<domain>/, or in a file that carries the line '// Initially generated by ElastiCORE;' - the elasticore skill says which. Code that has to live in this very file, such as a custom query in a repository, goes in a preserved block right before the class's closing brace - the generator puts a block's code there on every regeneration: one Edit whose old text ends with that last '}' line and whose new text is the same with one whole block inserted before the '}' - '// !----------', the code with fully qualified type names, '// ------------!', each on lines of their own - and nothing else; only that edit goes through. Do not make the change another way, with a shell command or a script. If the user wants this file edited by hand anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
+        deny "ElastiCORE generates $path from the DSL (its first line is //ecd:). A hand edit is not kept in step: from the next build on, the generator skips the file - SKIP(user-modified) - and it no longer follows the DSL. (From ElastiCORE 3.0.261030-rc5 the 3.0 code merges hand edits: if this project is on such a version and its build sets neither output = 'v2' nor merge = false, build once first - the build takes a file nobody edited over without its //ecd: line, and an edit made after that is kept.) Make this change in the YAML under src/main/resources/blueprint/<domain>/, or in a file that carries the line '// Initially generated by ElastiCORE;' - the elasticore skill says which. Code that has to live in this very file, such as a custom query in a repository, goes in a preserved block right before the class's closing brace - the generator puts a block's code there on every regeneration: one Edit whose old text ends with that last '}' line and whose new text is the same with one whole block inserted before the '}' - '// !----------', the code with fully qualified type names, '// ------------!', each on lines of their own - and nothing else; only that edit goes through. Do not make the change another way, with a shell command or a script. If the user wants this file edited by hand anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
     regenerated)
         deny "ElastiCORE writes $path again on every generation, so an edit to it is lost. The model is the YAML in src/main/resources/blueprint/<domain>/; a message is translated or reworded in a copy with a locale suffix next to the default file, such as <domain>-messages_ko.properties. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
@@ -480,7 +506,10 @@ post-bash)
     if has 'SKIP(user-modified' || has 'Externally Modified Files'; then
         text="${text}The generator found generated files edited by hand. It skips such a file, which then no longer follows the DSL - except that the 2.x generator rewrites one with a preserved block (listed with [INGORE]), and a hand edit outside the block is gone. If you made those edits in this session, move them into the DSL or into a file you own, then restore each file by deleting it and generating again. If you did not, they are someone's deliberate edits: list them for the user and ask before restoring anything. Never use -Pforce without asking. "
     fi
-    if has 'SKIP(no ElastiCORE header'; then
+    if has 'does not hold were left as they are'; then
+        # Merged sources the cache does not know: they also print SKIP(no ElastiCORE header - yours).
+        text="${text}The generator left sources alone that .elasticore/cache does not hold. If the cache is missing or was replaced, those are generated files whose hand edits it can no longer merge: take .elasticore/cache from git (it is committed with the generated files) and build again - do not delete those files, which would lose the edits in them. "
+    elif has 'SKIP(no ElastiCORE header'; then
         text="${text}The generator left a file alone because it has no ElastiCORE header, and did not write its own there. If that file was meant to be generated, it has to be deleted and generated again - ask the user if you did not create it. "
     fi
     # The merge (3.0.261030-rc5 and later): "  CONFLICT" and "  CONFLICT(unresolved)" after the path.
