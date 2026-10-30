@@ -23,7 +23,13 @@ argument-hint: "[gradle task - default compileJava]"
      under `[WARN] Externally Modified Files Detected:` - with the DSL change or developer-owned file
      the edit belongs in. Restoring one means deleting it and generating again: ask the user first
      unless you made that edit in this session;
-   - every `SKIP(no ElastiCORE header - yours)` file: the generated one is missing there;
+   - every `SKIP(no ElastiCORE header - yours)` file: the generated one is missing there - unless the
+     summary says `... that .elasticore/cache does not hold were left as they are`: then the cache is
+     missing or replaced, and it is taken from git, not the files deleted;
+   - with `.elasticore/cache` (ElastiCORE 3.0.261030-rc5 and later): every `CONFLICT` file - the
+     places marked `<<<<<<< yours` / `>>>>>>> elasticore` and how each should be resolved (the build
+     fails until they are); every `KEPT(yours ...)` file with what the `[elcore3]` lines say to carry
+     over by hand; every `SKIP(not in the cache)` file. `MERGED(your edits kept)` needs no action;
    - every `ERROR` line and every compile error. When a compile error is in a generated file, trace
      it back to the DSL line that caused it - for example a DTO named in `@dtype(...)` that no `dto:`
      section defines.

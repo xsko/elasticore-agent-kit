@@ -3,6 +3,49 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.6.0
+
+ElastiCORE 3.0.261030-rc5 merges hand edits into generated code instead of skipping the file, and from
+3.0.261028-rc3 a build without an `elasticore { }` block runs the 3.0 rule engine. The kit follows both.
+
+- **Hook, edits:** a generated file named in `.elasticore/cache` - written without an `//ecd:` line from
+  rc5 - may be edited: ElastiCORE keeps the edit and merges the DSL's later changes into it. That covers
+  the default messages file and a generated `orm.xml` too. The first edit in a session gets one note:
+  the DSL comes first, and an edit on lines the DSL also changes stops the build with conflict marks.
+  A file that still carries `//ecd:` is refused as before, and the refusal says to build once first on
+  rc5, so that the build takes the file over. `schema.yml` and the copied guides are still refused.
+- **Hook, build output:** `CONFLICT` and `CONFLICT(unresolved)` are explained. The explanation says to
+  resolve the marks as a git conflict and not to delete the file or the cache. It also covers
+  `KEPT(yours ...)` (what to carry over by hand) and `SKIP(not in the cache)`.
+- **Hook, which generator:** the 2.x-generator note now fires in three cases:
+  - `output = 'v2'` or `output.set("v2")` (comment lines are skipped);
+  - a build that never applies the `io.elasticore` plugin, such as the 2.2 line's hand-written
+    `ModelExtractor` task;
+  - a build without the block on an ElastiCORE older than rc3.
+
+  It reads the version from `plugins { }` (Groovy or Kotlin), a `buildscript` classpath or
+  `gradle/libs.versions.toml`. Before, it fired on every build without the block, which is wrong
+  from rc3.
+- **Hook, a lost cache:** when the build says sources were left because `.elasticore/cache` does not
+  hold them, the hook says to take the cache from git rather than delete the files.
+- **Skill, agents, `generate` and `change-report`** (Claude Code and opencode): who owns a file in a
+  project with `.elasticore/cache`. Section 2 of the skill and the status table add the merge statuses.
+  Section 3 explains which generator runs, per version. On rc3 and later, layered Java enforces
+  `@access`, `@owner` and `@password`, and `money` compiles there. The reviewer agent treats a hand edit
+  to a merged file as a finding only when the DSL could say it; a leftover conflict mark is a blocker.
+- **Recipes and quick reference:** an edited service reports `UNCHANGED(your edits kept)` from rc5. The
+  ownership line is the file's first line from rc5, its second before.
+- **Contract test:** `kind()` reads `.elasticore/cache`. From 3.0.261030 the test checks:
+  - a merged DTO the hook allows;
+  - `UNCHANGED(your edits kept)` for an edit;
+  - `MERGED(your edits kept)` for a DSL change elsewhere in the file;
+  - `CONFLICT` with marks and a failed generation for the same line, then `CONFLICT(unresolved)`;
+  - the hook's explanation of the conflict in real output;
+  - a DTO the DSL dropped but a kept file still uses: kept, with the file that uses it named.
+
+  From 3.0.261028 the layered contracts expect access enforced and `money` compiling, and the 2.x project
+  declares `output = 'v2'`. These four contracts had failed on rc3 and rc4.
+
 ## 0.5.0
 
 Read less of the guides, and ports.
