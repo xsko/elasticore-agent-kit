@@ -45,8 +45,8 @@ The `references/` pages named below are in this skill's folder, next to this fil
 6. Write code and models in English: comments, Javadoc, names, log and exception messages in the
    code you write, and the `-- label`s of the DSL - the generated code is in English too. Use another
    language only when the user asks for one, or when the project's own code and models are already
-   written in it. That you talk with the user in another language, or that the guides are in Korean,
-   is no reason to write it in them.
+   written in it. That you talk with the user in another language, or that the project's guides are
+   in Korean, is no reason to write it in them.
 
 ## 0. Stay inside the project
 
@@ -65,8 +65,10 @@ newest version, a template that is built in CI every week, and how to try the re
 For anything else, every generation copies the guides of the ElastiCORE version the project uses into
 `src/main/resources/blueprint/` - in a multi-module build, the root project's. They are the full
 reference; syntax differs between versions, so read them rather than relying on memory. They are
-long (half a megabyte together) and written in Korean: never read a whole guide - one section at a
-time, found through the index. Answer the user in their language.
+long (half a megabyte together): never read a whole guide - one section at a time, found through
+the index. Up to ElastiCORE 3.0.261031-rc7 they are in Korean; later releases copy English ones, or
+Korean ones under the same names when the build says `elasticore { guides = 'ko' }`. Answer the user
+in their language.
 
 **Finding a section.** From ElastiCORE 3.0.261023 every generation also writes
 `src/main/resources/blueprint/elasticore-guide-index.md`, one line per section of the guides beside
@@ -77,13 +79,13 @@ elasticore-rule-dev-guide.md:1060-1097  ### `SourceCode` - ...  [ensureClassAnno
 ```
 
 1. Search the index for the word - an annotation (`@access`), a YAML key (`states:`), an API name
-   (`excludeMethod`) or a Korean term: the Grep tool on that one file, or
+   (`excludeMethod`) or a term in the guides' language: the Grep tool on that one file, or
    `grep -i -F -e 'excludeMethod' src/main/resources/blueprint/elasticore-guide-index.md`. It is
    about 570 lines; search it, do not read it.
 2. Read only the range of the line that fits: the Read tool with `offset` = first line and
    `limit` = last - first + 1, or `sed -n '1060,1097p' <guide>`. Ranges of a hundred lines or less
    are the norm; for a longer one, search the index for a narrower word first.
-3. No line fits: try another word (the Korean term, the YAML key) before you search the guides
+3. No line fits: try another word (a synonym, the YAML key) before you search the guides
    themselves.
 
 No index (ElastiCORE before 3.0.261023): `grep -n '^#' <guide>` lists a guide's headings with their

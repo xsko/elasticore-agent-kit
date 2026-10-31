@@ -189,7 +189,8 @@ To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS
   which the contract test checks against the newest release. The full guides are the ones every
   generation copies into the project's `src/main/resources/blueprint/`, from the ElastiCORE
   version the project uses, and the skill sends Claude there for everything the reference does not
-  have. When a project upgrades ElastiCORE, Claude reads the new guides. The guides are in Korean;
+  have. When a project upgrades ElastiCORE, Claude reads the new guides. They are in Korean up to
+  ElastiCORE 3.0.261031-rc7 and in English after it (Korean with `elasticore { guides = 'ko' }`);
   the kit's own pages are in English.
 - **What the kit does rely on is tested against ElastiCORE.** The new-project template and the
   worked example, the file markers, both generators' status lines and warning headers, the guide

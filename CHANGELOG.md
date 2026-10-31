@@ -3,6 +3,12 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.7.3
+
+ElastiCORE's guides are in English after 3.0.261031-rc7 (Korean with `elasticore { guides = 'ko' }`,
+ElastiCORE pull request 69). The skill and the READMEs no longer say they are in Korean: the version
+decides, and the index is searched for a term in the guides' language.
+
 ## 0.7.2
 
 The code and models the agent writes are in English, as ElastiCORE's generated code is: comments,
