@@ -42,6 +42,11 @@ The `references/` pages named below are in this skill's folder, next to this fil
 5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
    are generated. Extra rules go in `<Entity>Service.beforeSave`; an operation the CRUD does not
    have is a method there plus one small controller of your own, as in `recipe-library.md`.
+6. Write code and models in English: comments, Javadoc, names, log and exception messages in the
+   code you write, and the `-- label`s of the DSL - the generated code is in English too. Use another
+   language only when the user asks for one, or when the project's own code and models are already
+   written in it. That you talk with the user in another language, or that the guides are in Korean,
+   is no reason to write it in them.
 
 ## 0. Stay inside the project
 

@@ -3,6 +3,15 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.7.2
+
+The code and models the agent writes are in English, as ElastiCORE's generated code is: comments,
+Javadoc, names and messages in hand-written code, and the `-- label`s of the DSL. Another language
+only when the user asks for it or the project is already written in it - not because the user
+writes to the agent in it, or because the guides are in Korean. Asked in Korean for a board, an
+agent had written its own use case port with Korean Javadoc. In the skill's fast path and the
+modeler agent (Claude Code and opencode).
+
 ## 0.7.1
 
 ElastiCORE 3.0.261031-rc7 answers a taken unique value on MyBatis with 409 `unique`, as on JPA.
