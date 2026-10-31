@@ -36,7 +36,8 @@ and never build ElastiCORE from its source or publish it locally: it comes from 
 ## Making the change
 
 4. Make the smallest DSL change that says the requirement. Keep each file's layout: one field per
-   line, the aligned columns, the comments.
+   line, the aligned columns, the comments. Write new `-- label`s and comments in English unless the
+   user asks for another language or the models are already written in one.
 5. Run `./gradlew compileJava` - it regenerates before compiling - and read the whole output, not a
    `head` or a `grep` of it. Fix, in the DSL, every line under `DSL validation warnings:` (the rule
    engine still succeeds with them; the 2.x generator fails the build), every `ERROR` line and every
