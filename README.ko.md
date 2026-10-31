@@ -161,7 +161,7 @@ hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니�
 - **kit에는 DSL 문서의 사본을 두지 않습니다** - 한 장짜리 요약과 레시피만 있고, 그것은 계약 테스트가 최신 릴리스에 대해 확인합니다.
   전체 가이드는 ElastiCORE가 생성할 때마다 그 프로젝트가 쓰는 버전의 것을 `src/main/resources/blueprint/`에 복사하는 것이고,
   요약에 없는 것은 skill이 Claude를 그곳으로 보냅니다. 프로젝트가 ElastiCORE를 올리면 Claude는 새 가이드를 읽습니다. 가이드는
-  한국어이고, kit의 페이지는 영어입니다.
+  ElastiCORE 3.0.261031-rc7 까지 한국어, 그 다음 릴리스부터 영어입니다(`elasticore { guides = 'ko' }` 면 한국어). kit의 페이지는 영어입니다.
 - **kit이 기대는 ElastiCORE 동작은 실제 빌드로 검사합니다.** 새 프로젝트 템플릿과 예제, 파일 표시, 두 생성기의 상태 문구와 경고
   머리말, 가이드 이름, Gradle 태스크, 띄운 애플리케이션의 응답을 [`tests/contract/check.py`](tests/contract/check.py)가 확인합니다.
   Maven Central의 최신 ElastiCORE 3로 템플릿·예제·2.x 생성기 프로젝트를 만들어 생성하고, 고치고, 일부러 망가뜨리고, 되돌리고,
