@@ -512,6 +512,10 @@ post-bash)
     # The rule engine stops before writing when the model cannot be generated as written
     # (a relation in an exposed composite key, a @deleted a delete would bypass, ...):
     # "[elcore3] the model check failed (N) - fix these and build again:" and one line each.
+    # A project 2.x generated that chose no output: the build stops before writing anything.
+    if has 'This project holds the code 2.x generates'; then
+        text="${text}The build stopped: this project holds the code 2.x generated and its build chose no output. Do not pick one for the user. output = 'v2' keeps the 2.x code; moving to the 3.0 code (output = 'v3') is the user's decision - the migrate skill (/elasticore:migrate) checks first what that move would do, writing nothing. "
+    fi
     if has 'the model check failed'; then
         text="${text}The 3.0 rule engine stopped before writing code: the model check failed. Each line after that header names the entity and field and says what to write instead - change the DSL as it says and build again; do not work around it in Java. "
     fi

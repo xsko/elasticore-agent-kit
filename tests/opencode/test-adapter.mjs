@@ -248,6 +248,8 @@ const files = [
   "commands/elasticore-generate.md",
   "commands/elasticore-review.md",
   "commands/elasticore-change-report.md",
+  "commands/elasticore-migrate.md",
+  "skills/elasticore/references/migrate.md",
 ]
 const missing = files.filter((f) => !existsSync(join(installed, f)))
 check("install.sh copies every file", missing.length === 0, "missing: " + missing.join(", "))

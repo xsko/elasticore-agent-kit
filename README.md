@@ -48,8 +48,8 @@ the files the generator hands over.
   overwrite hand-edited files - is refused; after a model change the agent is told to generate and
   compile, and is not allowed to finish until a successful build has done both.
 - **Two agents and three commands:** a modeler that turns a requirement into a model change and
-  reports it in business terms, a reviewer, and `/elasticore:generate`, `/elasticore:change-report`
-  and `/elasticore:review`.
+  reports it in business terms, a reviewer, and `/elasticore:generate`, `/elasticore:change-report`,
+  `/elasticore:review` and `/elasticore:migrate`.
 
 ## Requirements
 
@@ -155,6 +155,7 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | `/elasticore:generate [task]` | Regenerates and compiles, then explains every warning, skipped file and error, with the DSL fix. |
 | `/elasticore:change-report [range]` | Writes what a DSL change means for the business and what needs a decision. |
 | `/elasticore:review [range] [full]` | Runs the reviewer on uncommitted changes or a range. It only reads, unless you add `full` - then it also builds, which regenerates files. |
+| `/elasticore:migrate [check \| move]` | Moves a project 2.x generated (or `output = 'v2'`) to the 3.0 code: `elcoreMigrationCheck` first (ElastiCORE 3.0.261113-rc13 or later; it writes nothing), the DSL fixes it asks for, then - on `move` and your yes - the move, its compile errors matched to their causes, and the tests. |
 
 ### The hooks
 

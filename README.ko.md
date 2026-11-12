@@ -39,7 +39,7 @@ entity:
   고친 파일을 덮어쓰게 하는 Gradle 속성 - 빌드를 막고, 모델을 고친 뒤에는 생성·컴파일하라고 알려 주며, 성공한 빌드가 둘 다 하기
   전에는 끝내지 못하게 합니다.
 - **agent 둘과 command 셋:** 요구사항을 모델 변경으로 바꾸고 업무 말로 보고하는 modeler, reviewer, 그리고
-  `/elasticore:generate`, `/elasticore:change-report`, `/elasticore:review`.
+  `/elasticore:generate`, `/elasticore:change-report`, `/elasticore:review`, `/elasticore:migrate`.
 
 ## 필요한 것
 
@@ -130,6 +130,7 @@ ElastiCORE 3.0.261021의 DSL 추가 다섯 가지가 되었고, 3.0.261022-rc1 �
 | `/elasticore:generate [태스크]` | 다시 생성하고 컴파일한 뒤 경고·건너뛴 파일·오류를 DSL 고치는 법과 함께 설명합니다. |
 | `/elasticore:change-report [범위]` | DSL 변경이 업무에 뜻하는 것과 결정이 필요한 것을 씁니다. |
 | `/elasticore:review [범위] [full]` | 커밋하지 않은 변경이나 지정한 범위를 reviewer로 검토합니다. 읽기만 하고, `full`을 붙이면 빌드까지 합니다(파일이 다시 생성됨). |
+| `/elasticore:migrate [check \| move]` | 2.x가 생성한(또는 `output = 'v2'`인) 프로젝트를 3.0 코드로 옮깁니다: 먼저 `elcoreMigrationCheck`(ElastiCORE 3.0.261113-rc13 이상, 아무것도 쓰지 않음), 점검이 요구하는 DSL 수정, 그다음 `move`와 사용자 동의가 있을 때 전환, 컴파일 오류를 원인과 짝지어 수정, 테스트. |
 
 ### hook
 

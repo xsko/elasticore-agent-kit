@@ -197,6 +197,8 @@ warnings as missing behaviour, not as noise.
 | A delete that keeps the row (others still name it, kept for the records) | a `timestamp @deleted` field (from 3.0.261106-rc11) - `references/quick-reference.md`; never a flag and an update of your own |
 | When a state was entered (sent at, cancelled at) | a time field `@stamp(STATE)` beside `states:` (from 3.0.261106-rc11, ddd or hexagonal) |
 | A DTO with a few of an entity's fields | `@template(Entity[a, b])` (from 3.0.261106-rc11) |
+| An entity code of the user's reads and writes through `helper.getXxx()`, with no service or API | `@repository` on its entity line (from 3.0.261113-rc13) |
+| Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
 | A call to another system, or hand-written SQL | a port - `references/quick-reference.md` "ports" (up to 3.0.261022-rc1 it needs `@EnableElastiCore`), then `elasticore-dsl-port-guide.md` |
 | Anything the DSL cannot say | a file you own (section 2) |
