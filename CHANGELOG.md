@@ -19,6 +19,8 @@ the DSL instead of the code the DSL now makes:
   does what they do, and the names rc12 warns about (Claude Code and opencode).
 - The PostToolUse hook reports a build the rule engine stopped with `the model check failed`, and
   sends the agent to the DSL lines it names rather than to Java.
+- `recipe-board.md`: `Comment`'s table is `post_comment`. rc12 warns that `comment` is a word Oracle
+  reserves, and the board recipe must build without a warning (the one contract rc12 broke, of 139).
 - The contract test passes on ElastiCORE 3.0.261112-rc12.
 
 ## 0.7.3
