@@ -509,6 +509,12 @@ post-bash)
     if has 'DSL validation warnings:'; then
         text="${text}The 3.0 rule engine (elcore3) listed DSL validation warnings. The model is wrong until they are gone, even when the build passes: fix each line under that header in the DSL and build again. "
     fi
+    # The rule engine stops before writing when the model cannot be generated as written
+    # (a relation in an exposed composite key, a @deleted a delete would bypass, ...):
+    # "[elcore3] the model check failed (N) - fix these and build again:" and one line each.
+    if has 'the model check failed'; then
+        text="${text}The 3.0 rule engine stopped before writing code: the model check failed. Each line after that header names the entity and field and says what to write instead - change the DSL as it says and build again; do not work around it in Java. "
+    fi
     if has '[WARN] DSL Validation Warnings'; then
         text="${text}The 2.x generator (elcore) listed DSL validation warnings and stopped the build: fix each line under that header in the DSL and build again. "
     fi
