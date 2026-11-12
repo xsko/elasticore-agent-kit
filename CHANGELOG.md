@@ -3,6 +3,18 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.9.0
+
+Moving a project from the 2.x code to the 3.0 code, with ElastiCORE's migration check:
+
+- `/elasticore:migrate [check | move]` (and `elasticore-migrate` for opencode): build as it is, run
+  `elcoreMigrationCheck` (ElastiCORE 3.0.261113-rc13 or later - the first 3.0 build with nothing written), fix in the DSL what
+  its first section lists (`@repository` for an entity hand code reads through `helper.getXxx()`), report the rest, and
+  only on `move` and the user's yes set `output = 'v3'`, fix what the build says and test.
+- `references/migrate.md`: the steps and a table of the failures a move gives - with their causes and fixes.
+- The PostToolUse hook: a build stopped because a project holds 2.x code and chose no `output` sends the agent to the
+  user's decision and the check, never to a choice of its own.
+
 ## 0.8.0
 
 What ElastiCORE 3.0.261106-rc11 and 3.0.261112-rc12 added, where the agent looks first - so it writes

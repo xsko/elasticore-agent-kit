@@ -422,6 +422,8 @@ check "and answered as PostToolUseFailure" eval 'has "$out" "\"hookEventName\":\
 check "a failed build keeps the note" [ -f "$marker" ]
 run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3\\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\\nBUILD SUCCESSFUL")"
 check "even one whose output looks successful" [ -f "$marker" ]
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3 FAILED\\n[elcore3] This project holds the code 2.x generates (src/main/java/com/acme/shop/dto/ProductDTO.java). Since 3.0.261028-rc3 the generator writes the 3.0 code unless told otherwise. No source was written.\\nBUILD FAILED in 3s")"
+check "a 2.x project that chose no output is sent to the user's decision and the migration check" eval 'noted && has "$out" "decision" && has "$out" "/elasticore:migrate"'
 run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3 FAILED\\n[elcore3] the model check failed (1) - fix these and build again:\\n  [elcore3] Dom.Entry: its composite key holds the relation order: Ledger ... (ledgerId: long @id), or do not expose it\\nBUILD FAILED in 4s")"
 check "a stopped model check is reported, with where to fix it" eval 'noted && has "$out" "model check failed" && has "$out" "change the DSL"'
 check "and answered as PostToolUseFailure too" eval 'has "$out" "\"hookEventName\":\"PostToolUseFailure\"" && valid_json'
