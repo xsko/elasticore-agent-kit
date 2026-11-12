@@ -39,6 +39,7 @@ run `./gradlew.bat`, from Git Bash too (`run-and-check.md` says why). To run the
 | `string(100) @email` | an e-mail address |
 | `string(13)! @pattern('^[0-9]{13}$', 'ISBN must be 13 digits')` | a format rule: 400 with that message when the value does not match (from 3.0.261021; write a backslash doubled, `\\d`, or use `[0-9]`) |
 | `int @min(1) @max(10)` | a whole number from 1 to 10 |
+| `double @min(0.5) @max(5.0)` | a number from 0.5 to 5.0 (a fraction on a `double` or `float` compiles from 3.0.261112-rc12; before, write whole bounds there) |
 | `date @past`, `date @future` | a date before today, after today (`@pastorpresent`, `@futureorpresent` include today) |
 | `string(30)! @writeonly` | accepted in requests, never in answers (a card number) |
 | `string(255)! @password` | kept as a hash, never in answers or searches; with a `@login` field the entity signs in (below) |
@@ -60,7 +61,8 @@ Two 409s come for free: a create with a key that exists, and a `@Index(name="uk_
 columnList="email", unique=true)` on the entity line for a unique field.
 
 Not types: `uuid`, `short`, `char`, `OffsetDateTime`. Use `string(36)` for a uuid, `int` for a
-short, `string(1)` for a char, `timestamp` (an instant, ISO-8601 in JSON) for an offset time.
+short, `string(1)` for a char, `timestamp` (an instant, ISO-8601 in JSON) for an offset time. From
+3.0.261112-rc12 the `unresolved type` warning says this too.
 
 YAML: a label with `: ` in it breaks the file (`* LOAD ERROR:` in the build output, the whole file is
 left out, and from 3.0.261021 the build stops naming it); ` #` cuts the label off there. Write
@@ -137,6 +139,26 @@ allow answers 409 (`code` `state.PurchaseOrder.status.cancel`). On an order line
 `@event(Shipped(total))` on the entity line publishes `PurchaseOrderShippedEvent` (package
 `domain.event`) when `ship` is saved; an `@EventListener` method receives it.
 
+## A delete that keeps the row, and when a state was entered (from 3.0.261106-rc11)
+
+```yaml
+      discontinuedAt: timestamp @deleted       -- taken off the catalog: kept, since orders still name it
+      shippedAt:      timestamp @stamp(SHIPPED) -- when ship moved it to SHIPPED
+```
+
+`@deleted` (a `timestamp` or `datetime`, one per entity): `DELETE` writes the time instead of removing
+the row, and no read of the API - `GET`, search, count - finds it again; a row that names it still
+reads it (an order line keeps its product). Never taken from a request. Do not write a soft delete by
+hand (a `deleted` flag, a `beforeDelete` that updates). The build stops, with the reason, when a delete
+would still remove other rows outright (members of the aggregate, a cascading relation - mark those
+`@deleted` too), on a composite key, and on a JPA key the request gives without `@jpa:Version`. A
+query you write yourself (a port, `repository.yml`) is not filtered: add `<column> IS NULL` there.
+
+`@stamp(STATE)` (`ddd` or `hexagonal`, with `states:`): the command that moves the row into that
+state sets the time, on every entry; a refused command stamps nothing. `@stamp(fee.REFUNDED)` names
+the lifecycle where two have the state; `@stamp(SENT, CANCELLED)` takes several. Read-only in the
+API. Do not set such a time in a service of yours.
+
 ## Time stamps
 
 A time set once, when the row is made - no `beforeSave`, no setup:
@@ -176,7 +198,10 @@ metrics:
 and `rules = ['ossie-export']` in the `elasticore { }` block of `build.gradle`. `sum`, `avg`, `min`,
 `max` of a field and `count` of rows; `where` with `=`, `!=`, `<`, `<=`, `>`, `>=` and `and` on the same
 entity's fields, enum constants by name; `+ - * /` between measures declared above it (a division never
-divides by zero). A line it cannot read is left out with an `[ossie] ... it is left out.` warning. It
+divides by zero). From 3.0.261106-rc11 also `in (A, B)`, `not in (...)`, `or`, parentheses,
+`not (...)` and `count(distinct PurchaseOrder.customerId)`. A metric over one entity is written in
+that entity's dataset (`PurchaseOrder.revenue`) from 3.0.261112-rc12, and the document follows Ossie
+core spec `0.3.0.dev0` (its ELASTICORE data under `nonportable_extensions`). A line it cannot read is left out with an `[ossie] ... it is left out.` warning. It
 generates no API: an endpoint that answers these numbers is a method of yours (`recipe-shop.md`'s report).
 
 ## Your own logic and checks
@@ -277,6 +302,12 @@ dto:
       name: string
 ```
 
+A paged DBMS method may take a `Pageable` beside its values (`params: lastName: string`,
+`pageable: Pageable`, `return: Page<CustomerView>`): its page and its `Sort` (column names or labels
+of the SQL) are the call's - from 3.0.261112-rc12; before, the interface did not compile. Conditional
+lines (`AND name = :name /* if:name */`) and blocks (`/* if:name */ ... /* if-end */`) may nest
+from that release too.
+
 A service of yours takes `ShopReportPort` and `CatalogPort` in its constructor and calls
 `report.priceSummary(input)` and `catalog.getProduct(1L)`. A failed HTTP call answers 502, an error
 body from the other server comes back as the value - see the port guide's 2.8.
@@ -304,9 +335,25 @@ refusal answers problem+json with a `code`, also an unreadable body (an unknown 
 - Entity and enum names that are also annotations the generated code uses, when they cross a domain
   or are a DTO field's type: `Comment` from another domain, `Size`, `Schema`, `Setter`, `Column`, `Id`.
 - Entity names that are SQL words, since the entity name becomes the table name: `Order`, `User`,
-  `Group` - use `PurchaseOrder`, `Member`, `Team`.
+  `Group`, `Comment` - use `PurchaseOrder`, `Member`, `Team`, or keep the name and give the table
+  another (`@table(post_comment)` on the entity line).
 - SQL words as field names: `order`, `group`, `user`, `select`, `from`, `where`, `table`, `index`,
-  `key`, `value`.
+  `key`, `value`. From 3.0.261112-rc12 the build warns about a table or column Oracle, PostgreSQL or
+  SQL Server reserves - rename it (`@table`, `@column`, or another name).
+- A relation in the composite key of an exposed entity (`order: Ledger @id @ManyToOne` beside
+  `itemSeq: int @id`): key it by the related key's value (`ledgerId: long @id`). From 3.0.261112-rc12
+  the build stops on it; before, the controller did not compile.
+
+## A DTO of some of an entity's fields (from 3.0.261106-rc11)
+
+```yaml
+dto:
+  OrderNoteDTO:
+    meta: dto @template(PurchaseOrder[note, deliveryDate])   # these two fields, nothing else
+```
+
+List the fields the DTO takes instead of removing the others with `--`; a field added to the entity
+later stays out until it is listed. A name the entity does not have stops the build.
 
 ## After every change
 

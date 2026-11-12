@@ -38,7 +38,7 @@ entity:
       createdAt: datetime @updatable(false) @jpa:org.springframework.data.annotation.CreatedDate -- written at
 
   Comment:
-    meta: entity @root @editable @expose(50) @sort(commentId+) -- comment
+    meta: entity @root @editable @expose(50) @sort(commentId+) @table(post_comment) -- comment
     fields:
       commentId: long @id @sequence
       post:      Post -- the post it belongs to
@@ -55,6 +55,8 @@ Why each piece is there:
   the title.
 - `createdAt` with `@jpa:...CreatedDate` is set by the server and never taken from a request - but
   only with `@EnableJpaAuditing` on the application class (below). ElastiCORE has no `@createtime`.
+- `@table(post_comment)`: the table of `Comment` would be `comment`, a word Oracle reserves; from
+  3.0.261112-rc12 the build warns about such a name. The API path stays `/api/board/comment`.
 - `post: Post` makes a comment carry `postId` in requests and answers. Up to 3.0.261020 leave the `!`
   off (from 3.0.261021 `post: Post!` makes `postId` required and the check below is not needed): with
   `post: Post!` the generated DTO requires the nested `post` object instead of `postId`, and every

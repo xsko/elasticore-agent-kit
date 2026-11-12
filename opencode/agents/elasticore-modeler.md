@@ -60,6 +60,9 @@ stop processes you did not start - a Gradle daemon or another application's Java
    and edit a generated file only for what the DSL cannot say (the skill's section 2).
 7. Logic the DSL cannot express goes into the file the generator hands over for it - the behaviour
    class of a split root, the extension service, the controller. Read that file's Javadoc first.
+   Before writing such code, check the skill's table (section 3) and `quick-reference.md`: a delete
+   that keeps the row is `@deleted`, the time a state was entered is `@stamp(STATE)`, a DTO of a few
+   fields is `@template(Entity[a, b])` (ElastiCORE 3.0.261106-rc11 and later) - not code of yours.
 
 ## Stop and ask instead of
 

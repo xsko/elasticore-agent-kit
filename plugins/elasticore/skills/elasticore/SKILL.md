@@ -194,6 +194,9 @@ warnings as missing behaviour, not as noise.
 | Who may read, create, change or delete | `@access(...)` and `@owner(...)` on the entity's `meta` line (rule engine; not layered Java) |
 | How a record moves along (place, ship, cancel) | `states:` (rule engine, ddd or hexagonal) |
 | A value derived from others; a value kept as it was | `@compute(...)`; `@snapshot(...)` (rule engine, ddd or hexagonal) |
+| A delete that keeps the row (others still name it, kept for the records) | a `timestamp @deleted` field (from 3.0.261106-rc11) - `references/quick-reference.md`; never a flag and an update of your own |
+| When a state was entered (sent at, cancelled at) | a time field `@stamp(STATE)` beside `states:` (from 3.0.261106-rc11, ddd or hexagonal) |
+| A DTO with a few of an entity's fields | `@template(Entity[a, b])` (from 3.0.261106-rc11) |
 | Which API exists | `@expose(...)` on the entity |
 | A call to another system, or hand-written SQL | a port - `references/quick-reference.md` "ports" (up to 3.0.261022-rc1 it needs `@EnableElastiCore`), then `elasticore-dsl-port-guide.md` |
 | Anything the DSL cannot say | a file you own (section 2) |

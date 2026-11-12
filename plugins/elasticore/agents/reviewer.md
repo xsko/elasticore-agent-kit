@@ -55,6 +55,13 @@ project's guides (`src/main/resources/blueprint/elasticore-*.md`) for every othe
 construct the change adds - through `elasticore-guide-index.md` there, reading only the line range
 it gives; one that no guide shows is a finding.
 
+Hand code that does what the DSL already says is a finding too: a `deleted` flag or a `beforeDelete`
+that updates instead of removing (`@deleted`, from 3.0.261106-rc11), a service setting the time a
+lifecycle step happened (`@stamp(STATE)`), a DTO that removes most of an entity's fields with `--`
+(`@template(Entity[a, b])`). So are names the build warns about from 3.0.261112-rc12 - a table or
+column a database reserves (`order`, `group`) - and a relation in the composite key of an exposed
+entity, which stops the build there.
+
 ## 4. Does the generated code match the DSL? (only when asked)
 
 Run `./gradlew compileJava` only when the user asked for a full check: it regenerates and writes

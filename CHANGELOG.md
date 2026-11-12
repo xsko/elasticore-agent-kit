@@ -3,6 +3,26 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.8.0
+
+What ElastiCORE 3.0.261106-rc11 and 3.0.261112-rc12 added, where the agent looks first - so it writes
+the DSL instead of the code the DSL now makes:
+
+- `quick-reference.md`: `@deleted` (a delete that keeps the row) and `@stamp(STATE)` (when a state was
+  entered), `@template(Entity[a, b])` (a DTO of a few fields), a fraction in `@min`/`@max` on a
+  `double`, the metric filter's `in`, `not in`, `or`, parentheses and `count(distinct ...)`, a
+  `Pageable` parameter and nested conditional blocks in a DBMS port, and the names and composite keys
+  the build now refuses or warns about. Each says the release it needs.
+- The skill's table of requests (section 3) sends a kept delete, a state's time and a DTO of a few
+  fields to those annotations.
+- The modeler checks for them before writing code of its own; the reviewer reports hand code that
+  does what they do, and the names rc12 warns about (Claude Code and opencode).
+- The PostToolUse hook reports a build the rule engine stopped with `the model check failed`, and
+  sends the agent to the DSL lines it names rather than to Java.
+- `recipe-board.md`: `Comment`'s table is `post_comment`. rc12 warns that `comment` is a word Oracle
+  reserves, and the board recipe must build without a warning (the one contract rc12 broke, of 139).
+- The contract test passes on ElastiCORE 3.0.261112-rc12.
+
 ## 0.7.3
 
 ElastiCORE's guides are in English after 3.0.261031-rc7 (Korean with `elasticore { guides = 'ko' }`,
