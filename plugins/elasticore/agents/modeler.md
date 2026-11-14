@@ -53,7 +53,11 @@ and never build ElastiCORE from its source or publish it locally: it comes from 
    class of a split root, the extension service, the controller. Read that file's Javadoc first.
    Before writing such code, check the skill's table (section 3) and `quick-reference.md`: a delete
    that keeps the row is `@deleted`, the time a state was entered is `@stamp(STATE)`, a DTO of a few
-   fields is `@template(Entity[a, b])` (ElastiCORE 3.0.261106-rc11 and later) - not code of yours.
+   fields is `@template(Entity[a, b])` (ElastiCORE 3.0.261106-rc11 and later); a count of the rows
+   that point to a row is `@count(...)`, what becomes of them on a delete `@onDelete(...)`, one search
+   box over several fields `@search(words:...)` (3.0.261118-rc18 and later) - not code of yours.
+8. From ElastiCORE 3.0.261118-rc18, finish with `./gradlew elcoreValidate -Pstrict` - what the
+   project's CI runs; it writes nothing - and report its result.
 
 ## Stop and ask instead of
 

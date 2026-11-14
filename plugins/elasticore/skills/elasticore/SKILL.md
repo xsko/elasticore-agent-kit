@@ -198,6 +198,10 @@ warnings as missing behaviour, not as noise.
 | When a state was entered (sent at, cancelled at) | a time field `@stamp(STATE)` beside `states:` (from 3.0.261106-rc11, ddd or hexagonal) |
 | A DTO with a few of an entity's fields | `@template(Entity[a, b])` (from 3.0.261106-rc11) |
 | An entity code of the user's reads and writes through `helper.getXxx()`, with no service or API | `@repository` on its entity line (from 3.0.261113-rc13) |
+| A count of the rows that point to a row (a post's comments) | `@count(Comment.post[, status == VISIBLE])` on a `long` field (from 3.0.261118-rc18) - never counted by hand |
+| What becomes of the rows that point to a deleted row | `@onDelete(cascade \| restrict \| setNull)` on the reference (from 3.0.261118-rc18) - never deleted by hand first |
+| One search box over several fields | `@search(words:title, body, author.nickname)` on a search DTO field (from 3.0.261118-rc18) |
+| Check, as CI does, that the DSL passes and the generated files are up to date | `./gradlew elcoreValidate -Pstrict` (from 3.0.261118-rc18; writes nothing) - `references/run-and-check.md` |
 | Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
 | A call to another system, or hand-written SQL | a port - `references/quick-reference.md` "ports" (up to 3.0.261022-rc1 it needs `@EnableElastiCore`), then `elasticore-dsl-port-guide.md` |
@@ -223,7 +227,9 @@ A worked example that generates and compiles: `references/example-order.md`.
 6. Write the remaining logic in files you own. `./gradlew build` runs the tests. To start and call
    the application, follow `references/run-and-check.md` - `./gradlew bootRun` does not return in a
    tool's shell.
-7. Report the change in business terms (section 7).
+7. From ElastiCORE 3.0.261118-rc18, last: `./gradlew elcoreValidate -Pstrict` - what the project's
+   CI runs; it writes nothing (`references/run-and-check.md`).
+8. Report the change in business terms (section 7).
 
 ## 5. Reading the generator's output
 

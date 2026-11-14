@@ -69,9 +69,17 @@ that updates instead of removing (`@deleted`, from 3.0.261106-rc11), a service s
 lifecycle step happened (`@stamp(STATE)`), a DTO that removes most of an entity's fields with `--`
 (`@template(Entity[a, b])`). So are names the build warns about from 3.0.261112-rc12 - a table or
 column a database reserves (`order`, `group`) - and a relation in the composite key of an exposed
-entity, which stops the build there.
+entity, which stops the build there. From 3.0.261118-rc18: a count of the rows that point to a row
+kept by hand (`@count(Comment.post[, status == VISIBLE])`), pointing rows deleted, refused or cleared
+by hand before a delete (`@onDelete(cascade | restrict | setNull)`), and a hand-written
+`Specification` for one search box over several fields (`@search(words:a, b, c.d)`).
 
 ## 4. Does the generated code match the DSL? (only when asked)
+
+From ElastiCORE 3.0.261118-rc18 `./gradlew elcoreValidate -Pstrict` answers this without writing
+anything but `build/elasticore/validate.md`: run it, and report `PASSED` or `FAILED`, each reason and
+each `stale:` and `no longer produced:` file - generated code committed out of step with the DSL.
+With an older ElastiCORE:
 
 Run `./gradlew compileJava` only when the user asked for a full check: it regenerates and writes
 files. Then report every DSL validation warning, `ERROR` and `SKIP(user-modified...)` line, any

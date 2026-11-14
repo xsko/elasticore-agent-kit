@@ -74,6 +74,10 @@ MERGE_SINCE = (3, 0, 261030)
 MYBATIS_HEX_SINCE = (3, 0, 261030, 6)
 MYBATIS = os.path.join(REFERENCES, "mybatis.md")
 
+# elcoreValidate - the DSL and the generated files checked, nothing but build/elasticore/validate.md
+# written - came with 3.0.261118-rc18 (ElastiCORE pull request 197). references/run-and-check.md.
+VALIDATE_SINCE = (3, 0, 261118)
+
 # From 3.0.261031-rc7, a unique value taken on MyBatis answers 409 'unique' as on JPA; on rc6
 # 'already-exists' (ElastiCORE pull request 63).
 MYBATIS_UNIQUE_SINCE = (3, 0, 261031)
@@ -1073,6 +1077,32 @@ def main():
           "hooks/elasticore-hook.sh post-bash", "hook said: %s" % note.strip()[:200])
     write(entity, original_entity)
     run(project, "elcore3")
+
+    # --- elcoreValidate: the DSL and the generated files checked, nothing written ----------
+    if at_least(version, VALIDATE_SINCE):
+        report = os.path.join(project, "build", "elasticore", "validate.md")
+        product_dto = find(java, "ProductDTO.java")
+        before = read(product_dto) if product_dto else None
+        rc, out = run(project, "elcoreValidate", "-Pstrict")
+        write(os.path.join(work, "validate.log"), out)
+        check("elcoreValidate -Pstrict passes on a project the build just generated, and writes its report",
+              rc == 0 and "[elcore3] validate (nothing was written): PASSED" in out and os.path.isfile(report),
+              "references/run-and-check.md; SKILL.md section 4; skills/generate",
+              "exit %d; see %s" % (rc, os.path.join(work, "validate.log")))
+        write(entity, original_entity + "      stock:     int\n")
+        rc, out = run(project, "elcoreValidate")
+        check("a DSL change not generated yet fails elcoreValidate, naming the stale file, with no source written",
+              rc != 0 and "[elcore3] validate (nothing was written): FAILED" in out
+              and re.search(r"stale: \S*ProductDTO\.java", out) is not None
+              and product_dto is not None and read(product_dto) == before,
+              "references/run-and-check.md; skills/generate", "exit %d: %s" % (rc, out.strip()[-300:]))
+        _, note, _ = hook("post-bash", bash_payload("validate", "./gradlew elcoreValidate", out, rc))
+        check("the hook sends a failed elcoreValidate to generating, never to editing the file",
+              "never edit a generated file" in note, "hooks/elasticore-hook.sh post-bash",
+              "hook said: %s" % note.strip()[:200])
+        write(entity, original_entity)
+    else:
+        skip("elcoreValidate", "it came with ElastiCORE 3.0.261118-rc18")
 
     # --- a YAML file that does not parse: left out, and the build passes ----------------------
     review = os.path.join(model, "review.yml")

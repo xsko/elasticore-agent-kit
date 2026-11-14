@@ -35,5 +35,11 @@ argument-hint: "[gradle task - default compileJava]"
      section defines.
 4. If everything is clean, say so in one line.
 
+With `elcoreValidate` as the task (ElastiCORE 3.0.261118-rc18 and later; `-Pstrict` fails on a DSL
+warning too) nothing is written but `build/elasticore/validate.md`: report `PASSED` or `FAILED`, each
+reason, and each `stale:`, `no longer produced:` and `conflict or error:` file, with the fix - generate
+(`compileJava`) and keep what it writes, or the DSL change. Read the report for the files it lists
+as edited by hand or not checked.
+
 The project's guides in `src/main/resources/blueprint/elasticore-*.md` explain each construct; the
 `elasticore` skill explains which files are whose.

@@ -519,6 +519,12 @@ post-bash)
     if has 'the model check failed'; then
         text="${text}The 3.0 rule engine stopped before writing code: the model check failed. Each line after that header names the entity and field and says what to write instead - change the DSL as it says and build again; do not work around it in Java. "
     fi
+    # elcoreValidate (3.0.261118-rc18 and later) writes nothing but build/elasticore/validate.md:
+    # "[elcore3] validate (nothing was written): FAILED", a line per reason, then "  stale: <file>",
+    # "  no longer produced: <file>" and "  conflict or error: <file>".
+    if has 'validate (nothing was written): FAILED'; then
+        text="${text}elcoreValidate failed and wrote nothing; build/elasticore/validate.md has the whole report. A file listed 'stale:' or 'no longer produced:', or a migration not written yet, means the generated files in the project are not what the DSL generates now: run ./gradlew compileJava (it generates) and keep what it writes, .elasticore/cache included - never edit a generated file by hand to make the check pass. A model check failure or a DSL warning (-Pstrict) is fixed in the DSL; a conflict is resolved as the generator's <<<<<<< yours marks say. Then run elcoreValidate again. "
+    fi
     if has '[WARN] DSL Validation Warnings'; then
         text="${text}The 2.x generator (elcore) listed DSL validation warnings and stopped the build: fix each line under that header in the DSL and build again. "
     fi

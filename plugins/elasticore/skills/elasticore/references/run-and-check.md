@@ -101,3 +101,25 @@ shell's output pipe, and in opencode the tool call does not return until the ser
 2. The server answers `/v3/api-docs`.
 3. Every operation the task names answers as the task says - including the refusals (400 for
    invalid input, 404 for an unknown id).
+4. From ElastiCORE 3.0.261118-rc18: `./gradlew elcoreValidate -Pstrict` (below) passes.
+
+## The DSL and the generated files agree: `elcoreValidate` (from 3.0.261118-rc18)
+
+```bash
+./gradlew elcoreValidate -Pstrict   # ./gradlew.bat on Windows
+```
+
+It runs the generation as the build would, writes nothing but `build/elasticore/validate.md`, and
+prints `[elcore3] validate (nothing was written): PASSED` or `FAILED` with a line per reason. It fails
+on a model check failure, a generated file that is not what the DSL generates now (`stale:`), one
+the DSL no longer produces (`no longer produced:`), a Flyway migration not written yet, a conflict -
+and with `-Pstrict` on a DSL warning. A generated file edited by hand and kept by the merge is listed,
+not a failure. It is the step a project's CI runs before `build`, so run it last, after the build:
+
+- `stale:`, `no longer produced:` or a migration: run `./gradlew compileJava` (it generates) and keep
+  what it writes, `.elasticore/cache` included. Never edit a generated file to make the check pass.
+- A model check failure or a warning: fix the DSL, as for the build.
+- A project whose generated sources are not in its tree (each build generates them) is checked for
+  its DSL and for the generated files it does keep, such as the DDL.
+
+Before rc18 there is no such task: the build's output (item 1) is the check.
