@@ -3,6 +3,28 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 0.10.0
+
+What ElastiCORE 3.0.261118-rc18 added, so the agent writes the DSL instead of the code it now makes,
+and checks its work as the project's CI does:
+
+- `elcoreValidate` (3.0.261118-rc18 and later; it writes nothing but `build/elasticore/validate.md`):
+  `run-and-check.md` explains it and what to do with each failure; the skill's loop, the modeler and
+  `/elasticore:generate elcoreValidate` finish with it; the reviewer runs it for the check it used to
+  build for.
+- The PostToolUse hook reads a failed `elcoreValidate` (`stale:`, `no longer produced:`, a migration
+  not written yet) and sends the agent to generating and keeping what the build writes - never to
+  editing a generated file until the check passes.
+- `quick-reference.md`: `@count(Comment.post[, status == VISIBLE])` (a count of the rows that point to
+  a row), `@onDelete(cascade | restrict | setNull)`, `@search(words:...)` (one search box; a declared
+  search DTO replaces the derived one), `>=`, `<=`, `==`, `!=` in `@invariant` and `@specification`,
+  and `@expose(pageSize=20, methods="...")`. The skill's table of requests sends counts, deletes that
+  reach other rows and a search box there; the modeler checks them first, and the reviewer reports
+  hand code that does what they do.
+- The contract test checks that `elcoreValidate -Pstrict` passes on a project just built, fails on a
+  DSL change not generated yet - naming the stale file, writing no source - and that the hook reads
+  that output.
+
 ## 0.9.0
 
 Moving a project from the 2.x code to the 3.0 code, with ElastiCORE's migration check:

@@ -82,6 +82,7 @@ left out, and from 3.0.261021 the build stops naming it); ` #` cuts the label of
 | `@root` | an entity with its own API and repository |
 | `@editable` | it can be updated (`PUT`); without it a root has no update, and its fields go to a generated `XxxBase` class |
 | `@expose(20)` | the REST API; 20 is the page size |
+| `@expose(pageSize=20, methods="read,search")` | only the endpoints named (from 3.0.261105-rc10; a page size beside `methods` is kept from 3.0.261117-rc17, written `pageSize=`) |
 | `@sort(postId-)` | the default order of lists: `-` descending, `+` ascending |
 | `@search(like)` on a field | search by part of the value, ignoring case and surrounding spaces (from 3.0.261021; `@search(%_%)` keeps case); other text fields match the whole value unless it starts or ends with `%`; date fields are searched with `<field>From` and `<field>To` |
 
@@ -158,6 +159,47 @@ query you write yourself (a port, `repository.yml`) is not filtered: add `<colum
 state sets the time, on every entry; a refused command stamps nothing. `@stamp(fee.REFUNDED)` names
 the lifecycle where two have the state; `@stamp(SENT, CANCELLED)` takes several. Read-only in the
 API. Do not set such a time in a service of yours.
+
+## Counts, deletes that reach other rows, one search box (from 3.0.261118-rc18)
+
+```yaml
+  Post:
+    fields:
+      commentCount: long @count(Comment.post, status == VISIBLE)  -- visible comments, kept by the server
+  Comment:
+    fields:
+      post:   Post! @onDelete(cascade)   -- a deleted post takes its comments with it
+      status: CommentStatus
+  Report:
+    fields:
+      post:   Post! @onDelete(restrict)  -- a reported post cannot be deleted: 409 restricted
+dto:
+  PostSrchDTO:
+    meta: dto @searchable(entity=Post, pageSize=20)
+    fields:
+      keyword: string(50) @search(words:title, body, author.nickname)  -- one search box
+```
+
+- `@count(Entity.reference[, condition])` on a `long` or `int`: the number of rows of `Entity` that
+  point to this row, kept by the generated services of `Entity` (every save, update, delete and
+  state move) and counted again just before the commit. The condition compares with `==` and joins
+  with `and` (`status == VISIBLE and pinned == false`). Read-only in the API, 0 on a new row, a
+  soft-deleted row not counted. Do not count by hand in a `beforeSave` or a listener. Existing rows
+  are not counted for you: set the column once with an `UPDATE` (the annotation guide gives it).
+- `@onDelete(cascade | restrict | setNull)` on the reference, on the side that points: deleting the
+  row it points to - by key, in a batch or by search - first deletes the rows that point to it, refuses
+  with 409 `restricted`, or clears the reference (only on a reference without `!`), in the same
+  transaction. Do not delete the pointing rows yourself before a delete.
+- `@search(words:a, b, c.d)` on a search DTO field: the text is split into words, and every word has
+  to be in one of the fields (a contains ignoring case); `c.d` follows a reference. No space after
+  `words:`. Declaring `PostSrchDTO` replaces the search DTO `@expose` derives: list the other
+  conditions the screen sends in it too. On MyBatis a warning, and the field does not search.
+- These three are the 3.0 JPA code (Java, Kotlin; `@count` and `@onDelete` in layered too); MyBatis
+  and the 2.x-compatible output stop the build on `@count` and `@onDelete`, with the reason.
+
+From the same release an `@invariant` or `@specification` condition compares with `>=`, `<=`, `==`
+and `!=` too (`@invariant(totalAmount >= 0, 'the total cannot be negative')`: 422 on a write that breaks
+it). Before rc18 such a condition was dropped without a word.
 
 ## Time stamps
 
@@ -363,6 +405,9 @@ later stays out until it is listed. A name the entity does not have stops the bu
    client is older than the model).
 2. Fix each line under `[elcore3] DSL validation warnings:` and each `* LOAD ERROR:` in the YAML.
 3. A compile error in a generated file is fixed in the YAML too - never in that file.
+4. From 3.0.261118-rc18, last: `./gradlew elcoreValidate -Pstrict` - it writes nothing and fails
+   when the DSL does not pass or a generated file is not what the DSL generates now
+   (`run-and-check.md`).
 
 ## `src/main/resources/blueprint/board/model/sample.yml`
 

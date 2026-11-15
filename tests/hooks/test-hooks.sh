@@ -427,6 +427,10 @@ check "a 2.x project that chose no output is sent to the user's decision and the
 run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3 FAILED\\n[elcore3] the model check failed (1) - fix these and build again:\\n  [elcore3] Dom.Entry: its composite key holds the relation order: Ledger ... (ledgerId: long @id), or do not expose it\\nBUILD FAILED in 4s")"
 check "a stopped model check is reported, with where to fix it" eval 'noted && has "$out" "model check failed" && has "$out" "change the DSL"'
 check "and answered as PostToolUseFailure too" eval 'has "$out" "\"hookEventName\":\"PostToolUseFailure\"" && valid_json'
+run post-bash "$(failure_json "./gradlew elcoreValidate -Pstrict" "Exit code 1\\n> Task :elcoreValidate\\n[elcore3] validate (nothing was written): FAILED\\n  - 1 generated file(s) not up to date\\n  stale: src/main/java/com/acme/shop/dto/ProductDTO.java\\n[elcore3] the report: build/elasticore/validate.md\\n> Task :elcoreValidate FAILED\\nBUILD FAILED in 5s")"
+check "a failed elcoreValidate sends the agent to generate, not to edit the stale file" eval 'noted && has "$out" "validate.md" && has "$out" "never edit a generated file" && valid_json'
+run post-bash "$(bash_json "./gradlew elcoreValidate" "> Task :elcoreValidate\\n[elcore3] validate (nothing was written): PASSED\\n[elcore3] the report: build/elasticore/validate.md\\nBUILD SUCCESSFUL in 4s")"
+check "a passed elcoreValidate says nothing" quiet
 run post-bash "$(failure_json ".\\\\gradlew.bat compileJava" "Exit code 1\\n[elcore3] DSL validation warnings:\\n  x\\nBUILD FAILED" s1 PowerShell)"
 check "a failed PowerShell build is read too" eval 'noted && has "$out" "rule engine"'
 
