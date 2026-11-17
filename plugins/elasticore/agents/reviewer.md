@@ -64,6 +64,10 @@ entity, which stops the build there. From 3.0.261118-rc18: a count of the rows t
 kept by hand (`@count(Comment.post[, status == VISIBLE])`), pointing rows deleted, refused or cleared
 by hand before a delete (`@onDelete(cascade | restrict | setNull)`), and a hand-written
 `Specification` for one search box over several fields (`@search(words:a, b, c.d)`).
+From 3.0.261119: HTML sanitized by hand (an `html` field with `@safe` / `@plain` does it on every
+write), a hand-written GraphQL controller or `.graphqls` schema of an entity's operations
+(`graphql: enable: true`), a filter that reloads the signed-in member (`@signin(refresh=request)`),
+and generated access checks rewritten for Spring Security (a `SpringSecurityCurrentUser` bean).
 
 ## 4. Does the generated code match the DSL? (only when asked)
 

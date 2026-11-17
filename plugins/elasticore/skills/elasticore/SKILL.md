@@ -201,6 +201,11 @@ warnings as missing behaviour, not as noise.
 | A count of the rows that point to a row (a post's comments) | `@count(Comment.post[, status == VISIBLE])` on a `long` field (from 3.0.261118-rc18) - never counted by hand |
 | What becomes of the rows that point to a deleted row | `@onDelete(cascade \| restrict \| setNull)` on the reference (from 3.0.261118-rc18) - never deleted by hand first |
 | One search box over several fields | `@search(words:title, body, author.nickname)` on a search DTO field (from 3.0.261118-rc18) |
+| Rich text from an editor, safe to show | an `html` field: `content: html! @safe(basic) @plain(contentText)` (from 3.0.261119) - never sanitized by hand |
+| A GraphQL API beside REST | `graphql: enable: true` under `config:` in `env.yml` (from 3.0.261119) - the build writes the controllers and the schema; never by hand |
+| The data in MongoDB | `mode: mongo` in `env.yml` (from 3.0.261119; layered Java only) - the model stays the same |
+| A role change or a deleted member that reaches open sessions | `@signin(refresh=request)` (from 3.0.261119) |
+| Sign-in already done by Spring Security (form login, JWT, OIDC) | no `@signin`; a `CurrentUser` bean `SpringSecurityCurrentUser.of(...)` (from 3.0.261119) - `references/quick-reference.md` "Who may do what" |
 | Check, as CI does, that the DSL passes and the generated files are up to date | `./gradlew elcoreValidate -Pstrict` (from 3.0.261118-rc18; writes nothing) - `references/run-and-check.md` |
 | Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
