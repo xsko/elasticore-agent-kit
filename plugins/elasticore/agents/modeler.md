@@ -56,6 +56,9 @@ and never build ElastiCORE from its source or publish it locally: it comes from 
    fields is `@template(Entity[a, b])` (ElastiCORE 3.0.261106-rc11 and later); a count of the rows
    that point to a row is `@count(...)`, what becomes of them on a delete `@onDelete(...)`, one search
    box over several fields `@search(words:...)` (3.0.261118-rc18 and later) - not code of yours.
+   From 3.0.261119: rich text kept safe is an `html` field (`@safe`, `@plain`), a GraphQL API
+   `graphql: enable: true` in `env.yml`, a session that follows its row `@signin(refresh=request)`,
+   and sign-in by Spring Security a `SpringSecurityCurrentUser` bean - not code of yours either.
 8. From ElastiCORE 3.0.261118-rc18, finish with `./gradlew elcoreValidate -Pstrict` - what the
    project's CI runs; it writes nothing - and report its result.
 

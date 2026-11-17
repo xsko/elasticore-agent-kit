@@ -116,6 +116,8 @@ answers 404 `Product 99 does not exist` - generated, do not look it up yourself 
 | `meta: entity @root @editable @expose(20) @signin ...` with `login: string(20)! @login` and `password: string(255)! @password` | sign-in is generated: `POST /api/<domain>/<entity>/signin` `{"login": "...", "password": "..."}` (401 `Wrong login or password`), `POST .../signout` (204), `GET .../me` (401 for a visitor); TypeScript `signIn`, `signOut`, `me()`; the login column is made unique (a taken login 409). One entity of the application says `@signin`, and only the row's own member or the administrator may change it: `@owner(<key>) @access(..., update=owner)` or `update=admin` - otherwise a DSL warning and no sign-in. Do not write a sign-in controller |
 | `login: string(20)! @login @unique` without `@signin` | `authenticate(login, password)` in the service only; without `@unique` a DSL warning (two rows with one login can never sign in) |
 | `role: MemberRole @default(MemberRole.USER) @access(admin)` | the role the session holds (`ADMIN` is the administrator); only an administrator sets it - a sign-up sending `ADMIN` is stored as `USER`. Without `@access(admin)` it is not put in the session (a DSL warning) |
+| `@signin(refresh=request)` (from 3.0.261119) | the session follows the row: each signed-in request reads the member again, so a role given or taken away holds from the next request, and a member whose row is gone (or kept under `@deleted`) is signed out. One read per such request. Do not write a filter that reloads the member |
+| the application signs people in with Spring Security (form login, JWT, OIDC) (from 3.0.261119) | leave `@signin` out and declare `@Bean CurrentUser currentUser(...) { return SpringSecurityCurrentUser.of(auth -> <the @owner key of auth.getName()>); }` (or `SpringSecurityCurrentUser.of(SpringSecurityCurrentUser.claim("customer_id", Long::valueOf))` for a token claim). The generated `@access` / `@owner` checks then read Spring Security; `hasRole("ADMIN")` holds for `ROLE_ADMIN`. Look the key up through the generated query port, not the service. Never rewrite the generated checks |
 
 A visitor gets 401, a signed-in member who may not 403. `recipe-shop.md` is a whole model with all of it.
 
@@ -200,6 +202,42 @@ dto:
 From the same release an `@invariant` or `@specification` condition compares with `>=`, `<=`, `==`
 and `!=` too (`@invariant(totalAmount >= 0, 'the total cannot be negative')`: 422 on a write that breaks
 it). Before rc18 such a condition was dropped without a word.
+
+## Rich text, GraphQL, MongoDB (from 3.0.261119)
+
+```yaml
+  Post:
+    fields:
+      content:     html! @safe(basic) @plain(contentText)  -- from a rich-text editor
+      contentText: text @search(like)                      -- its text without tags, for the search
+```
+
+- `html` is a long text kept to a jsoup allow-list before every write (save, update, update by
+  condition, a lifecycle command): `@safe(basic)` (the default: text markup and links) or
+  `@safe(relaxed)` (also headings, tables, images). `@plain(field)` writes the text without tags into
+  a long text field of the same entity, read-only in the API. The application adds
+  `implementation 'org.jsoup:jsoup:1.23.2'`. Not on a member of an aggregate or an `@embeddable`, not
+  in the 2.x-compatible output (the build stops). Do not sanitize HTML by hand in a service or
+  `beforeSave`; a value set after the service has cleaned the row needs `entity.cleanHtml()`.
+- A GraphQL API beside REST, in `env.yml`:
+
+  ```yaml
+  config:
+    graphql:
+      enable: true      # <Entity>GraphQlController beside each REST controller
+      mutations: true   # false: queries only
+  ```
+
+  Operations are named after the entity (`member(memberId)`, `members(search)`, `createMember`,
+  `updateMember`, `deleteMember`, one mutation per lifecycle command) and call the service REST
+  calls, so access, validation and the lifecycle hold. The build writes the schema
+  (`src/main/resources/graphql/*.graphqls`) from the compiled classes - never write or edit those
+  schema files or a GraphQL controller by hand; your own `.graphqls` says `extend type Query`. The
+  application adds `spring-boot-starter-graphql`. JPA and MyBatis, Java and Kotlin.
+- MongoDB: `config: mode: mongo` in `env.yml`, the model unchanged; the project declares
+  `spring-boot-starter-data-mongodb` instead of JPA. `@Document` entities, `MongoRepository`, the
+  same DTOs, controller and access checks. Layered Java only: Kotlin, ddd, hexagonal, `@count`,
+  `@onDelete` and a composite key stop the build. No transactions; no DDL.
 
 ## Time stamps
 
