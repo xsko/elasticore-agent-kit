@@ -77,13 +77,11 @@ tasks.named('test') {
 }
 ```
 
-The `elasticore { }` block chooses the architecture of the 3.0 rule engine. From 3.0.261028-rc3 a
-build without it runs the rule engine too, as layered Java; before rc3 it ran the 2.x generator,
-which ignores `@access`, `@owner`, `@password`, `states:`, `@compute` and `@snapshot` without a
-warning and whose services do not compile on Spring Boot 4 - and so does `output = 'v2'` on any
-version. `architecture = 'layered'` in Java does not do `states:`, `@compute` or `@snapshot` (the
-generator warns); before rc3 it did not enforce `@access` either, and the `money` field below did
-not compile there.
+The `elasticore { }` block chooses the architecture of the 3.0 rule engine. A build without it runs
+the rule engine too, as layered Java. `output = 'v2'` runs the 2.x generator, which ignores
+`@access`, `@owner`, `@password`, `states:`, `@compute` and `@snapshot` without a warning and whose
+services do not compile on Spring Boot 4 - never for a new project. `architecture = 'layered'` in
+Java does not do `states:`, `@compute` or `@snapshot` (the generator warns).
 
 ## `src/main/resources/blueprint/shop/env.yml`
 

@@ -101,9 +101,9 @@ shell's output pipe, and in opencode the tool call does not return until the ser
 2. The server answers `/v3/api-docs`.
 3. Every operation the task names answers as the task says - including the refusals (400 for
    invalid input, 404 for an unknown id).
-4. From ElastiCORE 3.0.261118-rc18: `./gradlew elcoreValidate -Pstrict` (below) passes.
+4. `./gradlew elcoreValidate -Pstrict` (below) passes.
 
-## The DSL and the generated files agree: `elcoreValidate` (from 3.0.261118-rc18)
+## The DSL and the generated files agree: `elcoreValidate`
 
 ```bash
 ./gradlew elcoreValidate -Pstrict   # ./gradlew.bat on Windows
@@ -121,5 +121,3 @@ not a failure. It is the step a project's CI runs before `build`, so run it last
 - A model check failure or a warning: fix the DSL, as for the build.
 - A project whose generated sources are not in its tree (each build generates them) is checked for
   its DSL and for the generated files it does keep, such as the DDL.
-
-Before rc18 there is no such task: the build's output (item 1) is the check.

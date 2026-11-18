@@ -3,7 +3,7 @@
 Three files added to the `shop` domain of `new-project.md`, whose `model/entity.yml` already defines
 `Product` (`productId`, `name`, `price: money(10.2)`). They need the 3.0 rule engine with
 `architecture = 'hexagonal'` or `'ddd'`; on the 2.x generator the access rules, the lifecycle and the
-derived values are not generated at all. Generated and compiled with ElastiCORE 3.0.261015-alpha1,
+derived values are not generated at all. Generated and compiled with ElastiCORE 3.0.261119,
 Spring Boot 4.0.8: no DSL validation warning, `compileJava` passes. The agent kit's CI generates and
 compiles them again with the newest ElastiCORE on every change and every week.
 
