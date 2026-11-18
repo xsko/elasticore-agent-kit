@@ -4,9 +4,8 @@ A domain whose `env.yml` says `mode: mybatis` is generated with MyBatis: the sam
 DTOs, controllers, access checks and services, and a MyBatis mapper (interface and XML) for each
 entity instead of a JPA repository. Nothing else in the model changes.
 
-- **Layered Java** from ElastiCORE 3.0.261030-rc5; **`architecture = 'hexagonal'` or `'ddd'`** from
-  3.0.261030-rc6 - the aggregate, its invariants, lifecycle, events and ports as with JPA, written by
-  a generated repository adapter. Before rc6 the build stops on hexagonal or ddd with MyBatis.
+- **Layered Java**, and **`architecture = 'hexagonal'` or `'ddd'`** - the aggregate, its invariants,
+  lifecycle, events and ports as with JPA, written by a generated repository adapter.
 - **Java only.** A Kotlin build stops with the reason.
 - What MyBatis cannot keep, the build refuses by name, never silently: collections without
   `mappedBy`, `@ManyToMany`, value collections, keys from a sequence other than identity, JPQL in

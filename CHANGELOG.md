@@ -3,6 +3,41 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 1.0.0
+
+The first stable release of the kit, for the first stable ElastiCORE: **it requires ElastiCORE
+3.0.261119 or later**. A project on ElastiCORE 2.x, or one that keeps `output = 'v2'`, still gets the
+hooks and the advice for the 2.x generator, and `/elasticore:migrate` to move it to the 3.0 code.
+
+What the kit does: a skill that knows which files the generator owns and where a change belongs,
+with a one-page DSL reference, three recipes (board, library, shop - the shop also on MyBatis) and
+how to run and check the application; hooks that refuse hand edits to generated files and `-Pforce`,
+pass on the generator's warnings and keep the agent from finishing before a successful build has
+generated and compiled its DSL change; a modeler and a reviewer agent; `/elasticore:generate`,
+`/elasticore:change-report`, `/elasticore:review` and `/elasticore:migrate`. The same skill, hook
+script, agents and commands for opencode, and the skill for Codex CLI. What the reference and the
+recipes show is generated, built, started and called by the contract test against ElastiCORE from
+Maven Central.
+
+What changed from 0.11.0:
+
+- No pre-release language left: the READMEs (en and ko) name ElastiCORE 3.0.261119, the stable
+  release, as the requirement; the skill, its references, the agents and the commands (Claude Code
+  and opencode) state what ElastiCORE 3.0 does instead of "from 3.0.26xxxx-rcN" - `elcoreValidate`,
+  the merge against `.elasticore/cache`, the guide index, hexagonal and ddd on MyBatis, `@deleted`,
+  `@count`, `@onDelete`, `@search(words:...)` and the rest without a version gate.
+- `recipe-library.md` loses its section for ElastiCORE 3.0.261020, and the recipes no longer
+  mention the `SKIP(user-owned)` status of builds before the merge.
+- `quick-reference.md`: `@access`, `@owner` and `@password` on layered Java are enforced (the skill's
+  table still said "not layered Java"); the ports table for older releases is one paragraph.
+- `references/migrate.md` and `/elasticore:migrate`: a project on an ElastiCORE older than 3.0.261119
+  upgrades first, keeping `output = 'v2'`, then runs the migration check.
+- The hook's messages and comments no longer name release candidates; it still recognises a 2.x
+  build, or an early 3.0 build, that runs the 2.x generator.
+- The contract test refuses an ElastiCORE older than 3.0.261119 and drops the branches for older
+  versions (3.0 files with an `//ecd:` line from before the merge, the preserved-block regeneration
+  on them, layered Java without `@access`, MyBatis's `already-exists`, skips for missing features).
+
 ## 0.11.0
 
 What the first stable ElastiCORE 3.0, 3.0.261119, added, so the agent writes the DSL or a setting

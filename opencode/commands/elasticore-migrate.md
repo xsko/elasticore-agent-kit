@@ -5,7 +5,7 @@ description: Move an ElastiCORE project that 2.x generated (or that keeps output
 Move this ElastiCORE project from the 2.x code to the 3.0 code: `$ARGUMENTS`.
 
 Follow the migrate skill of the ElastiCORE plugin: read `skills/elasticore/references/migrate.md` of the agent kit
-first. Build the project as it is and record the result; run `./gradlew elcoreMigrationCheck` (ElastiCORE 3.0.261113
+first. Build the project as it is and record the result; run `./gradlew elcoreMigrationCheck` (ElastiCORE 3.0.261119
 or later) and read `build/elasticore/migration-check.md` whole; fix in the DSL what its first section lists - propose
 `@repository` for an entity the user's code reads through `helper.getXxx()` - and run the check again until that
 section is empty. Report what remains per file. Only with `move` in the arguments, and after the user agrees, set

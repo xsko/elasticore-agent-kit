@@ -11,8 +11,8 @@ generator, and fails, naming the assumption and where the kit states it, as
 soon as one no longer holds.
 
 A version ending in -SNAPSHOT is taken from the local Maven repository as well
-(mavenLocal() before mavenCentral()). The contracts of references/recipe-library.md
-need ElastiCORE 3.0.261021 or later; with an older one they are reported SKIP.
+(mavenLocal() before mavenCentral()). The kit needs ElastiCORE 3.0.261119 or
+later; an older version is refused.
 
 usage: python tests/contract/check.py [--gradle GRADLE] [--bash BASH] [--java JAVA] [--work DIR]
   GRADLE  the Gradle command, Gradle 8.14 or later (default: gradle on the PATH)
@@ -54,45 +54,24 @@ GRADLE_TIMEOUT = 900
 results = []
 skipped = []
 
-# What references/recipe-library.md uses came with this version: a required reference by its key,
-# @readonly, @search(isnull), @pattern('regex', 'message') and ConflictException.
-LIBRARY_SINCE = (3, 0, 261021)
-
-# blueprint/elasticore-guide-index.md, which SKILL.md section 1 searches first, came with this version.
-INDEX_SINCE = (3, 0, 261023)
-
-# From this version the Gradle plugin runs the 3.0 rule engine without an elasticore { } block; the
-# 2.x generator only with output = 'v2' (3.0.261028-rc3).
-V3_DEFAULT_SINCE = (3, 0, 261028)
-
-# From this version the 3.0 code is written without //ecd: lines and merged with hand edits against
-# .elasticore/cache (3.0.261030-rc5).
-MERGE_SINCE = (3, 0, 261030)
-
-# From this version hexagonal and ddd are generated over MyBatis (3.0.261030-rc6; the last number is
-# the release candidate - rc5, of the same date, refuses them). references/mybatis.md.
-MYBATIS_HEX_SINCE = (3, 0, 261030, 6)
 MYBATIS = os.path.join(REFERENCES, "mybatis.md")
-
-# elcoreValidate - the DSL and the generated files checked, nothing but build/elasticore/validate.md
-# written - came with 3.0.261118-rc18 (ElastiCORE pull request 197). references/run-and-check.md.
-VALIDATE_SINCE = (3, 0, 261118)
 
 # The first stable 3.0, 3.0.261119: an html field kept to an allow-list (ElastiCORE pull request 208) and a
 # GraphQL API beside REST (pull request 207). references/quick-reference.md "Rich text, GraphQL, MongoDB".
 GA_SINCE = (3, 0, 261119)
 
-# From 3.0.261031-rc7, a unique value taken on MyBatis answers 409 'unique' as on JPA; on rc6
-# 'already-exists' (ElastiCORE pull request 63).
-MYBATIS_UNIQUE_SINCE = (3, 0, 261031)
+# The oldest ElastiCORE this kit supports, the first stable 3.0. Everything the checks below rely on -
+# the guide index, the rule engine without a block, the merge against .elasticore/cache, hexagonal and
+# ddd over MyBatis, elcoreValidate - is in it; an older version is refused, not checked.
+MINIMUM = GA_SINCE
 
-# The library recipe's contracts, in the order they run; with an older ElastiCORE each is a SKIP.
+# The library recipe's contracts, in the order they run.
 LIBRARY = {
     "files": "recipe-library.md has its four files",
     "methods": "recipe-library.md has the methods to add to LoanService.java (the dates are @default(now))",
     "owned": "the first generation writes LoanService.java and MemberService.java, owned by the developer",
     "build": "the library recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "LoanService with the added methods is kept: SKIP(user-owned), or UNCHANGED(your edits kept) from 3.0.261030",
+    "kept": "LoanService with the added methods is kept: UNCHANGED(your edits kept)",
     "starts": "the library starts",
     "K1": "K1 create a book: 200",
     "K2": "K2 an ISBN of 12 or 14 digits or with a letter: 400 'ISBN must be 13 digits' (@pattern)",
@@ -116,14 +95,14 @@ LIBRARY = {
 
 
 # The shop recipe's contracts (references/recipe-shop.md): sign-in, access, the lifecycle's 409, a
-# missing reference's 404 and a missing list's 400 came with 3.0.261021 too.
+# missing reference's 404 and a missing list's 400.
 RECIPE_SHOP = os.path.join(REFERENCES, "recipe-shop.md")
 SHOP = {
     "files": "recipe-shop.md has its seven files",
     "method": "recipe-shop.md has the method to add to PurchaseOrderService.java",
     "owned": "the first generation writes PurchaseOrderService.java, owned by the developer",
     "build": "the shop recipe generates and builds as written (bootJar), with no DSL warning",
-    "kept": "PurchaseOrderService with the added method is kept: SKIP(user-owned), or UNCHANGED(your edits kept) from 3.0.261030",
+    "kept": "PurchaseOrderService with the added method is kept: UNCHANGED(your edits kept)",
     "starts": "the shop starts, with the seed's administrator and products",
     "S1": "S1 sign up: 200, role U although A was sent, no password in the answer",
     "S2": "S2 a taken login 409 unique; a birth date tomorrow, a zipcode abc, no address, a 7-character password: 400 each",
@@ -156,13 +135,13 @@ def skip(name, why):
 
 
 def version_key(version):
-    """(3, 0, 261021, 0) for '3.0.261021', '3.0.261021-SNAPSHOT' or '3.0.261021.0-alpha3'; None otherwise."""
+    """(3, 1, 261201, 0) for '3.1.261201', '3.1.261201-SNAPSHOT' or '3.1.261201.0'; None otherwise."""
     found = re.match(r"(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?$", version)
     return tuple(int(part or 0) for part in found.groups()) if found else None
 
 
 def at_least(version, since):
-    """Whether the version is since or later; a pre-release of a version (-SNAPSHOT, -alpha3) counts as it."""
+    """Whether the version is since or later; a -SNAPSHOT of a version counts as it."""
     key = version_key(version)
     return key is not None and key >= tuple(since) + (0,) * (4 - len(since))
 
@@ -203,9 +182,6 @@ def check_guide_index(blueprint, version):
     its line gives. Holds when the index is there, a word the skill names finds a line, and every
     range opens on the heading the line names."""
     name = "blueprint/elasticore-guide-index.md leads a word to a section of a guide"
-    if not at_least(version, INDEX_SINCE):
-        skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, INDEX_SINCE)))
-        return
     path = os.path.join(blueprint, "elasticore-guide-index.md")
     if not os.path.isfile(path):
         check(name, False, "SKILL.md section 1", "no index in " + blueprint)
@@ -245,7 +221,7 @@ def find(root, name):
 
 def kept_statuses(version):
     """What the rule engine says of a file of the developer's that was edited, when the DSL did not change it."""
-    return ("UNCHANGED(your edits kept)",) if at_least(version, MERGE_SINCE) else ("SKIP(user-owned)",)
+    return ("UNCHANGED(your edits kept)",)
 
 
 def in_cache(path):
@@ -377,18 +353,6 @@ def stop_app(app):
     app.log_file.close()
 
 
-def mybatis_hexagonal(version):
-    """Whether this ElastiCORE generates hexagonal and ddd over MyBatis: 3.0.261030-rc6 and later
-    (rc5, of the same date, stops the build on them)."""
-    key = version_key(version)
-    if key is None or key[:3] < tuple(MYBATIS_HEX_SINCE[:3]):
-        return False
-    if key[:3] > tuple(MYBATIS_HEX_SINCE[:3]):
-        return True
-    rc = re.search(r"-rc(\d+)$", version)
-    return not re.search(r"-(alpha|beta|rc)\d+$", version) or (rc is not None and int(rc.group(1)) >= MYBATIS_HEX_SINCE[3])
-
-
 def blocks_by_sub_heading(text):
     """The code block under each '### `name`' heading of a part of a reference page."""
     return dict(re.findall(r"^### `([^`]+)`\s*\n+```\w*\n(.*?)```", text, re.S | re.M))
@@ -400,14 +364,6 @@ def check_shop(work, version, template, run, java, temp, mybatis=False):
     With mybatis, the same shop as its section "On MyBatis" and references/mybatis.md say."""
     where = "references/recipe-shop.md" + (", On MyBatis; references/mybatis.md" if mybatis else "")
     label = {key: ("[MyBatis] " if mybatis else "") + text for key, text in SHOP.items()}
-    if mybatis and not mybatis_hexagonal(version):
-        for name in label.values():
-            skip(name, "needs ElastiCORE 3.0.261030-rc6 or later")
-        return
-    if not at_least(version, LIBRARY_SINCE):
-        for name in label.values():
-            skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
-        return
     recipe = blocks_by_heading(RECIPE_SHOP)
     controller_file = "src/main/java/com/acme/store/adapter/in/web/OrderReportController.java"
     wanted = sorted(["src/main/java/com/acme/store/StoreApplication.java", "src/main/java/com/acme/store/StoreSeed.java",
@@ -521,10 +477,8 @@ def check_shop(work, version, template, run, java, temp, mybatis=False):
         bad = [visitor("POST", "/member", m)[0] for m in (
             member("park", birthDate=tomorrow), member("choi", address=dict(home, zipcode="abc")),
             {k: v for k, v in member("jung").items() if k != "address"}, member("yoon", password="pw-1234"))]
-        # On MyBatis before 3.0.261031-rc7 a taken unique value answers 409 already-exists
-        # (recipe-shop.md, On MyBatis); from it, unique as on JPA.
-        taken = "already-exists" if mybatis and not at_least(version, MYBATIS_UNIQUE_SINCE) else "unique"
-        check(label["S2"], st_dup == 409 and code(dup) == taken and bad == [400] * 4, where,
+        # A taken unique value answers 409 unique, on MyBatis as on JPA (recipe-shop.md, On MyBatis).
+        check(label["S2"], st_dup == 409 and code(dup) == "unique" and bad == [400] * 4, where,
               "%s %s %s" % (st_dup, code(dup), bad))
 
         st_wrong, wrong = kim("POST", "/member/signin", {"login": "kim", "password": "nope"})
@@ -637,10 +591,6 @@ def check_library(work, version, template, run, java, temp):
     """references/recipe-library.md built as written - generate, add the methods and the controller,
     build - then started and called with every request of its API table."""
     where = "references/recipe-library.md"
-    if not at_least(version, LIBRARY_SINCE):
-        for name in LIBRARY.values():
-            skip(name, "needs ElastiCORE %s or later" % ".".join(map(str, LIBRARY_SINCE)))
-        return
     recipe = blocks_by_heading(RECIPE_LIBRARY)
     controller_file = "src/main/java/com/acme/library/adapter/in/web/LoanReturnController.java"
     wanted = sorted(["src/main/java/com/acme/library/LibraryApplication.java", controller_file,
@@ -844,6 +794,8 @@ def main():
     args = parser.parse_args()
 
     version = os.environ.get("ELASTICORE_VERSION") or newest_3x()
+    if not at_least(version, MINIMUM):
+        sys.exit("ElastiCORE %s: the kit needs %s or later" % (version, ".".join(map(str, MINIMUM))))
     work = args.work or tempfile.mkdtemp(prefix="elasticore-contract-")
     print("ElastiCORE %s, projects in %s" % (version, work), flush=True)
     gradle = args.gradle.split()
@@ -937,9 +889,8 @@ def main():
     check_guide_index(blueprint, version)
 
     # --- how files are marked ----------------------------------------------------------
-    # From 3.0.261030-rc5 a generated file has no //ecd: line; .elasticore/cache names it.
-    merging = at_least(version, MERGE_SINCE)
-    generated_kind = "merged" if merging else "managed"
+    # A generated file of the 3.0 code has no //ecd: line; .elasticore/cache names it.
+    generated_kind = "merged"
     expected = {"ProductDTO.java": generated_kind, "ProductService.java": "owned",
                 "PurchaseOrderBase.java": generated_kind, "PurchaseOrder.java": "owned",
                 "PurchaseOrderService.java": "owned", "PurchaseOrderController.java": "owned",
@@ -971,25 +922,20 @@ def main():
                 decisions.append(json.loads(out_one)["hookSpecificOutput"]["permissionDecision"])
             except (ValueError, KeyError, TypeError):
                 decisions.append("allow" if rc_one == 0 and not out_one.strip() else "error")
-        if merging:
-            # The DTO and the messages are merged: an edit is kept. schema.yml is still rewritten.
-            check("the hook allows edits of the merged generated files and the owned one, and refuses schema.yml",
-                  decisions == ["allow", "allow", "deny", "allow"], "hooks/elasticore-hook.sh pre-edit",
-                  "generated DTO, owned service, schema.yml, messages: %s" % decisions)
-            _, note, _ = hook("post-edit", edit_payload("merged-note", dto))
-            check("the hook says once what an edit of a merged file means", "<<<<<<< yours" in note,
-                  "hooks/elasticore-hook.sh post-edit", "hook said: %s" % note.strip()[:200])
-        else:
-            check("the hook refuses the generated files and allows the owned one",
-                  decisions == ["deny", "allow", "deny", "deny"], "hooks/elasticore-hook.sh pre-edit",
-                  "generated DTO, owned service, schema.yml, messages: %s" % decisions)
+        # The DTO and the messages are merged: an edit is kept. schema.yml is still rewritten.
+        check("the hook allows edits of the merged generated files and the owned one, and refuses schema.yml",
+              decisions == ["allow", "allow", "deny", "allow"], "hooks/elasticore-hook.sh pre-edit",
+              "generated DTO, owned service, schema.yml, messages: %s" % decisions)
+        _, note, _ = hook("post-edit", edit_payload("merged-note", dto))
+        check("the hook says once what an edit of a merged file means", "<<<<<<< yours" in note,
+              "hooks/elasticore-hook.sh post-edit", "hook said: %s" % note.strip()[:200])
 
     # --- the owned file is left alone ---------------------------------------------------------
     if owned:
         with open(owned, "a", encoding="utf-8", newline="\n") as f:
             f.write("// business logic\n")
         rc, out = run(project, "elcore3")
-        owned_status = "UNCHANGED(your edits kept)" if merging else "SKIP(user-owned)"
+        owned_status = "UNCHANGED(your edits kept)"
         check("an edited developer-owned file is reported %s and kept" % owned_status,
               status_of(out, "ProductService.java") == owned_status and "// business logic" in read(owned),
               "SKILL.md sections 2 and 5", "status: %s" % status_of(out, "ProductService.java"))
@@ -998,7 +944,7 @@ def main():
     original_entity = read(entity)
 
     # --- a hand edit to a generated file, and how it is undone -----------------------------
-    if dto and merging:
+    if dto:
         with open(dto, "a", encoding="utf-8", newline="\n") as f:
             f.write("// edited by hand\n")
         rc, out = run(project, "elcore3")
@@ -1033,42 +979,6 @@ def main():
         check("deleting a generated file and generating again restores it",
               status_of(out, "ProductDTO.java") == "WROTE" and kind(dto) == "merged", "SKILL.md section 5",
               "status: %s" % status_of(out, "ProductDTO.java"))
-    elif dto:
-        with open(dto, "a", encoding="utf-8", newline="\n") as f:
-            f.write("// edited by hand\n")
-        rc, out = run(project, "elcore3")
-        check("a hand-edited generated file is reported SKIP(user-modified; -Pforce to overwrite)",
-              status_of(out, "ProductDTO.java") == "SKIP(user-modified; -Pforce to overwrite)",
-              "SKILL.md sections 2 and 5; hooks/elasticore-hook.sh post-bash",
-              "status: %s" % status_of(out, "ProductDTO.java"))
-        _, note, _ = hook("post-bash", bash_payload("contract", "./gradlew elcore3", out))
-        check("the hook recognises that report in real output", "edited by hand" in note,
-              "hooks/elasticore-hook.sh post-bash", "hook said: %s" % note.strip()[:200])
-        os.remove(dto)
-        rc, out = run(project, "elcore3")
-        check("deleting a generated file and generating again restores it",
-              status_of(out, "ProductDTO.java") == "WROTE" and kind(dto) == "managed", "SKILL.md section 5",
-              "status: %s" % status_of(out, "ProductDTO.java"))
-
-    # --- a preserved block survives regeneration (files with an //ecd: line) ------------------
-    if dto and not merging:
-        text = read(dto)
-        cut = text.rstrip().rfind("}")
-        block = ("\n    // !-----------------------------------------------------------\n"
-                 "    public String label() { return name; }\n"
-                 "    // ------------------------------------------------------------!\n")
-        write(dto, text[:cut] + block + text[cut:])
-        write(entity, original_entity + "      stock:     int\n")
-        rc, out = run(project, "elcore3")
-        after_text = read(dto)
-        check("a preserved block in a generated file survives a regeneration that rewrites the file",
-              status_of(out, "ProductDTO.java") == "WROTE" and "label()" in after_text and "stock" in after_text,
-              "SKILL.md section 2; hooks/elasticore-hook.sh adds_block()",
-              "status: %s, block kept: %s, new field: %s" % (status_of(out, "ProductDTO.java"),
-                                                             "label()" in after_text, "stock" in after_text))
-        write(entity, original_entity)
-        os.remove(dto)
-        run(project, "elcore3")
 
     # --- what a DSL mistake looks like ------------------------------------------------------
     write(entity, original_entity + "      weight:    kilogramz\n")
@@ -1083,30 +993,27 @@ def main():
     run(project, "elcore3")
 
     # --- elcoreValidate: the DSL and the generated files checked, nothing written ----------
-    if at_least(version, VALIDATE_SINCE):
-        report = os.path.join(project, "build", "elasticore", "validate.md")
-        product_dto = find(java, "ProductDTO.java")
-        before = read(product_dto) if product_dto else None
-        rc, out = run(project, "elcoreValidate", "-Pstrict")
-        write(os.path.join(work, "validate.log"), out)
-        check("elcoreValidate -Pstrict passes on a project the build just generated, and writes its report",
-              rc == 0 and "[elcore3] validate (nothing was written): PASSED" in out and os.path.isfile(report),
-              "references/run-and-check.md; SKILL.md section 4; skills/generate",
-              "exit %d; see %s" % (rc, os.path.join(work, "validate.log")))
-        write(entity, original_entity + "      stock:     int\n")
-        rc, out = run(project, "elcoreValidate")
-        check("a DSL change not generated yet fails elcoreValidate, naming the stale file, with no source written",
-              rc != 0 and "[elcore3] validate (nothing was written): FAILED" in out
-              and re.search(r"stale: \S*ProductDTO\.java", out) is not None
-              and product_dto is not None and read(product_dto) == before,
-              "references/run-and-check.md; skills/generate", "exit %d: %s" % (rc, out.strip()[-300:]))
-        _, note, _ = hook("post-bash", bash_payload("validate", "./gradlew elcoreValidate", out, rc))
-        check("the hook sends a failed elcoreValidate to generating, never to editing the file",
-              "never edit a generated file" in note, "hooks/elasticore-hook.sh post-bash",
-              "hook said: %s" % note.strip()[:200])
-        write(entity, original_entity)
-    else:
-        skip("elcoreValidate", "it came with ElastiCORE 3.0.261118-rc18")
+    report = os.path.join(project, "build", "elasticore", "validate.md")
+    product_dto = find(java, "ProductDTO.java")
+    before = read(product_dto) if product_dto else None
+    rc, out = run(project, "elcoreValidate", "-Pstrict")
+    write(os.path.join(work, "validate.log"), out)
+    check("elcoreValidate -Pstrict passes on a project the build just generated, and writes its report",
+          rc == 0 and "[elcore3] validate (nothing was written): PASSED" in out and os.path.isfile(report),
+          "references/run-and-check.md; SKILL.md section 4; skills/generate",
+          "exit %d; see %s" % (rc, os.path.join(work, "validate.log")))
+    write(entity, original_entity + "      stock:     int\n")
+    rc, out = run(project, "elcoreValidate")
+    check("a DSL change not generated yet fails elcoreValidate, naming the stale file, with no source written",
+          rc != 0 and "[elcore3] validate (nothing was written): FAILED" in out
+          and re.search(r"stale: \S*ProductDTO\.java", out) is not None
+          and product_dto is not None and read(product_dto) == before,
+          "references/run-and-check.md; skills/generate", "exit %d: %s" % (rc, out.strip()[-300:]))
+    _, note, _ = hook("post-bash", bash_payload("validate", "./gradlew elcoreValidate", out, rc))
+    check("the hook sends a failed elcoreValidate to generating, never to editing the file",
+          "never edit a generated file" in note, "hooks/elasticore-hook.sh post-bash",
+          "hook said: %s" % note.strip()[:200])
+    write(entity, original_entity)
 
     # --- an html field and a GraphQL API, in a copy: their libraries are the application's to add --
     if at_least(version, GA_SINCE):
@@ -1148,17 +1055,11 @@ def main():
                   "      reviewId: long @id @sequence\n     text: string(200)\n")
     hook("post-edit", edit_payload("broken", review))
     rc, out = run(project, "compileJava")
-    if at_least(version, LIBRARY_SINCE):
-        # From 3.0.261021 the rule engine stops the build on it, naming the file and the parser's message.
-        check("a YAML file that does not parse is printed as 'LOAD ERROR' and stops the build, naming the file",
-              rc != 0 and "* LOAD ERROR: " in out and "the model check failed" in out
-              and "review.yml - not read, nothing it declares was generated" in out and not find(java, "Review.java"),
-              "SKILL.md section 5; references/quick-reference.md; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
-    else:
-        check("a YAML file that does not parse is printed as 'LOAD ERROR', left out, and the build passes",
-              rc == 0 and "* LOAD ERROR: " in out and "YAMLException" in out and "BUILD SUCCESSFUL" in out
-              and not find(java, "Review.java"),
-              "SKILL.md section 5; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
+    # The rule engine stops the build on it, naming the file and the parser's message.
+    check("a YAML file that does not parse is printed as 'LOAD ERROR' and stops the build, naming the file",
+          rc != 0 and "* LOAD ERROR: " in out and "the model check failed" in out
+          and "review.yml - not read, nothing it declares was generated" in out and not find(java, "Review.java"),
+          "SKILL.md section 5; references/quick-reference.md; hooks/elasticore-hook.sh post-bash", "exit %d" % rc)
     _, note, _ = hook("post-bash", bash_payload("broken", "./gradlew compileJava", out, rc))
     check("the hook reports it and keeps the note",
           "could not be read" in note and os.path.exists(os.path.join(data, "dsl-changed-broken")),
@@ -1172,17 +1073,11 @@ def main():
     line_dto = find(java, "OrderLineDTO.java")
     os.remove(dto_yml)
     rc, out = run(project, "elcore3")
-    if merging:
-        # PurchaseOrderDTO still names it (@dtype), so the merging run keeps it and says who uses it.
-        check("a generated file the DSL no longer produces but a kept source uses is kept, with who uses it",
-              line_dto and os.path.exists(line_dto)
-              and re.search(r"OrderLineDTO\.java is no longer generated, but \S*PurchaseOrderDTO\.java still uses it", out),
-              "SKILL.md section 5", "OrderLineDTO.java exists: %s" % (line_dto and os.path.exists(line_dto)))
-    else:
-        check("a generated file the DSL no longer produces is REMOVED(the DSL no longer produces it)",
-              line_dto and status_of(out, "OrderLineDTO.java") == "REMOVED(the DSL no longer produces it)"
-              and not os.path.exists(line_dto), "SKILL.md section 5",
-              "status: %s" % status_of(out, "OrderLineDTO.java"))
+    # PurchaseOrderDTO still names it (@dtype), so the merging run keeps it and says who uses it.
+    check("a generated file the DSL no longer produces but a kept source uses is kept, with who uses it",
+          line_dto and os.path.exists(line_dto)
+          and re.search(r"OrderLineDTO\.java is no longer generated, but \S*PurchaseOrderDTO\.java still uses it", out),
+          "SKILL.md section 5", "OrderLineDTO.java exists: %s" % (line_dto and os.path.exists(line_dto)))
     write(dto_yml, kept)
     run(project, "elcore3")
 
@@ -1210,21 +1105,12 @@ def main():
         write(os.path.join(layered, name), render(text, version))
     rc, out = run(layered, "compileJava")
     write(os.path.join(work, "layered.log"), out)
-    if at_least(version, V3_DEFAULT_SINCE):
-        # The 3.0 code: access is enforced and Money compiles.
-        check("on layered Java (the 3.0 code) @access is enforced - no warning that it is not",
-              "which the selected rules do not enforce" not in out, "SKILL.md section 3; references/new-project.md",
-              "see %s" % os.path.join(work, "layered.log"))
-        check("on layered Java (the 3.0 code) the template with its money field compiles", rc == 0,
-              "SKILL.md section 3; references/new-project.md", "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
-    else:
-        check("on layered Java the generator warns that @access is not enforced",
-              "DSL validation warnings:" in out and "@access" in out and "which the selected rules do not enforce" in out,
-              "SKILL.md section 3; references/new-project.md", "see %s" % os.path.join(work, "layered.log"))
-        check("on layered Java a money field does not compile ('package Money does not exist')",
-              rc != 0 and "package Money does not exist" in out,
-              "SKILL.md section 3; references/new-project.md - when this fails, ElastiCORE fixed it: update both",
-              "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
+    # The 3.0 code: access is enforced and Money compiles.
+    check("on layered Java (the 3.0 code) @access is enforced - no warning that it is not",
+          "which the selected rules do not enforce" not in out, "SKILL.md section 3; references/new-project.md",
+          "see %s" % os.path.join(work, "layered.log"))
+    check("on layered Java (the 3.0 code) the template with its money field compiles", rc == 0,
+          "SKILL.md section 3; references/new-project.md", "exit %d; see %s" % (rc, os.path.join(work, "layered.log")))
 
     # --- the tasks the skill names ------------------------------------------------------------
     rc, out = run(project, "tasks", "--all")
@@ -1490,15 +1376,13 @@ def main():
     # --- the same shop on MyBatis, hexagonal (references/mybatis.md) ------------------------------
     check_shop(work, version, template, run, args.java, temp, mybatis=True)
 
-    # --- the 2.x generator: output = 'v2' - before 3.0.261028-rc3, a build without the block ----
+    # --- the 2.x generator: output = 'v2' -----------------------------------------------------
     legacy = os.path.join(work, "legacy")
     for name, text in template.items():
         if name.endswith("model/entity.yml"):
             continue
         if name == "build.gradle":
-            text = re.sub(r"\nelasticore \{.*?\n\}\n",
-                          "\nelasticore {\n    output = 'v2'\n}\n" if at_least(version, V3_DEFAULT_SINCE) else "\n",
-                          text, flags=re.S)
+            text = re.sub(r"\nelasticore \{.*?\n\}\n", "\nelasticore {\n    output = 'v2'\n}\n", text, flags=re.S)
         write(os.path.join(legacy, name), render(text, version))
     legacy_model = os.path.join(legacy, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
     plain = ("entity:\n  Product:\n    meta: entity @root @expose(20) -- product\n    fields:\n"
@@ -1546,7 +1430,7 @@ def main():
     failed = [r for r in results if not r[0]]
     line = "ElastiCORE %s: %d of %d contracts hold" % (version, len(results) - len(failed), len(results))
     if skipped:
-        # Each skip says the version it needs ("needs ElastiCORE 3.0.261023 or later").
+        # Each skip says what it needs ("they came with ElastiCORE 3.0.261119").
         needs = sorted(set(why.replace("needs ElastiCORE ", "").replace(" or later", "") for _, why in skipped))
         line += ", %d skipped (needs %s)" % (len(skipped), " / ".join(needs))
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")

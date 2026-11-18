@@ -14,9 +14,10 @@ and the table of failures and fixes. Then:
    A project already on the 3.0 code (`output = 'v3'`, or no `output` and a `.elasticore/cache`) has nothing to move:
    say so and stop. Run the build as it is (`./gradlew build`, `./gradlew.bat` on Windows) and record the result -
    every later step is compared with it. If it does not compile now, stop and report that first.
-2. **The check** (ElastiCORE 3.0.261113 or later - `./gradlew tasks --group=elasticore` lists `elcoreMigrationCheck`):
+2. **The check** (ElastiCORE 3.0.261119 or later - `./gradlew tasks --group=elasticore` lists `elcoreMigrationCheck`):
    `./gradlew elcoreMigrationCheck`, then read `build/elasticore/migration-check.md` whole. It writes nothing else.
-   On an older version, say that the check needs the newer one and work from `migrate.md`'s table instead.
+   A project on an older ElastiCORE (2.x, or a 3.0 build before the release): say that the check needs 3.0.261119
+   or later (with `output = 'v2'` kept), and ask before upgrading.
 3. **Fix in the DSL what the check's first section lists** - generated files the move removes or no longer writes
    that code of the user's uses. For an entity their code reads and writes through `helper.getXxx()`, propose
    `@repository` on its entity line; `@service` or `@expose` only when the user wants a service or an API. Show

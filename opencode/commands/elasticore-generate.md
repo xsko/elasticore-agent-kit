@@ -24,7 +24,7 @@ The Gradle task to run: `$ARGUMENTS` - when that is empty, `compileJava`.
    - every `SKIP(no ElastiCORE header - yours)` file: the generated one is missing there - unless the
      summary says `... that .elasticore/cache does not hold were left as they are`: then the cache is
      missing or replaced, and it is taken from git, not the files deleted;
-   - with `.elasticore/cache` (ElastiCORE 3.0.261030-rc5 and later): every `CONFLICT` file - the
+   - with `.elasticore/cache` (the 3.0 code): every `CONFLICT` file - the
      places marked `<<<<<<< yours` / `>>>>>>> elasticore` and how each should be resolved (the build
      fails until they are); every `KEPT(yours ...)` file with what the `[elcore3]` lines say to carry
      over by hand; every `SKIP(not in the cache)` file. `MERGED(your edits kept)` needs no action;
@@ -33,8 +33,7 @@ The Gradle task to run: `$ARGUMENTS` - when that is empty, `compileJava`.
      section defines.
 4. If everything is clean, say so in one line.
 
-With `elcoreValidate` as the task (ElastiCORE 3.0.261118-rc18 and later; `-Pstrict` fails on a DSL
-warning too) nothing is written but `build/elasticore/validate.md`: report `PASSED` or `FAILED`, each
+With `elcoreValidate` as the task (`-Pstrict` fails on a DSL warning too) nothing is written but `build/elasticore/validate.md`: report `PASSED` or `FAILED`, each
 reason, and each `stale:`, `no longer produced:` and `conflict or error:` file, with the fix - generate
 (`compileJava`) and keep what it writes, or the DSL change. Read the report for the files it lists
 as edited by hand or not checked.
