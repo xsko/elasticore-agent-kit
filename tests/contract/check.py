@@ -61,7 +61,8 @@ MYBATIS = os.path.join(REFERENCES, "mybatis.md")
 GA_SINCE = (3, 0, 261119)
 
 # The oldest ElastiCORE this kit supports, the first stable 3.0. Everything the checks below rely on -
-# the guide index, the rule engine without a block, the merge against .elasticore/cache, hexagonal and
+# the guide index, the rule engine without a block, the merge against its base (.elasticore/cache, named
+# .elasticore/generated-base.zip by a later ElastiCORE - both are read), hexagonal and
 # ddd over MyBatis, elcoreValidate - is in it; an older version is refused, not checked.
 MINIMUM = GA_SINCE
 
@@ -224,14 +225,27 @@ def kept_statuses(version):
     return ("UNCHANGED(your edits kept)",)
 
 
+BASE_NAMES = ("generated-base.zip", "cache")
+
+
+def merge_base(folder):
+    """The merge base a project folder holds: .elasticore/generated-base.zip, or .elasticore/cache, the name it
+    had before ElastiCORE renamed it. With both there ElastiCORE reads the new one. None when there is neither."""
+    for name in BASE_NAMES:
+        base = os.path.join(folder, ".elasticore", name)
+        if os.path.isfile(base):
+            return base
+    return None
+
+
 def in_cache(path):
-    """Whether .elasticore/cache in a folder above the file names it - the project merges it."""
+    """Whether the merge base in a folder above the file names it - the project merges it."""
     folder = os.path.dirname(os.path.abspath(path))
     while True:
-        cache = os.path.join(folder, ".elasticore", "cache")
-        if os.path.isfile(cache):
+        base = merge_base(folder)
+        if base:
             key = os.path.relpath(os.path.abspath(path), folder).replace(os.sep, "/")
-            with open(cache, "rb") as f:
+            with open(base, "rb") as f:
                 return key.encode("utf-8") in f.read()
         parent = os.path.dirname(folder)
         if parent == folder:
@@ -889,7 +903,16 @@ def main():
     check_guide_index(blueprint, version)
 
     # --- how files are marked ----------------------------------------------------------
-    # A generated file of the 3.0 code has no //ecd: line; .elasticore/cache names it.
+    # A generated file of the 3.0 code has no //ecd: line; the merge base names it -
+    # .elasticore/generated-base.zip, or .elasticore/cache from an ElastiCORE before the rename.
+    base = merge_base(project)
+    check("the build writes the merge base, .elasticore/generated-base.zip (earlier .elasticore/cache)",
+          base is not None, "SKILL.md section 2; hooks/elasticore-hook.sh merge_base()")
+    if base and os.path.basename(base) == "generated-base.zip":
+        ignore = os.path.join(project, ".elasticore", ".gitignore")
+        check("beside generated-base.zip, .elasticore/.gitignore takes it back in (!generated-base.zip)",
+              os.path.isfile(ignore) and "!generated-base.zip" in read(ignore),
+              "SKILL.md section 2 (commit the base, never ignore it)")
     generated_kind = "merged"
     expected = {"ProductDTO.java": generated_kind, "ProductService.java": "owned",
                 "PurchaseOrderBase.java": generated_kind, "PurchaseOrder.java": "owned",
