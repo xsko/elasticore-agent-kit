@@ -17,7 +17,7 @@ A project 2.x generated - or one on the Gradle plugin that keeps `elasticore { o
    - older stamps no longer written, and plain removals.
 3. **Fix the DSL** for the first section, and check again until it is empty.
 4. **Move**: `output = 'v3'`, `./gradlew compileJava`. The statuses are the check's.
-5. **Fix what is left** with the table, **test**, and commit `.elasticore/cache` with the sources.
+5. **Fix what is left** with the table, **test**, and commit the merge base with the sources - `.elasticore/generated-base.zip` (`.elasticore/cache` on an ElastiCORE before the rename) and the `.gitattributes` / `.gitignore` beside it; never delete or ignore it.
 
 ## Failures and their fixes
 

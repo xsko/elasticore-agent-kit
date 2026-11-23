@@ -11,7 +11,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/elasticore/references/migrate.md` first; it h
 and the table of failures and fixes. Then:
 
 1. **Where the project stands.** `build.gradle`: the ElastiCORE version in `plugins { }` and `elasticore { output }`.
-   A project already on the 3.0 code (`output = 'v3'`, or no `output` and a `.elasticore/cache`) has nothing to move:
+   A project already on the 3.0 code (`output = 'v3'`, or no `output` and a merge base - `.elasticore/generated-base.zip`, or
+   `.elasticore/cache` from an ElastiCORE before the rename) has nothing to move:
    say so and stop. Run the build as it is (`./gradlew build`, `./gradlew.bat` on Windows) and record the result -
    every later step is compared with it. If it does not compile now, stop and report that first.
 2. **The check** (ElastiCORE 3.0.261119 or later - `./gradlew tasks --group=elasticore` lists `elcoreMigrationCheck`):
@@ -30,7 +31,8 @@ and the table of failures and fixes. Then:
    `CONFLICT` with the user, carry over what each `KEPT` line names, and fix the compile errors with the table in
    `migrate.md` - in the DSL where the table says so, never by editing a generated file.
 6. **Test and report.** `./gradlew build`, then the behaviour changes the table lists (validation before a save, a
-   delete row by row, `like` ignoring case) in business terms. Tell the user to commit `.elasticore/cache` with the
-   sources.
+   delete row by row, `like` ignoring case) in business terms. Tell the user to commit the merge base with the
+   sources - `.elasticore/generated-base.zip` (`.elasticore/cache` on an ElastiCORE before the rename) and the
+   files beside it in `.elasticore/` - and never to delete or ignore it.
 
 Never run `-Pforce`, never delete a file the user edited, and never set `output = 'v3'` without the user's yes.

@@ -3,6 +3,32 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## Unreleased
+
+- **The merge base under its new name.** A newer ElastiCORE names the file it merges hand edits
+  against `.elasticore/generated-base.zip` instead of `.elasticore/cache` (the same stored zip): a
+  project that has only the old file is still read from it, the first build that writes renames it
+  and writes `.elasticore/.gitattributes` and `.elasticore/.gitignore` (`!generated-base.zip`) beside
+  it, and with both files there the new one is read. The kit works with either name, so with
+  ElastiCORE before and after the rename:
+  - the hook takes a project with either file as one on the merge - before, a project whose base had
+    been renamed no longer was, and edits of its merged files were refused or not explained; with both
+    files it reads the new one, as ElastiCORE does;
+  - the hook's messages name `.elasticore/generated-base.zip`, and `.elasticore/cache` where the
+    project may still have it - after an edit of a merged file, the one the project has; they still
+    match the build's unchanged words `the cache is missing` and `SKIP(not in the cache)`;
+  - after a build that renamed the base, the hook says to commit the delete and the new files
+    together; when the old file could not be removed, or is back beside the new one, to delete it
+    and commit that;
+  - the skill, `references/migrate.md`, `references/run-and-check.md`, `/elasticore:generate`,
+    `/elasticore:migrate`, the modeler and the reviewer (Claude Code and opencode) and the READMEs
+    (en and ko) say the base is committed with the generated files and never deleted or ignored,
+    what the rename lines in the build mean, and the reviewer treats a deleted or ignored base as a
+    blocker and the rename committed in one piece as no finding.
+- **Tests:** the hook tests run the merging project under both names and with both files; the
+  contract test's `kind()` reads either name and checks the build writes a base (and, under the new
+  name, the `.gitignore` beside it).
+
 ## 1.0.0
 
 The first stable release of the kit, for the first stable ElastiCORE: **it requires ElastiCORE

@@ -117,7 +117,8 @@ and with `-Pstrict` on a DSL warning. A generated file edited by hand and kept b
 not a failure. It is the step a project's CI runs before `build`, so run it last, after the build:
 
 - `stale:`, `no longer produced:` or a migration: run `./gradlew compileJava` (it generates) and keep
-  what it writes, `.elasticore/cache` included. Never edit a generated file to make the check pass.
+  what it writes, the merge base `.elasticore/generated-base.zip` (`.elasticore/cache` before the rename)
+  included. Never edit a generated file to make the check pass.
 - A model check failure or a warning: fix the DSL, as for the build.
 - A project whose generated sources are not in its tree (each build generates them) is checked for
   its DSL and for the generated files it does keep, such as the DDL.

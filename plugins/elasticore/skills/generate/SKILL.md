@@ -24,12 +24,19 @@ argument-hint: "[gradle task - default compileJava]"
      the edit belongs in. Restoring one means deleting it and generating again: ask the user first
      unless you made that edit in this session;
    - every `SKIP(no ElastiCORE header - yours)` file: the generated one is missing there - unless the
-     summary says `... that .elasticore/cache does not hold were left as they are`: then the cache is
-     missing or replaced, and it is taken from git, not the files deleted;
-   - with `.elasticore/cache` (the 3.0 code): every `CONFLICT` file - the
+     summary says `... that .elasticore/generated-base.zip does not hold were left as they are`
+     (`.elasticore/cache` while the project still has the old name): then the merge base is missing or
+     replaced, and it is taken from git, not the files deleted;
+   - with a merge base, `.elasticore/generated-base.zip` or the older `.elasticore/cache` (the 3.0
+     code): every `CONFLICT` file - the
      places marked `<<<<<<< yours` / `>>>>>>> elasticore` and how each should be resolved (the build
      fails until they are); every `KEPT(yours ...)` file with what the `[elcore3]` lines say to carry
      over by hand; every `SKIP(not in the cache)` file. `MERGED(your edits kept)` needs no action;
+     a line saying `.elasticore/cache was renamed to .elasticore/generated-base.zip` means: commit the
+     delete and the new file together; `... was written, but .elasticore/cache could not be removed (...)`:
+     delete `.elasticore/cache`, then commit that delete and the new file together;
+     `.elasticore/cache is no longer read`: delete it and commit that.
+     The base is committed with the generated files - never deleted or ignored;
    - every `ERROR` line and every compile error. When a compile error is in a generated file, trace
      it back to the DSL line that caused it - for example a DTO named in `@dtype(...)` that no `dto:`
      section defines.
