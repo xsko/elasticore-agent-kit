@@ -15,8 +15,11 @@ raise it with every release, or `claude plugin update` finds nothing new.
     been renamed no longer was, and edits of its merged files were refused or not explained; with both
     files it reads the new one, as ElastiCORE does;
   - the hook's messages name `.elasticore/generated-base.zip`, and `.elasticore/cache` where the
-    project may still have it; they still match the build's unchanged words `the cache is missing`
-    and `SKIP(not in the cache)`;
+    project may still have it - after an edit of a merged file, the one the project has; they still
+    match the build's unchanged words `the cache is missing` and `SKIP(not in the cache)`;
+  - after a build that renamed the base, the hook says to commit the delete and the new files
+    together; when the old file could not be removed, or is back beside the new one, to delete it
+    and commit that;
   - the skill, `references/migrate.md`, `references/run-and-check.md`, `/elasticore:generate`,
     `/elasticore:migrate`, the modeler and the reviewer (Claude Code and opencode) and the READMEs
     (en and ko) say the base is committed with the generated files and never deleted or ignored,

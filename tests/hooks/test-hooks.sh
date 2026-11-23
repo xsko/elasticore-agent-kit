@@ -258,7 +258,8 @@ run pre-edit "$(edit_json Edit "$msrc/ShopApplication.java")"
 check "a hand-written file of a merging project may be edited" quiet
 
 run post-edit "$(edit_json Edit "$msrc/ProductDTO.java" m1)"
-check "an edit of a merged file is explained" eval 'noted && has "$out" "merged" && has "$out" "<<<<<<< yours" && valid_json'
+check "an edit of a merged file is explained, naming the base this project has" \
+    eval 'noted && has "$out" "merged" && has "$out" "<<<<<<< yours" && has "$out" ".elasticore/cache" && ! has "$out" "generated-base.zip" && valid_json'
 run post-edit "$(edit_json Edit "$mres/i18n/shop-messages.properties" m1)"
 check "once per session" quiet
 run post-edit "$(edit_json Edit "$msrc/ProductService.java" m2)"
@@ -294,7 +295,7 @@ run pre-edit "$(edit_json Edit "$rsrc/OrderDTO.java")"
 check "with generated-base.zip, a file still carrying //ecd: is refused" eval 'denied && has "$out" "build once first"'
 run post-edit "$(edit_json Edit "$rsrc/ProductDTO.java" r1)"
 check "with generated-base.zip, an edit of a merged file is explained, naming the new file" \
-    eval 'noted && has "$out" "merged" && has "$out" ".elasticore/generated-base.zip" && valid_json'
+    eval 'noted && has "$out" "merged" && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache" && valid_json'
 run post-edit "$(edit_json Edit "$renamed/src/main/java/kr/co/acme/erp/sales/order/adapter/out/persistence/OrderJpaAdapter.java" r2)"
 check "with generated-base.zip, a merged file deep in its package is found" eval 'noted && has "$out" "merged"'
 
@@ -311,6 +312,43 @@ check "with both files, the new one is read: a file only .elasticore/cache names
 printf 'PK\003\004....src/main/resources/i18n/shop-messages.propertiesnot-found=Not foundPK\001\002\n' >> "$both/.elasticore/generated-base.zip"
 run pre-edit "$(edit_json Edit "$both/src/main/resources/i18n/shop-messages.properties")"
 check "with both files, a file the new one names is merged" quiet
+run post-edit "$(edit_json Edit "$both/src/main/resources/i18n/shop-messages.properties" b1)"
+check "with both files, an edit of a merged file names the new one" \
+    eval 'noted && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache"'
+
+# Only a regular file is a base, as ElastiCORE reads it. The old name as a directory: no base.
+olddir="$work/olddir"
+mkdir -p "$olddir/.elasticore/cache" "$olddir/src/main/resources/i18n"
+cp "$i18n/shop-messages.properties" "$olddir/src/main/resources/i18n/shop-messages.properties"
+run pre-edit "$(edit_json Edit "$olddir/src/main/resources/i18n/shop-messages.properties")"
+check "a directory named .elasticore/cache is not a base: the messages file is still refused" denied
+# The new name as a directory beside the old file: the old file is read.
+newdir="$work/newdir"
+mkdir -p "$newdir/.elasticore/generated-base.zip" "$newdir/src/main/resources/i18n"
+cp "$i18n/shop-messages.properties" "$newdir/src/main/resources/i18n/shop-messages.properties"
+cp "$merging/.elasticore/cache" "$newdir/.elasticore/cache"
+run pre-edit "$(edit_json Edit "$newdir/src/main/resources/i18n/shop-messages.properties")"
+check "a directory named generated-base.zip beside the old file: the old file is read" quiet
+run post-edit "$(edit_json Edit "$newdir/src/main/resources/i18n/shop-messages.properties" d1)"
+check "and the edit is explained naming .elasticore/cache" \
+    eval 'noted && has "$out" ".elasticore/cache" && ! has "$out" "generated-base.zip"'
+
+# A project whose path has spaces.
+spaced="$work/my projects/shop app"
+mkdir -p "$spaced/.elasticore" "$spaced/src/main/resources/i18n" "$spaced/src/main/java/com/acme/shop"
+cp "$i18n/shop-messages.properties" "$spaced/src/main/resources/i18n/shop-messages.properties"
+cp "$msrc/ProductDTO.java" "$spaced/src/main/java/com/acme/shop/ProductDTO.java"
+cp "$merging/.elasticore/cache" "$spaced/.elasticore/generated-base.zip"
+run pre-edit "$(edit_json Edit "$spaced/src/main/resources/i18n/shop-messages.properties")"
+check "in a project path with spaces, a merged file is found in generated-base.zip" quiet
+run post-edit "$(edit_json Edit "$spaced/src/main/java/com/acme/shop/ProductDTO.java" sp1)"
+check "and its edit is explained, naming generated-base.zip, as valid JSON" \
+    eval 'noted && has "$out" "my projects/shop app" && has "$out" ".elasticore/generated-base.zip" && valid_json'
+unbased="$work/my projects/no base"
+mkdir -p "$unbased/src/main/resources/i18n"
+cp "$i18n/shop-messages.properties" "$unbased/src/main/resources/i18n/shop-messages.properties"
+run pre-edit "$(edit_json Edit "$unbased/src/main/resources/i18n/shop-messages.properties")"
+check "in a project path with spaces and no base, the messages file is refused" denied
 
 out="$(printf '%s' "$(edit_json Edit "$managed")" | ELASTICORE_ALLOW_GENERATED_EDITS=1 "$shell" "$hook" pre-edit 2>"$work/stderr")"; rc=$?; err="$(cat "$work/stderr")"
 check "ELASTICORE_ALLOW_GENERATED_EDITS=1 lets the edit through" quiet
@@ -546,6 +584,18 @@ run post-bash "$(bash_json "./gradlew elcore3" "    dto          src/x/ShopContr
 check "with the cache there, a file at a generated path is the developer's as before" eval 'noted && has "$out" "no ElastiCORE header" && ! has "$out" "from git"'
 run post-bash "$(bash_json "./gradlew elcore3" "    dto          src/x/ShopController.java  SKIP(no ElastiCORE header - yours)\\n  1 source(s) without a stamp that .elasticore/generated-base.zip does not hold were left as they are\\n$gen3")"
 check "with generated-base.zip there, a file at a generated path is the developer's as before" eval 'noted && has "$out" "no ElastiCORE header" && ! has "$out" "from git"'
+# The rename of the base by a newer ElastiCORE, and its two warnings (printed in red: ANSI codes around them).
+run post-bash "$(bash_json "./gradlew elcore3" "[elcore3] .elasticore/cache was renamed to .elasticore/generated-base.zip - commit both changes (the delete and the new file)\\n$gen3")"
+check "the rename of the base: commit the delete and the new files together" \
+    eval 'noted && has "$out" "Commit the delete and the new files together" && has "$out" "do not restore .elasticore/cache" && valid_json'
+run post-bash "$(bash_json "./gradlew elcore3" "\\u001b[31m[elcore3] .elasticore/generated-base.zip was written, but .elasticore/cache could not be removed (access denied) - it is no longer read; delete it, and commit the delete and the new file\\u001b[0m\\n$gen3")"
+check "the old base that could not be removed: delete it, commit the delete and the new files" \
+    eval 'noted && has "$out" "Delete .elasticore/cache, then commit that delete and the new files" && ! has "$out" "both merge bases" && valid_json'
+run post-bash "$(bash_json "./gradlew compileJava" "\\u001b[31m[elcore3] .elasticore/cache is no longer read - .elasticore/generated-base.zip is the base of the merge; delete .elasticore/cache and commit the delete\\u001b[0m\\n$built3")"
+check "both bases: delete the old one and commit the delete, keep the new one" \
+    eval 'noted && has "$out" "Delete .elasticore/cache and commit the delete" && has "$out" "keep .elasticore/generated-base.zip" && valid_json'
+run post-bash "$(bash_json "./gradlew elcore3" "$gen3")"
+check "a build that says none of this says nothing of the base" eval '! has "$out" "merge base"'
 run post-edit "$(edit_json Edit "$model")"
 run post-bash "$(bash_json "./gradlew compileJava" "    dto          src/x/ProductDTO.java  MERGED(your edits kept)\\n    dto          src/x/OrderDTO.java  UNCHANGED(your edits kept)\\n$built3")"
 check "merged edits need no word, and the build clears the note" eval 'quiet && [ ! -f "$marker" ]'

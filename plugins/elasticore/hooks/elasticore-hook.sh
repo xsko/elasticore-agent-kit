@@ -483,7 +483,9 @@ post-edit)
         state
         [ -f "$merged_noted" ] && exit 0
         note "$merged_noted"
-        context PostToolUse "$path is generated from the DSL and merged (it is in the merge base, .elasticore/generated-base.zip - .elasticore/cache before ElastiCORE renamed it): ElastiCORE keeps your edit and merges the DSL's later changes into it. Where the DSL changes the same lines, the next build writes <<<<<<< yours / >>>>>>> elasticore marks into the file and fails until they are resolved. Whatever the DSL can say - a field, a check, a search condition, access - belongs in the DSL; keep hand edits for what it cannot."
+        # The file classify() read: the base under the name this project has.
+        base_name=".elasticore/$(basename -- "$(merge_base "$(merge_root "$path")")")"
+        context PostToolUse "$path is generated from the DSL and merged (it is in the merge base, $base_name): ElastiCORE keeps your edit and merges the DSL's later changes into it. Where the DSL changes the same lines, the next build writes <<<<<<< yours / >>>>>>> elasticore marks into the file and fails until they are resolved. Whatever the DSL can say - a field, a check, a search condition, access - belongs in the DSL; keep hand edits for what it cannot."
         ;;
     esac
     exit 0
@@ -566,6 +568,17 @@ post-bash)
     fi
     if has 'KEPT(yours'; then
         text="${text}A file of the developer's (written once by ElastiCORE, then edited) is listed KEPT: the DSL changes it where it was edited too, so the generator left it as it is and says so on every build until the file has the DSL's change. The [elcore3] lines after the list say how many places, and name what to carry over by hand when they can - an endpoint, a constructor argument, an annotation. Make those changes in the file, keeping what was written in it, and build again. "
+    fi
+    # The merge base renamed by its first build that writes, a newer ElastiCORE:
+    # "[elcore3] .elasticore/cache was renamed to .elasticore/generated-base.zip - commit both changes ...",
+    # "... .elasticore/generated-base.zip was written, but .elasticore/cache could not be removed (...) ..." and,
+    # with both files there, "[elcore3] .elasticore/cache is no longer read - ...".
+    if has '.elasticore/cache was renamed to .elasticore/generated-base.zip'; then
+        text="${text}ElastiCORE renamed the merge base: .elasticore/cache is deleted and .elasticore/generated-base.zip written, with .elasticore/.gitattributes and .elasticore/.gitignore beside it. Commit the delete and the new files together, in one commit; do not restore .elasticore/cache, and do not ignore or delete the new file. "
+    elif has '.elasticore/cache could not be removed'; then
+        text="${text}ElastiCORE wrote the merge base under its new name, .elasticore/generated-base.zip, but could not delete the old .elasticore/cache (the build line says why); the old file is no longer read. Delete .elasticore/cache, then commit that delete and the new files in .elasticore/ together; do not delete or ignore .elasticore/generated-base.zip. "
+    elif has '.elasticore/cache is no longer read'; then
+        text="${text}This project has both merge bases: ElastiCORE reads .elasticore/generated-base.zip and no longer reads the old .elasticore/cache, which a branch from before the rename brought back. Delete .elasticore/cache and commit the delete; keep .elasticore/generated-base.zip. If that branch is being merged right now, the env guide (9-2, git merge conflicts) says which side's base to keep. "
     fi
     if has 'SKIP(not in the cache)'; then
         text="${text}The generator left files alone that the merge base (.elasticore/generated-base.zip, or .elasticore/cache before ElastiCORE renamed it) has no record of - edited before merging was turned on, or not written by ElastiCORE - so they no longer follow the DSL. If such a file should be generated, it has to be deleted and generated again: ask the user unless you created it. If the base itself is missing, it belongs in git with the generated files - take it from there. "
