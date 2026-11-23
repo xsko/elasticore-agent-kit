@@ -3,7 +3,11 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
-## Unreleased
+## 1.1.0
+
+For ElastiCORE 3.0.261124, which renames the merge base; it still works with ElastiCORE 3.0.261119
+and later. Update the kit before ElastiCORE: a kit older than this one knows the base only as
+`.elasticore/cache`, so after the rename it no longer takes the project as one on the merge.
 
 - **The merge base under its new name.** A newer ElastiCORE names the file it merges hand edits
   against `.elasticore/generated-base.zip` instead of `.elasticore/cache` (the same stored zip): a
