@@ -1,7 +1,7 @@
 // Drives the opencode adapter (opencode/plugins/elasticore.js) the way opencode
-// does - the hook inputs recorded from opencode 1.18 - against the kit's real
-// hook script, and checks what reaches opencode: a thrown refusal, a note on
-// the tool's output, a prompt to the session when it goes idle.
+// does - the hook inputs recorded from opencode 1.18 and 2.4 - against the kit's
+// real hook script, and checks what reaches opencode: a thrown refusal, a note on
+// the tool's output, a message to the session when it goes idle.
 //
 // usage: node tests/opencode/test-adapter.mjs      Node 18 or later, no packages
 // The fixtures go to a fresh directory under the system temp directory, left for inspection.
@@ -222,6 +222,176 @@ try {
 }
 check("a call opencode did not shape as recorded does not throw", threw === null, threw && threw.message)
 
+// --- opencode 2.x: the default export's setup(ctx) ---------------------------------
+// The events as opencode 2.4 hands them to a plugin, recorded live: edit {path,
+// oldString, newString}, write {path, content}, patch {patchText}, shell {command};
+// a result is { output, content: [{ type: "text", text }], metadata }.
+const mod = await import(pathToFileURL(adapter).href + "?" + Math.random())
+check("the default export has an id and setup()", mod.default && mod.default.id === "elasticore-agent-kit" && typeof mod.default.setup === "function")
+check("and server(), the 1.x plugin", mod.default.server === mod.ElastiCore)
+
+const synthetic = []
+async function setup2(file, options) {
+  const hooks = {}
+  let disposed = 0
+  const domain = { hook: async (name, callback) => ((hooks[name] = callback), { dispose: async () => disposed++ }) }
+  const session = { ...domain, synthetic: (options && options.synthetic) || (async (input) => synthetic.push(input)) }
+  const m = await import(pathToFileURL(file).href + "?" + Math.random())
+  const cleanup = await m.default.setup({ location: { directory: project }, tool: domain, session })
+  return { hooks, cleanup, disposed: () => disposed }
+}
+const v2 = await setup2(adapter)
+check("setup() hooks execute.before, execute.after and experimental.idle", ["execute.before", "execute.after", "experimental.idle"].every((n) => typeof v2.hooks[n] === "function"), Object.keys(v2.hooks))
+
+// Calls the execute.before hook; returns the error it threw, or null.
+async function before2(sessionID, tool, input) {
+  try {
+    await v2.hooks["execute.before"]({ tool, sessionID, agent: "build", messageID: "msg_1", id: "call_1", codemode: false, input })
+    return null
+  } catch (err) {
+    return err
+  }
+}
+// Calls the execute.after hook on a completed call; returns the result opencode would use.
+async function after2(sessionID, tool, input, result) {
+  const event = { tool, sessionID, agent: "build", messageID: "msg_1", id: "call_1", codemode: false, input, status: "completed", result }
+  await v2.hooks["execute.after"](event)
+  return event.result
+}
+const edited = (file) => ({ output: "Edited " + file + " (1 replacement)", content: [{ type: "text", text: "Edited " + file + " (1 replacement)" }], metadata: { files: [] } })
+const shelled = (text, exit, outputPath) => ({ output: { exitCode: exit, wallTimeSeconds: 1, output: text, ...(outputPath ? { outputPath } : {}) }, content: [{ type: "text", text }], metadata: { status: "completed", truncated: !!outputPath, exit } })
+const shown = (result) => result.content.map((c) => c.text).join("\n")
+async function idle2(sessionID) {
+  const count = synthetic.length
+  await v2.hooks["experimental.idle"]({ sessionID, background: [] })
+  return synthetic.slice(count)
+}
+
+s = session()
+e = await before2(s, "edit", { path: "src/main/java/com/acme/shop/ProductDTO.java", oldString: "ProductDTO {", newString: "ProductDTO { int x;" })
+check("2.x: an edit of a //ecd: file throws", e && /ElastiCORE generates .*ProductDTO\.java from the DSL/.test(e.message), e && e.message)
+e = await before2(s, "write", { path: managed, content: "class ProductDTO {}\n" })
+check("2.x: a write over a //ecd: file throws", e && /from the DSL/.test(e.message), e && e.message)
+e = await before2(s, "patch", { patchText: patch("Update", "src/main/java/com/acme/shop/ProductDTO.java") })
+check("2.x: a patch of a //ecd: file throws", e && /ProductDTO\.java from the DSL/.test(e.message), e && e.message)
+e = await before2(s, "patch", patch("Update", "src/main/java/com/acme/shop/ProductDTO.java"))
+check("2.x: and a patch passed as bare text", e && /from the DSL/.test(e.message), e && e.message)
+e = await before2(s, "shell", { command: "./gradlew elcore3 -Pforce" })
+check("2.x: ./gradlew elcore3 -Pforce throws", e && /-Pforce makes the ElastiCORE generator overwrite/.test(e.message), e && e.message)
+e = await before2(s, "shell", { command: "./gradlew compileJava" })
+check("2.x: ./gradlew compileJava goes through", e === null, e && e.message)
+e = await before2(s, "edit", { path: own, oldString: "{}", newString: "{ }" })
+check("2.x: an edit of a hand-written file goes through", e === null, e && e.message)
+e = await before2(s, "read", { path: managed })
+check("2.x: a read goes through", e === null, e && e.message)
+
+s = session()
+let res = await after2(s, "edit", { path: "src/main/resources/blueprint/shop/model/entity.yml", oldString: "string(100)!", newString: "string(200)!" }, edited("entity.yml"))
+check("2.x: a DSL edit gets the note in the content", shown(res).includes(NOTE + "You changed the ElastiCORE model"), JSON.stringify(res))
+check("and in the output", typeof res.output === "string" && res.output.startsWith("Edited entity.yml (1 replacement)\n\n" + NOTE + "You changed the ElastiCORE model"), res.output)
+res = await after2(s, "edit", { path: model, oldString: "string(200)!", newString: "string(100)!" }, edited("entity.yml"))
+check("2.x: once per change", shown(res) === "Edited entity.yml (1 replacement)", shown(res))
+sent = await idle2(s)
+check("2.x: idle with the change not compiled admits a synthetic message", sent.length === 1 && sent[0].sessionID === s && sent[0].text.startsWith(NOTE) && /Run \.\/gradlew compileJava/.test(sent[0].text), JSON.stringify(sent))
+sent = await idle2(s)
+check("2.x: once", sent.length === 0, JSON.stringify(sent))
+
+s = session()
+res = await after2(s, "patch", { patchText: "*** Begin Patch\n*** Add File: src/main/resources/blueprint/shop/model/order.yml\n+entity: {}\n*** End Patch" }, { output: { files: [] }, content: [{ type: "text", text: "Success." }] })
+check("2.x: a patch that adds a DSL file gets the note", shown(res).includes(NOTE + "You changed the ElastiCORE model"), JSON.stringify(res))
+await idle2(s)
+
+s = session()
+res = await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(warned, 0))
+check("2.x: a build with DSL validation warnings gets the note", shown(res).includes(NOTE + "The 3.0 rule engine (elcore3) listed DSL validation warnings"), JSON.stringify(res))
+check("and keeps the structured output", res.output && res.output.exitCode === 0 && res.output.output === warned, JSON.stringify(res.output))
+res = await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(legacyWarned, 1))
+check("2.x: a failed build gets the note too", shown(res).includes(NOTE + "The 2.x generator (elcore) listed DSL validation warnings"), JSON.stringify(res))
+
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(built, 0))
+check("2.x: a build that compiled the change ends it", (await idle2(s)).length === 0)
+
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(built, 1))
+check("2.x: a build that failed does not", (await idle2(s)).length === 1)
+
+// opencode 2.x keeps the tail of a long output and names the file with the whole of it
+// (the tail holds no BUILD SUCCESSFUL: only the saved file proves the build)
+s = session()
+const tail = "x\nx\n\n[showing lines 2900-3004 of 3004; full output saved to " + saved + "]"
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(tail, 0, saved))
+check("2.x: the saved whole output of a long build is read", (await idle2(s)).length === 0)
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, { content: [{ type: "text", text: tail }], metadata: { exit: 0, truncated: true } })
+check("2.x: found by the line that names it, when the output has no path", (await idle2(s)).length === 0)
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, { content: [{ type: "text", text: tail.replace(saved, join(work, "tool-output", "no-such-file.txt")) }], metadata: { exit: 0, truncated: true } })
+check("2.x: a cut output without its file proves nothing", (await idle2(s)).length === 1)
+
+s = session()
+res = await after2(s, "shell", { command: "./gradlew compileJava" }, { output: { exitCode: 0, output: warned }, metadata: { exit: 0 } })
+check("2.x: a result without content keeps its output's text before the note", Array.isArray(res.content) && res.content[0].text === warned && res.content[1].text.startsWith(NOTE + "The 3.0 rule engine"), JSON.stringify(res))
+s = session()
+e = await before2(s, "edit", { filePath: "", path: managed, oldString: "a", newString: "b" })
+check("2.x: an empty filePath does not hide the path", e && /from the DSL/.test(e.message), e && e.message)
+
+threw = null
+try {
+  s = session()
+  await v2.hooks["execute.after"]({ tool: "shell", sessionID: s, input: { command: "./gradlew build" }, status: "error", error: { message: "interrupted" } })
+  await v2.hooks["execute.after"]({ tool: "edit", sessionID: s, input: { path: model }, status: "error", error: { message: "Could not find oldString" } })
+  await v2.hooks["execute.after"]({ tool: "shell", sessionID: s, input: undefined, status: "completed", result: undefined })
+  await v2.hooks["execute.before"]({ tool: "edit", sessionID: s, input: undefined })
+  await v2.hooks["experimental.idle"]({})
+  await v2.hooks["experimental.idle"](undefined)
+} catch (err) {
+  threw = err
+}
+check("2.x: failed calls and odd events do not throw", threw === null, threw && threw.message)
+
+s = session()
+const v2failing = await setup2(adapter, { synthetic: async () => { throw new Error("no such session") } })
+await v2failing.hooks["execute.after"]({ tool: "edit", sessionID: s, input: { path: model, oldString: "a", newString: "b" }, status: "completed", result: edited("entity.yml") })
+threw = null
+try {
+  await v2failing.hooks["experimental.idle"]({ sessionID: s, background: [] })
+} catch (err) {
+  threw = err
+}
+check("2.x: a synthetic message that fails does not throw", threw === null, threw && threw.message)
+
+process.env.ELASTICORE_KIT_HOOK = broken
+s = session()
+e = await before2(s, "edit", { path: managed, oldString: "a", newString: "b" })
+check("2.x: a hook script that answers garbage lets the edit through", e === null, e && e.message)
+res = await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+check("2.x: and adds no note", shown(res) === "Edited entity.yml (1 replacement)", shown(res))
+check("2.x: and sends nothing", (await idle2(s)).length === 0)
+process.env.ELASTICORE_KIT_HOOK = hook
+
+check("2.x: the cleanup setup() returns disposes its hooks", typeof v2.cleanup === "function" && (await v2.cleanup(), v2.disposed() === 3), v2.disposed())
+
+// opencode 1.19 calls setup() too, with a context without tool hooks: nothing is registered there.
+threw = null
+let cleanup19 = "unset"
+try {
+  cleanup19 = await mod.default.setup({ options: {}, agent: {}, skill: {} })
+  await mod.default.setup(undefined)
+} catch (err) {
+  threw = err
+}
+check("a 1.19 context without tool hooks: setup() registers nothing and does not throw", threw === null && cleanup19 === undefined, threw ? threw.message : cleanup19)
+
+const noSynthetic = {}
+await mod.default.setup({ location: { directory: project }, tool: { hook: async (name, cb) => ((noSynthetic[name] = cb), { dispose: async () => {} }) }, session: { hook: async (name, cb) => ((noSynthetic[name] = cb), { dispose: async () => {} }) } })
+check("a session without synthetic(): the tool hooks, and no idle hook", typeof noSynthetic["execute.before"] === "function" && !noSynthetic["experimental.idle"], Object.keys(noSynthetic))
+
 // --- installed by install.sh: the plugin finds the hook script next to it ------------
 function findBash() {
   if (process.platform !== "win32") return "bash"
@@ -259,6 +429,14 @@ delete process.env.ELASTICORE_KIT_HOOK
 const fromInstall = await load(join(installed, "plugins", "elasticore.js"))
 e = await before(fromInstall, session(), "edit", { filePath: managed, oldString: "a", newString: "b" })
 check("the installed plugin runs the installed hook script", e && /from the DSL/.test(e.message), e && e.message)
+const installed2 = await setup2(join(installed, "plugins", "elasticore.js"))
+let refusedBy2 = null
+try {
+  await installed2.hooks["execute.before"]({ tool: "edit", sessionID: session(), input: { path: managed, oldString: "a", newString: "b" } })
+} catch (err) {
+  refusedBy2 = err
+}
+check("and so does its 2.x entry", refusedBy2 && /from the DSL/.test(refusedBy2.message), refusedBy2 && refusedBy2.message)
 
 // Without XDG_CONFIG_HOME: the home directory - on Windows the user profile, not an MSYS2 /home.
 const home = join(work, "home")

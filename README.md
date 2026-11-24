@@ -74,8 +74,8 @@ In a session: `/plugin marketplace add xsko/elasticore-agent-kit`, then
 `/plugin install elasticore@elasticore-agent-kit`.
 
 **opencode:** clone this repository and run `opencode/install.sh` (or `opencode/install.ps1`). It
-installs the same skill and hook script, an opencode plugin that runs them, and the agents and
-commands in opencode's own form - see [opencode/README.md](opencode/README.md).
+installs the same skill and hook script, an opencode plugin that runs them (opencode 1.x and 2.x),
+and the agents and commands in opencode's own form - see [opencode/README.md](opencode/README.md).
 
 **Codex CLI:** copy `plugins/elasticore/skills/elasticore` into your project as
 `.agents/skills/elasticore` (or into `~/.agents/skills/elasticore` for every project). Codex gets

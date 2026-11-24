@@ -3,6 +3,35 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 1.1.1
+
+The opencode plugin works on opencode 2.x. opencode 2.x runs no 1.x plugin, and the kit's plugin
+was one: on 2.x it did not load (`failed to load plugin ... Plugin must export a default
+definition`), so the refusal of hand edits to generated files, the refusal of `-Pforce`, the notes
+and the reminder at the end were all off, with nothing to show it but that log line. Run the
+installer again to update.
+
+- **One plugin file for both lines.** `opencode/plugins/elasticore.js` keeps its 1.x plugin (the
+  named export `ElastiCore`, now also the default export's `server`) and adds the 2.x entry, the
+  default export's `id` and `setup`, on the same hook script: a refusal is thrown from the tool's
+  `execute.before`, the note is added to the result in `execute.after`, and the reminder is admitted
+  in `experimental.idle`, just before the session goes idle. It knows the tools of both: 2.x names
+  them `edit`, `write`, `patch` and `shell` and puts the file in `path`, 1.x `edit`, `write`,
+  `apply_patch` and `bash` with `filePath`; and 2.x's line `[... full output saved to <path>]` for a
+  long output it cut. opencode 1.19 calls `setup` as well, with no tool hooks; it then registers
+  nothing.
+- **Installers:** unchanged - both versions load a plugin file from `plugins/` in
+  `~/.config/opencode/` and in a project's `.opencode/`.
+- **The reminder in `opencode run`.** On 2.x the session takes the reminder up and goes on, in
+  `opencode run` too; on 1.x it still reaches only a session that keeps running (TUI, `opencode
+  serve`).
+- Seen live with opencode 1.19.4 and 2.4.1 (opencode/README.md has what): an edit or write of a
+  `//ecd:` file and `./gradlew ... -Pforce` are refused with the kit's reason, an edit of the DSL
+  gets the note; on 2.4.1 the plugin loads without a warning and the reminder came once.
+- **Tests:** `tests/opencode/test-adapter.mjs` drives the 2.x entry with the events 2.4.1 sends
+  (refusals, notes, the reminder once, long outputs, a broken hook, the 1.19 context) beside the 1.x
+  tests: 80 of 80.
+
 ## 1.1.0
 
 For ElastiCORE 3.0.261124, which renames the merge base; it still works with ElastiCORE 3.0.261119
