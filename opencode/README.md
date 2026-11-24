@@ -5,7 +5,10 @@ hook script are the ones the Claude Code plugin uses; a small opencode plugin,
 [`plugins/elasticore.js`](plugins/elasticore.js), runs the hook script on opencode's tool calls and
 hands its answers back to opencode.
 
-Checked with opencode 1.18.31.
+Checked with opencode 1.19.4 and 2.4.1. The one plugin file serves both lines: opencode 2.x loads
+its default export's `setup` (2.x runs no 1.x plugin), opencode 1.x its `server`. opencode's
+[migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) says 1.x reads that entry
+from 1.18.29 on, so on 1.x use 1.18.29 or later (checked here: 1.19.4).
 
 ## Install
 
@@ -33,7 +36,9 @@ To copy by hand:
 | `opencode/commands/*.md` | `commands/` |
 
 The plugin finds the hook script at `../elasticore-kit/elasticore-hook.sh` from where it lies;
-`ELASTICORE_KIT_HOOK` names another one. Start a new opencode session after installing.
+`ELASTICORE_KIT_HOOK` names another one. Start a new opencode session after installing. opencode
+1.x and 2.x both load a plugin file from `plugins/` in these two folders, so the same install serves
+either; nothing goes into `plugin` or `plugins` in `opencode.json`.
 
 The hook script runs in bash. On Windows the plugin uses Git Bash from `Program Files\Git`,
 `Program Files (x86)\Git` or `%LOCALAPPDATA%\Programs\Git`, and otherwise the `bash` on the PATH -
@@ -54,19 +59,28 @@ off; opencode itself goes on working.
 
 ## What works and what does not
 
-Seen in a live `opencode run` with the kit installed:
+Seen in a live `opencode run` with the kit installed, on opencode 1.19.4 and on 2.4.1 alike:
 
-- the skill is found (`opencode debug skill` lists it with where it was found);
 - an `edit` or `write` of a file whose first line is `//ecd:` fails with the reason and where the
   change belongs, also when the model passes a path relative to the project;
 - an edit of the model under `src/main/resources/blueprint/<domain>/` comes back with the note to
   run `./gradlew compileJava` and fix the warnings;
 - `./gradlew ... -Pforce` fails with the reason.
 
+On 1.x (1.18.31) also: the skill is found (`opencode debug skill` lists it with where it was found).
+On 2.4.1 also: the plugin loads with no warning in the log (the 1.x-only plugin of kit 1.1.0 and
+earlier logged `failed to load plugin ... Plugin must export a default definition`, and none of
+the above happened); `opencode debug agents` lists `elasticore-modeler` and `elasticore-reviewer`
+with their deny lines; and the reminder when the session goes idle, below.
+
+The tools differ by version and the plugin knows both: 1.x has `edit`, `write`, `apply_patch` and
+`bash`, the file in `filePath`; 2.x has `edit`, `write`, `patch` and `shell`, the file in `path`.
+
 Covered by [`tests/opencode/test-adapter.mjs`](../tests/opencode/test-adapter.mjs) with the tool
-input opencode sends, but not seen live: the notes after a Gradle build (DSL validation warnings, a
-YAML file that could not be read, hand-edited generated files), the whole output opencode saves when
-it cuts a long one, and `apply_patch`, the edit tool opencode gives some models instead of `edit`.
+input each version sends, but not seen live: the notes after a Gradle build (DSL validation
+warnings, a YAML file that could not be read, hand-edited generated files), the whole output
+opencode saves when it cuts a long one, and `apply_patch` / `patch`, the edit tool opencode gives
+some models instead of `edit`.
 
 On Windows, two things stop a session that have nothing to do with the kit, seen in the same runs:
 
@@ -84,9 +98,12 @@ On Windows, two things stop a session that have nothing to do with the kit, seen
   `"external_directory": "allow"` to `permission` in `opencode.json`; in the TUI you answer the
   question.
 
-Does not work everywhere: the reminder when the session goes idle. The plugin sends it as a new
-message to the session; `opencode run` has finished by then and does not go on. In the TUI or
-`opencode serve` the session should take it up - that has not been checked.
+The reminder when the session goes idle with a DSL change no build has compiled: on 2.x the plugin
+admits it as a message just before the session would go idle, and the session goes on with it -
+in `opencode run` too, seen on 2.4.1, where the agent then ran the build; it came once.
+On 1.x it does not work everywhere: the plugin sends it as a new message to the session, and
+`opencode run` has finished by then and does not go on. In the TUI or `opencode serve` the session
+should take it up - that has not been checked.
 
 As in Claude Code, a change made another way - a script run through bash - is not stopped. To let
 the agent edit generated files or use `-Pforce` anyway, start opencode with
@@ -128,6 +145,9 @@ directory.
   name - a small model once killed every `java.exe` on the machine - and still let it stop the
   server it started by its process id, as `run-and-check.md` shows. The two agents carry the same
   deny lines.
+- opencode 2.x reads this 1.x `permission` object as well (2.4.1 turns it into its own
+  `permissions` rules, `bash` into `shell`, as `opencode debug agents` shows), so the same file
+  serves both.
 
 ## Uninstall
 

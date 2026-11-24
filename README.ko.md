@@ -60,7 +60,7 @@ claude plugin install elasticore@elasticore-agent-kit
 세션 안에서는 `/plugin marketplace add xsko/elasticore-agent-kit` 다음 `/plugin install elasticore@elasticore-agent-kit`.
 
 **opencode:** 이 저장소를 받아 `opencode/install.sh`(또는 `opencode/install.ps1`)를 실행합니다. 같은 skill과 hook 스크립트,
-그것을 돌리는 opencode 플러그인, opencode 형식의 agent·command가 설치됩니다. 자세한 내용은 [opencode/README.md](opencode/README.md).
+그것을 돌리는 opencode 플러그인(opencode 1.x와 2.x), opencode 형식의 agent·command가 설치됩니다. 자세한 내용은 [opencode/README.md](opencode/README.md).
 
 **Codex CLI:** `plugins/elasticore/skills/elasticore`를 프로젝트의 `.agents/skills/elasticore`로(모든 프로젝트에 쓰려면
 `~/.agents/skills/elasticore`로) 복사합니다. Codex는 skill - 빠른 길, 요약, 레시피 - 을 받고, hook은 Claude Code와 opencode의
