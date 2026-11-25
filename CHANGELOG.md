@@ -97,6 +97,18 @@ raise it with every release, or `claude plugin update` finds nothing new.
   The `settings.gradle` and `build.gradle` on the page built the shop recipe against
   `3.0.261127-local` from `~/.m2`, and with `-PelasticoreVersion=3.0.261127` resolved the release
   from Maven Central.
+- **The generated contract tests on the project's real database:
+  `references/contract-tests-on-a-database.md`** (#21). The generated `<Domain>ContractSupport`
+  names H2 in its `@SpringBootTest` and says to change it there, so an agent edited every support
+  class, once per domain. The page has the way that touches none of them: a
+  `ContextCustomizerFactory` registered in `src/test/resources/META-INF/spring.factories` that
+  starts an embedded PostgreSQL from the test classpath (`io.zonky.test:embedded-postgres`), gives
+  each Spring context a database of its own and puts `spring.datasource.*` first among the property
+  sources; why `equals` / `hashCode` matter for the context cache; Flyway's folder per database
+  (`classpath:db/migration/{vendor}`). Run on the shop recipe on MyBatis (hexagonal, project DDL with
+  Flyway, ElastiCORE 3.0.261127): the 67 generated contract tests passed on H2 as generated and on
+  the embedded PostgreSQL 18.7 with the factory - one context, one database; without `equals` /
+  `hashCode`, three contexts and three databases. SKILL.md section 3 points to it.
 
 The opencode plugin works on opencode 2.x. opencode 2.x runs no 1.x plugin, and the kit's plugin
 was one: on 2.x it did not load (`failed to load plugin ... Plugin must export a default

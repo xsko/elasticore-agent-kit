@@ -213,6 +213,7 @@ warnings as missing behaviour, not as noise.
 | The data in MongoDB | `mode: mongo` in `env.yml` (layered Java only) - the model stays the same |
 | A role change or a deleted member that reaches open sessions | `@signin(refresh=request)` |
 | Sign-in already done by Spring Security (form login, JWT, OIDC) | no `@signin`; a `CurrentUser` bean `SpringSecurityCurrentUser.of(...)` - `references/quick-reference.md` "Who may do what" |
+| Run the generated contract tests (`testCode: "contract"`) on the project's real database, PostgreSQL say | one `ContextCustomizerFactory` of the tests - `references/contract-tests-on-a-database.md`; never an edit of each `<Domain>ContractSupport` |
 | Check, as CI does, that the DSL passes and the generated files are up to date | `./gradlew elcoreValidate -Pstrict` (writes nothing) - `references/run-and-check.md` |
 | Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
