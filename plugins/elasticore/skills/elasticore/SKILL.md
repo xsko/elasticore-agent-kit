@@ -56,7 +56,8 @@ Work on the project you were asked to work on and nothing else on the machine. D
 projects or repositories for templates or examples, do not change them, and do not run git commands
 that discard work (`checkout --`, `reset --hard`, `clean`) anywhere you did not create the changes.
 ElastiCORE itself comes from Maven Central as a released version - never build it from its source
-or publish it to the local Maven repository for a project.
+or publish it to the local Maven repository for a project, unless the user asks to try an ElastiCORE
+build that is not released yet: then `references/local-elasticore.md`.
 
 **Starting a new project:** follow `references/new-project.md` - the coordinates, how to find the
 newest version, a template that is built in CI every week, and how to try the result in a browser.

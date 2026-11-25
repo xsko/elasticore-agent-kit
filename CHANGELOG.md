@@ -86,6 +86,17 @@ raise it with every release, or `claude plugin update` finds nothing new.
   and `nestedRows: readers`; the loop - regenerate, then `tsc --noEmit`. Framework-neutral. A
   screen written by it type-checked against the client of the shop recipe; renaming a field in the
   model then failed the check, as it should.
+- **Building a project against a locally published ElastiCORE: `references/local-elasticore.md`**
+  (#22), for a team that tries an ElastiCORE fix before it is released, and only when the user asks
+  (SKILL.md section 0 and `new-project.md` point to it). Publishing under a `-local` version
+  (`3.0.261127-local`, set in ElastiCORE's `gradle.properties`, which its plugin build reads
+  directly); one `elasticoreVersion` in the project's `gradle.properties`, and `mavenLocal()`
+  limited to `io\.elasticore.*` in both `pluginManagement` and the project's repositories,
+  switched on by the `-local` suffix; `--refresh-dependencies`; why an unchanged generated file
+  does not show a fix (delete it to regenerate); and that such a build exists on one machine only.
+  The `settings.gradle` and `build.gradle` on the page built the shop recipe against
+  `3.0.261127-local` from `~/.m2`, and with `-PelasticoreVersion=3.0.261127` resolved the release
+  from Maven Central.
 
 The opencode plugin works on opencode 2.x. opencode 2.x runs no 1.x plugin, and the kit's plugin
 was one: on 2.x it did not load (`failed to load plugin ... Plugin must export a default
