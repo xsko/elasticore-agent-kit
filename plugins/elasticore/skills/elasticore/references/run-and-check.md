@@ -103,6 +103,33 @@ shell's output pipe, and in opencode the tool call does not return until the ser
    invalid input, 404 for an unknown id).
 4. `./gradlew elcoreValidate -Pstrict` (below) passes.
 
+## A DSL warning the DSL cannot fix: `.elasticore/accepted-warnings.txt`
+
+A DSL validation warning means the model is wrong: fix it in the DSL. Rarely a warning comes from
+a defect in ElastiCORE itself, and no change to the model makes it go away - the issue that reports
+it says so, and a later ElastiCORE fixes it. Only for such a warning, and only once the user agrees,
+the project can accept it in `.elasticore/accepted-warnings.txt` - in the folder that holds
+`src/main/resources/blueprint/` (and the merge base `.elasticore/generated-base.zip`) - committed
+and reviewed like code:
+
+```text
+# DSL warnings we accept until ElastiCORE fixes them - each names its issue.
+Coverage.product is left out: ProductDTO is read under   # xsko/ElastiCORE#321
+```
+
+- One warning a line: its text, or a part of it, compared as plain text - not a pattern; `*`, `.`
+  and `[` are just characters. Leave out the colour codes the console shows; the leading
+  `[Domain]` may stay.
+- A line starting with `#` is a comment, and so is what follows a space and a `#` on a line - say
+  there which issue the warning waits for. Blank lines do not count.
+- The agent kit's hooks read it: a build whose every DSL warning is accepted counts as one that
+  generated and compiled the change, and a warning no line accepts still keeps the change open, as
+  before. When the last build compiled the change and warnings are left, the reminder at the end
+  says so (`built; N DSL warning(s) left: ...`): building again does not help - fix them, accept one
+  as above, or tell the user which are left.
+- ElastiCORE does not read the file: the build still prints every warning, and `elcoreValidate
+  -Pstrict` still fails on one. Delete a line when the ElastiCORE that fixes its issue is in use.
+
 ## The DSL and the generated files agree: `elcoreValidate`
 
 ```bash

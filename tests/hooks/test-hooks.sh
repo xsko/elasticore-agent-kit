@@ -646,6 +646,82 @@ run post-edit "$(edit_json Edit "$model")"
 run post-bash "$(bash_json "./gradlew compileJava" "> Task :elcore3\\n...the first 30000 characters" s1 "" ",\"persistedOutputPath\":\"$saved\",\"persistedOutputSize\":100022")"
 check "a long output is read from the file Claude Code saved it to" eval 'quiet && [ ! -f "$marker" ]'
 
+# --- accepted DSL warnings: .elasticore/accepted-warnings.txt ----------------------
+# The rule engine's list as it prints it: the header, a line of dashes, each warning in red, a blank line.
+warnproj="$work/warnproj"
+mkdir -p "$warnproj/src/main/resources/blueprint/rating/model" "$warnproj/.elasticore" "$warnproj/sub/dir"
+printf "plugins { id 'io.elasticore' version '3.0.261127' }\n" > "$warnproj/build.gradle"
+printf 'entity:\n  Coverage:\n    fields:\n      id: long @id\n' > "$warnproj/src/main/resources/blueprint/rating/model/coverage.yml"
+wmodel="$warnproj/src/main/resources/blueprint/rating/model/coverage.yml"
+w1='[Product] Coverage.product is left out: ProductDTO is read under @access(read=user), and a DTO carrying it would show it to whoever reads Coverage. Its identity stays.'
+w2='[Product] Coverage.term is left out: TermDTO is read under @access(read=user).'
+w3='[rating] Coverage.weight: unresolved type kilogramz'
+warnlist() {  # warnlist <warning>...  -> a build's output, JSON-escaped
+    printf '> Task :elcore3\\n\\n[elcore3] DSL validation warnings:\\n--------------------------------------\\n'
+    for w in "$@"; do printf '\\u001b[31m  %s\\u001b[0m\\n' "$w"; done
+    printf '\\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\n> Task :compileJava\\nBUILD SUCCESSFUL in 9s'
+}
+# UTF-8 with a byte order mark and CRLF, as an editor on Windows may save it; comments; a pattern is text.
+printf '\357\273\277# Generator defects the DSL cannot get round\r\nCoverage.product is left out: ProductDTO is read under   # xsko/ElastiCORE#321\r\n\r\n  [Product] Coverage.term is left out\r\nCoverage.*kilogramz\r\n' \
+    > "$warnproj/.elasticore/accepted-warnings.txt"
+
+run post-edit "$(edit_json Edit "$wmodel" aw1)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w1" "$w2")" aw1)"
+check "a build whose every DSL warning is accepted says nothing of them and clears the note" \
+    eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw1" ]'
+run stop "$(stop_json false aw1)"
+check "and Claude may stop" quiet
+
+run post-edit "$(edit_json Edit "$wmodel" aw2)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w1" "$w3" "$w2")" aw2)"
+check "a new warning beside accepted ones is reported, counting the accepted" \
+    eval 'noted && has "$out" "listed DSL validation warnings" && has "$out" "2 of the 3 are accepted" && valid_json'
+check "and keeps the note" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw2" ]
+run stop "$(stop_json false aw2)"
+check "the Stop says built, the warnings left and how to accept one - not that nothing was built" \
+    eval 'noted && has "$out" "built; 1 DSL warning(s) left: $w3" && has "$out" ".elasticore/accepted-warnings.txt" && ! has "$out" "no successful Gradle build" && ! has "$out" "Coverage.term" && valid_json'
+run stop "$(stop_json false aw2)"
+check "once" quiet
+
+# Accepted after the build, before the Stop: the Stop reads the file again.
+warnlate="$work/warnlate"
+mkdir -p "$warnlate/src/main/resources/blueprint/rating/model"
+cp "$warnproj/build.gradle" "$warnlate/build.gradle"
+cp "$wmodel" "$warnlate/src/main/resources/blueprint/rating/model/coverage.yml"
+run post-edit "$(edit_json Edit "$warnlate/src/main/resources/blueprint/rating/model/coverage.yml" aw3)"
+run post-bash "$(bash_json "./gradlew build" "$(warnlist "$w3")" aw3)"
+check "with no accepted-warnings file every warning counts" eval 'noted && ! has "$out" "are accepted" && [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw3" ]'
+mkdir -p "$warnlate/.elasticore"
+printf '[rating] Coverage.weight: unresolved type\n' > "$warnlate/.elasticore/accepted-warnings.txt"
+run stop "$(stop_json false aw3)"
+check "a warning accepted after the build is accepted at the Stop" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw3" ]'
+
+# A failed build after one with warnings left: the Stop asks for a build again.
+run post-edit "$(edit_json Edit "$wmodel" aw4)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w3")" aw4)"
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :compileJava FAILED\\nBUILD FAILED in 3s" aw4)"
+run stop "$(stop_json false aw4)"
+check "a build that failed since: the Stop says no successful build" eval 'noted && has "$out" "no successful Gradle build"'
+# A DSL edit since the build: the warnings it left are about the model before.
+run post-edit "$(edit_json Edit "$wmodel" aw5)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w3")" aw5)"
+run post-edit "$(edit_json Edit "$wmodel" aw5)"
+run stop "$(stop_json false aw5)"
+check "a DSL edit since: the Stop says no successful build" eval 'noted && has "$out" "no successful Gradle build"'
+
+# The header without a list it can read: not accepted.
+run post-edit "$(edit_json Edit "$wmodel" aw6)"
+run post-bash "$(bash_json "./gradlew compileJava" "[elcore3] DSL validation warnings:\\n\\n$built3" aw6)"
+check "a warnings header with no readable list keeps the note" eval 'noted && [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw6" ]'
+
+# Without a model change in the session, the file is found from the folder the command ran in.
+json="$(printf '{"session_id":"aw7","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"./gradlew compileJava"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' "$warnproj/sub/dir" "$(warnlist "$w1" "$w2")")"
+run post-bash "$json"
+check "the accepted-warnings file is found above the folder the command ran in" quiet
+json="$(printf '{"session_id":"aw7","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"./gradlew compileJava"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' "$work/engine" "$(warnlist "$w1" "$w2")")"
+run post-bash "$json"
+check "and not in another project" eval 'noted && has "$out" "listed DSL validation warnings"'
+
 # --- stop: no finishing while a DSL change has not been built -------------------
 run stop "$(stop_json false)"
 check "with no DSL change, Claude may stop" quiet

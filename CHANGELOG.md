@@ -17,6 +17,23 @@ raise it with every release, or `claude plugin update` finds nothing new.
   `ELASTICORE_ALLOW_GENERATED_EDITS=1` lets it through. In opencode the same for `write` (1.x and
   2.x) and for a patch (`apply_patch`, `patch`) that adds the file anew or moves another onto it; a
   patch that changes or deletes it is an edit.
+- **Known DSL warnings no longer hold every turn** (#19). A build counted only without any `[elcore3]
+  DSL validation warnings:`, so a project with warnings the DSL cannot fix - an ElastiCORE defect,
+  such as nine `... is left out` warnings until xsko/ElastiCORE#321 was fixed - was sent back to
+  build after every turn, with "no successful Gradle build", which was not true. Now:
+  - a project can accept such warnings in `.elasticore/accepted-warnings.txt` (beside the merge
+    base, committed and reviewed like code): one line each, a warning's text or a part of it,
+    compared as plain text, not as a pattern; `#` starts a comment, at the start of a line or after
+    a space - for the issue the warning waits for. The hook reads it in the project folders the
+    session changed the model in and in the folder the command ran in and those above it;
+  - a successful build whose every DSL warning is accepted counts; one with a warning no line
+    accepts still keeps the change open, and its note says how many of them are accepted;
+  - when the last build compiled the change and warnings are left, the reminder at the end says
+    `built; N DSL warning(s) left: ...` (the first five), that building again changes nothing, and
+    how to accept one that the DSL cannot fix - with the user's agreement - instead of "no
+    successful Gradle build"; a warning accepted after the build is accepted then too;
+  - `references/run-and-check.md` has the file, SKILL.md section 5 points to it. ElastiCORE does
+    not read it: the build prints every warning, `elcoreValidate -Pstrict` fails on one.
 
 ## 1.1.1
 

@@ -267,7 +267,9 @@ Problems in the model are listed one line each, for example
   `[ERROR] DSL Validation: N warning(s) found` and **fails the build**. It reports hand-edited
   generated files under `[WARN] Externally Modified Files Detected:`.
 
-Either way the model is wrong until they are gone.
+Either way the model is wrong until they are gone. Only a warning that no DSL change can remove - an
+ElastiCORE defect with an issue - is accepted instead, with the user's agreement, in
+`.elasticore/accepted-warnings.txt` (`references/run-and-check.md`).
 
 A YAML file that does not parse is not a warning. The model loader prints `* LOAD ERROR: <path>`
 and the parser's exception (`MarkedYAMLException: while parsing ...`) and leaves that file out. The

@@ -189,6 +189,26 @@ await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b"
 await after(plugin, s, "bash", { command: "./gradlew compileJava" }, built, { output: built, exit: 1 })
 check("a build that failed does not", (await idle(plugin, s)).length === 1)
 
+// A project that accepts a DSL warning it cannot fix (.elasticore/accepted-warnings.txt).
+const accepting = join(work, "accepting")
+const acceptingModel = join(accepting, "src", "main", "resources", "blueprint", "rating", "model", "coverage.yml")
+write(join(accepting, "build.gradle"), "plugins { id 'io.elasticore' version '3.0.261127' }\n")
+write(acceptingModel, "entity:\n  Coverage:\n    fields:\n      id: long @id\n")
+write(join(accepting, ".elasticore", "accepted-warnings.txt"), "# waits for xsko/ElastiCORE#321\nCoverage.product is left out\n")
+const known = "> Task :elcore3\n\n[elcore3] DSL validation warnings:\n--------------------------------------\n\u001b[31m  [Product] Coverage.product is left out: ProductDTO is read under @access(read=user)\u001b[0m\n\n" + built
+s = session()
+await after(plugin, s, "edit", { filePath: acceptingModel, oldString: "a", newString: "b" }, "ok")
+out = await after(plugin, s, "bash", { command: "./gradlew compileJava" }, known, { output: known, exit: 0 })
+check("a build whose only DSL warning is accepted gets no note", out === known, out)
+check("and ends the change", (await idle(plugin, s)).length === 0)
+s = session()
+const unknown = known.replace("\u001b[0m\n\n", "\u001b[0m\n\u001b[31m  [rating] Coverage.weight: unresolved type kilogramz\u001b[0m\n\n")
+await after(plugin, s, "edit", { filePath: acceptingModel, oldString: "a", newString: "b" }, "ok")
+out = await after(plugin, s, "bash", { command: "./gradlew compileJava" }, unknown, { output: unknown, exit: 0 })
+check("a new warning beside it gets the note", out.includes(NOTE + "The 3.0 rule engine (elcore3) listed DSL validation warnings") && out.includes("1 of the 2 are accepted"), out)
+sent = await idle(plugin, s)
+check("and idle says built, with the warning left", sent.length === 1 && /built; 1 DSL warning\(s\) left: \[rating\] Coverage\.weight/.test(sent[0].body.parts[0].text), JSON.stringify(sent))
+
 // opencode cuts a long output and saves the whole of it
 s = session()
 const saved = join(work, "tool-output", "bash-1.txt")

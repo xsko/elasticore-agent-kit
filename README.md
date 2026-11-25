@@ -170,6 +170,7 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | Claude changes the model under `src/main/resources/blueprint/<domain>/` | Told to run `./gradlew compileJava` and fix the warnings before finishing; on a build that runs the 2.x generator (`elasticore { output = 'v2' }`, or a project on ElastiCORE 2.x), also told that it ignores access rules, lifecycles and derived values |
 | A Gradle build - successful or failed - prints DSL validation warnings, a YAML file it could not read, or hand-edited generated files | Told what that means and what to do |
 | Claude is about to finish while no successful build has generated and compiled its DSL change | Sent back once to build. A build in the background, cut short or filtered, or one that only generated, does not count |
+| The last build compiled the change but printed DSL warnings | Sent back once with `built; N DSL warning(s) left: ...` - fix them, or tell you. A warning the DSL cannot fix (an ElastiCORE defect) can be accepted by a line in the project's `.elasticore/accepted-warnings.txt`, reviewed like code; a build whose every warning is accepted counts |
 
 The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
 command too long for Claude Code to pass on is read from the file it saves it to; of a failed one,

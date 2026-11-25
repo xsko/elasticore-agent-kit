@@ -394,7 +394,10 @@ forces() {
 }
 
 # What this session has done, one file per note in the plugin's data directory:
-#   dsl-changed-<session>  the DSL changed and no successful compiling build followed
+#   dsl-changed-<session>  the DSL changed and no successful compiling build followed;
+#                          it lists the project folders the changes were made in
+#   dsl-warned-<session>   the last build that compiled it left these DSL warnings, which
+#                          no line of .elasticore/accepted-warnings.txt accepts
 #   legacy-noted-<session> the 2.x-generator warning was given
 #   merged-noted-<session> what an edit of a merged generated file means was said
 state() {
@@ -402,12 +405,114 @@ state() {
     state_dir="$(printf '%s' "$base" | tr '\\' '/')"
     session="$(json_string session_id | tr -cd 'A-Za-z0-9_-')"
     marker="$state_dir/dsl-changed-${session:-default}"
+    warned="$state_dir/dsl-warned-${session:-default}"
     legacy="$state_dir/legacy-noted-${session:-default}"
     merged_noted="$state_dir/merged-noted-${session:-default}"
 }
 
 note() {
     mkdir -p -- "$state_dir" 2>/dev/null && : > "$1"
+}
+
+# Adds a line to a note, once.
+note_line() {
+    mkdir -p -- "$state_dir" 2>/dev/null || return 0
+    [ -f "$1" ] && grep -q -x -F -e "$2" -- "$1" 2>/dev/null && return 0
+    printf '%s\n' "$2" >> "$1"
+}
+
+# A JSON string value's text as it was printed: the escapes decoded, carriage
+# returns dropped, a colour (\u001b[31m) left out; another \uXXXX becomes "?".
+decoded() {
+    printf '%s\n' "$1" | awk '{
+        n = length($0); t = ""
+        for (i = 1; i <= n; i++) {
+            c = substr($0, i, 1)
+            if (c != "\\" || i == n) { t = t c; continue }
+            i++; d = substr($0, i, 1)
+            if (d == "n") t = t "\n"
+            else if (d == "t") t = t "\t"
+            else if (d == "u") {
+                u = tolower(substr($0, i + 1, 4)); i += 4
+                if (u == "001b" && match(substr($0, i + 1), /^\[[0-9;]*m/)) i += RLENGTH
+                else if (u != "001b") t = t "?"
+            }
+            else if (d != "r") t = t d
+        }
+        print t
+    }'
+}
+
+# Text from a file: the NUL bytes of a UTF-16 file (what Windows PowerShell 5.1
+# writes with > and Out-File) and its byte order mark, carriage returns and
+# colours left out.
+plain_text() {
+    tr -d '\000\r\376\377' | awk '{ gsub(/\033\[[0-9;]*m/, ""); print }'
+}
+
+# The DSL validation warnings in a build's output, one a line, each once: the
+# lines after "[elcore3] DSL validation warnings:" and its dashes, up to the
+# blank line the rule engine ends the list with.
+dsl_warnings() {
+    printf '%s\n' "$1" | awk '
+        index($0, "DSL validation warnings:") { on = 1; next }
+        !on { next }
+        { line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line) }
+        line ~ /^-+$/ { next }
+        line == "" || line ~ /^(> Task |BUILD |=== |FAILURE: |\* What went wrong)/ { on = 0; next }
+        !(line in seen) { seen[line] = 1; print line }'
+}
+
+# The DSL warnings a project has accepted - a generator defect the DSL cannot
+# get round, say: the lines of .elasticore/accepted-warnings.txt, each a part
+# of a warning's text. A line starting with # is a comment, and so is what
+# follows a space and a # (the issue the warning waits for). Read from the
+# project folders this session changed the model in, and from the folder the
+# command ran in and those above it.
+accepted_patterns() {
+    {
+        [ -f "$marker" ] && cat -- "$marker"
+        dir="$(json_path cwd)"
+        i=0
+        while [ -n "$dir" ] && [ "$i" -lt 8 ]; do
+            printf '%s\n' "$dir"
+            parent="$(dirname -- "$dir")"
+            [ "$parent" = "$dir" ] && break
+            dir="$parent"
+            i=$((i + 1))
+        done
+    } | while IFS= read -r d; do
+        [ -n "$d" ] && [ -f "$d/.elasticore/accepted-warnings.txt" ] && printf '%s\n' "$d/.elasticore/accepted-warnings.txt"
+    done | sort -u | while IFS= read -r f; do
+        awk 'NR == 1 { sub(/^\357\273\277/, "") }
+             { sub(/\r$/, ""); sub(/^[ \t]+/, "") }
+             /^#/ { next }
+             { sub(/[ \t]+#.*$/, ""); sub(/[ \t]+$/, "") }
+             $0 != "" { print }' "$f"
+    done
+}
+
+# The warnings (one a line) that no accepted line is a part of.
+unaccepted() {
+    [ -n "$1" ] || return 0
+    patterns="$(accepted_patterns)"
+    if [ -z "$patterns" ]; then
+        printf '%s\n' "$1"
+        return 0
+    fi
+    printf '%s\n' "$1" | PATTERNS="$patterns" awk '
+        BEGIN { n = split(ENVIRON["PATTERNS"], p, "\n") }
+        { for (i = 1; i <= n; i++) if (p[i] != "" && index($0, p[i]) > 0) next; print }'
+}
+
+# The first warnings of a list, for a message: at most five, each cut at 300 characters.
+some_warnings() {
+    printf '%s\n' "$1" | awk 'NR <= 5 { print (length($0) > 300 ? substr($0, 1, 300) "..." : $0) }' \
+        | awk 'NR > 1 { printf " | " } { printf "%s", $0 }'
+}
+
+lines_in() {
+    printf '%s\n' "$1" | grep -c .
 }
 
 GENERATING='elcore[A-Za-z0-9]*|compileJava|compileKotlin|classes|processResources|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
@@ -464,18 +569,21 @@ post-edit)
     model=0
     if is_dsl "$path"; then
         model=1
+        project="${path%%/src/main/resources/blueprint/*}"
     else
         case "$path" in
-            */build.gradle | */build.gradle.kts) grep -q 'elasticore' "$path" 2>/dev/null && model=1 ;;
+            */build.gradle | */build.gradle.kts) grep -q 'elasticore' "$path" 2>/dev/null && model=1 && project="$(dirname -- "$path")" ;;
         esac
     fi
     if [ "$model" = 1 ]; then
         state
         text=""
+        # What the last build left is about the model before this change.
+        rm -f -- "$warned"
         if [ ! -f "$marker" ]; then
-            note "$marker"
             text="You changed the ElastiCORE model. Before you finish, run ./gradlew compileJava - it generates first, unless the build sets generateBeforeCompile = false; then run elcore3 or elcore before it - and fix every DSL validation warning and compile error, in the DSL. Read the generator's SKIP(...) lines too. "
         fi
+        note_line "$marker" "$project"
         if is_dsl "$path" && [ ! -f "$legacy" ] \
             && grep -Eq '@(access|owner|password|login|compute|snapshot)([^A-Za-z]|$)|^[[:space:]]*states:|:[[:space:]]*(money|quantity)([^A-Za-z]|$)' "$path" 2>/dev/null \
             && runs_2x "${path%%/src/main/resources/blueprint/*}"; then
@@ -516,20 +624,27 @@ post-bash)
     # so only what came back counts: the tool's response - or the whole output,
     # which Claude Code saves to a file when it is too long to pass on - or, for
     # a command that failed, its error.
+    # In two parts: what came in the JSON, still escaped, and what was read from a file.
     hook_event="$(json_string hook_event_name)"
+    from_file=""
     if [ "$hook_event" = PostToolUseFailure ]; then
         failed=1
-        output="$(printf '%s' "$input" | sed -n 's/.*"error"//p')"
+        from_json="$(printf '%s' "$input" | sed -n 's/.*"error"//p')"
     else
         hook_event=PostToolUse
         failed=0
-        output="$(printf '%s' "$input" | sed -n 's/.*"tool_response"//p')"
-        saved="$(printf '%s' "$output" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
+        from_json="$(printf '%s' "$input" | sed -n 's/.*"tool_response"//p')"
+        saved="$(printf '%s' "$from_json" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
         if [ -n "$saved" ] && [ -f "$saved" ]; then
-            output="$(cat -- "$saved" 2>/dev/null)"
+            from_json=""
+            from_file="$(plain_text < "$saved" 2>/dev/null)"
         fi
     fi
+    output="$from_json
+$from_file"
     has() { printf '%s' "$output" | grep -q -F -e "$1"; }
+    # The output as it was printed, line by line.
+    printed() { decoded "$from_json"; printf '%s\n' "$from_file"; }
 
     state
     text=""
@@ -540,8 +655,24 @@ post-bash)
         unreadable=1
         text="A blueprint YAML file could not be read: the generator printed its path and the parse error, left the file out of the model and went on - the build can pass without what that file declares. Fix the YAML at the line the error names (indentation, a missing ':' or quote) and build again. "
     fi
+    # The warnings no line of .elasticore/accepted-warnings.txt accepts. A list the
+    # hook cannot read counts as one that is not accepted.
+    left=""
     if has 'DSL validation warnings:'; then
-        text="${text}The 3.0 rule engine (elcore3) listed DSL validation warnings. The model is wrong until they are gone, even when the build passes: fix each line under that header in the DSL and build again. "
+        warnings="$(dsl_warnings "$(printed)")"
+        if [ -z "$warnings" ]; then
+            left="(the list of warnings could not be read)"
+        else
+            left="$(unaccepted "$warnings")"
+        fi
+        if [ -n "$left" ]; then
+            text="${text}The 3.0 rule engine (elcore3) listed DSL validation warnings. The model is wrong until they are gone, even when the build passes: fix each line under that header in the DSL and build again. "
+            if [ -n "$warnings" ]; then
+                accepted=$(( $(lines_in "$warnings") - $(lines_in "$left") ))
+                [ "$accepted" -gt 0 ] && text="${text}(${accepted} of the $(lines_in "$warnings") are accepted in .elasticore/accepted-warnings.txt; the others are not.) "
+            fi
+            text="${text}Only a warning the DSL cannot fix - an ElastiCORE defect, with an issue - is accepted instead, by a line of .elasticore/accepted-warnings.txt, with the user's agreement (the elasticore skill's references/run-and-check.md). "
+        fi
     fi
     # The rule engine stops before writing when the model cannot be generated as written
     # (a relation in an exposed composite key, a @deleted a delete would bypass, ...):
@@ -594,13 +725,21 @@ post-bash)
         text="${text}The generator left files alone that the merge base (.elasticore/generated-base.zip, or .elasticore/cache before ElastiCORE renamed it) has no record of - edited before merging was turned on, or not written by ElastiCORE - so they no longer follow the DSL. If such a file should be generated, it has to be deleted and generated again: ask the user unless you created it. If the base itself is missing, it belongs in git with the generated files - take it from there. "
     fi
     # Cleared only by a build that shows the generator ran, compiled what it
-    # generated and passed - and no other build in the same command failed. A cut
-    # or filtered output that lost a line proves nothing.
+    # generated and passed, with no DSL warning but accepted ones - and no other
+    # build in the same command failed. A cut or filtered output that lost a line
+    # proves nothing. A build that compiled it with warnings left keeps them for
+    # the reminder; a failed one makes them out of date.
     if [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
         && { has '=== elcore3: ' || has 'ModelExtractor execution mode'; } \
-        && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' && ! has 'DSL validation warnings:' \
+        && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' \
         && { runs_gradle "$command" "$COMPILING" || printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:compile(Java|Kotlin)'; }; then
-        rm -f -- "$marker"
+        if [ -z "$left" ]; then
+            rm -f -- "$marker" "$warned"
+        elif mkdir -p -- "$state_dir" 2>/dev/null; then
+            printf '%s\n' "$left" > "$warned"
+        fi
+    elif [ "$failed" = 1 ] || has 'BUILD FAILED'; then
+        rm -f -- "$warned"
     fi
     [ -n "$text" ] && context "$hook_event" "$text"
     exit 0
@@ -610,9 +749,20 @@ stop)
     json_true stop_hook_active && exit 0
     state
     [ -f "$marker" ] || exit 0
+    text=""
+    if [ -f "$warned" ]; then
+        # Built, with warnings left - unless they have been accepted since.
+        left="$(unaccepted "$(cat -- "$warned" 2>/dev/null)")"
+        if [ -n "$left" ]; then
+            n="$(lines_in "$left")"
+            text="The ElastiCORE model changed in this session and the last Gradle build generated and compiled it: built; $n DSL warning(s) left: $(some_warnings "$left"). Building again changes nothing - fix each warning in the DSL, then build. A warning the DSL cannot fix - an ElastiCORE defect, with an issue - can be accepted instead, with the user's agreement: add its text, or a part of it, as a line of .elasticore/accepted-warnings.txt in the project, with a # comment naming the issue it waits for (the elasticore skill's references/run-and-check.md). Otherwise tell the user in your answer which warnings are left and why."
+        fi
+    else
+        text="The ElastiCORE model changed in this session and no successful Gradle build has generated and compiled it since - a build that failed, ran in the background, only generated, or whose output was cut short or filtered does not count. Run ./gradlew compileJava - it generates first - and fix every DSL validation warning and compile error before you finish. If the user asked you not to build, say so in your answer instead."
+    fi
     # Remind once per DSL change; the next DSL edit sets the note again.
-    rm -f -- "$marker"
-    context Stop "The ElastiCORE model changed in this session and no successful Gradle build has generated and compiled it since - a build that failed, ran in the background, only generated, or whose output was cut short or filtered does not count. Run ./gradlew compileJava - it generates first - and fix every DSL validation warning and compile error before you finish. If the user asked you not to build, say so in your answer instead."
+    rm -f -- "$marker" "$warned"
+    [ -n "$text" ] && context Stop "$text"
     exit 0
     ;;
 
