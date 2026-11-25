@@ -735,6 +735,109 @@ cp "$work/skipped.txt" "$rproj/logs/skip.log"; touch -t "$future" "$rproj/logs/s
 run post-bash "$(post_json './gradlew elcore3 > logs/skip.log' "" "$s" "call-$s")"
 check "what the generator wrote to the file is passed on" eval 'noted && has "$out" "edited by hand"'
 
+# --- a project with a generated TypeScript client and screens on it -------------------
+# The client: src/main/ts with files the merge base names. The screens: web/, whose
+# package.json has a check script and whose tsconfig.json includes the client.
+tsproj() {  # tsproj <folder> <base: yes|no> <web: yes|no> [build.gradle text]  -> a project with .ts files
+    mkdir -p "$1/src/main/resources/blueprint/shop/model" "$1/src/main/ts" "$1/.elasticore"
+    script="${4:-}"
+    [ -n "$script" ] || script="plugins { id 'io.elasticore' version '3.0.261127' }\n"
+    printf "$script" > "$1/build.gradle"
+    cp "$model" "$1/src/main/resources/blueprint/shop/model/entity.yml"
+    printf 'export interface ProductDTO { name: string; }\n' > "$1/src/main/ts/ProductDTO.ts"
+    if [ "$2" = yes ]; then
+        printf 'PK\003\004....src/main/ts/ProductDTO.tsexport interfacePK\001\002\n' > "$1/.elasticore/generated-base.zip"
+    fi
+    if [ "$3" = yes ]; then
+        mkdir -p "$1/web/src"
+        printf '{ "name": "web", "scripts": { "check": "tsc --noEmit" } }\n' > "$1/web/package.json"
+        printf '{ "include": ["src", "../src/main/ts"] }\n' > "$1/web/tsconfig.json"
+    fi
+}
+tsgen='> Task :elcore3ts\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\nBUILD SUCCESSFUL in 6s'
+tsboth='> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :elcore3ts\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 12s'
+checked='\n> web@ check\n> tsc --noEmit\n'
+tsp="$work/tsp"
+tsproj "$tsp" yes yes
+tsmodel="$tsp/src/main/resources/blueprint/shop/model/entity.yml"
+
+run post-edit "$(edit_json Edit "$tsmodel" ts1)"
+check "a DSL change in a project with a client says to regenerate it and to type-check the screens" \
+    eval 'noted && has "$out" "compileJava" && has "$out" "elcore3ts" && has "$out" "typescriptClient = true" && has "$out" "(web)" && has "$out" "npm run check" && valid_json'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts1)"
+run post-bash "$(bash_json "./gradlew elcore3ts" "$tsgen" ts1)"
+run post-bash "$(bash_json "cd web && npm run check" "$checked" ts1)"
+run stop "$(stop_json false ts1)"
+check "built, client regenerated, screens checked: nothing said" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts2)"
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts2)"
+check "a build without elcore3ts compiles the change" [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-ts2" ]
+run stop "$(stop_json false ts2)"
+check "the client not regenerated: reminded, naming both steps, not the build" \
+    eval 'noted && has "$out" "The TypeScript client was not regenerated" && has "$out" "elcore3ts" && has "$out" "were not type-checked" && has "$out" "$tsp/web" && ! has "$out" "no successful Gradle build" && valid_json'
+run stop "$(stop_json false ts2)"
+check "once" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts3)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts3)"
+run stop "$(stop_json false ts3)"
+check "the screens not checked: reminded of that alone" \
+    eval 'noted && has "$out" "The screens were not type-checked" && has "$out" "npm run check" && ! has "$out" "was not regenerated" && valid_json'
+run stop "$(stop_json false ts3)"
+check "once too" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts4)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts4)"
+run post-bash "$(failure_json "npx tsc --noEmit -p web" "Exit code 2\\nsrc/orders.ts(12,30): error TS2339: Property 'name' does not exist on type 'ProductDTO'." ts4)"
+check "a type check that failed does not count" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run post-bash "$(bash_json 'npm --prefix web run check; \"exit=$LASTEXITCODE\"' "src/orders.ts(12,30): error TS2339: Property 'name' does not exist.\\nexit=2" ts4 "" "" PowerShell)"
+check "nor one whose errors came back with exit 0" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run post-bash "$(bash_json 'npm --prefix web run check' "$checked" ts4)"
+check "one that passed counts" [ ! -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run stop "$(stop_json false ts4)"
+check "and then nothing is said" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts5)"
+run post-bash "$(bash_json "npx tsc --noEmit -p web" "" ts5)"
+check "a type check before the client was regenerated does not count, and says so" \
+    eval 'noted && has "$out" "before the model change" && [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts5" ]'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3\\n\\u001b[31m[elcore3] $tsp/src/main/ts holds a generated TypeScript client made from an older model - run the elcore3ts task after a model change, or set typescriptClient = true in the elasticore { } block so the build runs it.\\u001b[0m" ts5)"
+check "the build's word that the client is older than the model is passed on" eval 'noted && has "$out" "made from an older model" && has "$out" "elcore3ts"'
+run stop "$(stop_json false ts5)"
+
+# typescriptClient = true: every build regenerates the client, task lines or not.
+tsb="$work/tsb"
+tsproj "$tsb" yes no "plugins { id 'io.elasticore' version '3.0.261127' }\nelasticore {\n    architecture     = 'hexagonal'\n    typescriptClient = true\n}\n"
+run post-edit "$(edit_json Edit "$tsb/src/main/resources/blueprint/shop/model/entity.yml" ts6)"
+check "without screens the note asks for the client alone" eval 'noted && has "$out" "elcore3ts" && ! has "$out" "npm run check"'
+run post-bash "$(bash_json "./gradlew build" "=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\\nBUILD SUCCESSFUL in 30s" ts6)"
+run stop "$(stop_json false ts6)"
+check "a build of a project that sets typescriptClient = true regenerates the client" quiet
+
+# Before the merge: a client whose files start with //ecd:; screens found by their tsconfig.json alone.
+tse="$work/tse"
+mkdir -p "$tse/src/main/resources/blueprint/shop/model" "$tse/src/main/ts" "$tse/apps/admin"
+cp "$engine/build.gradle" "$tse/build.gradle"
+cp "$model" "$tse/src/main/resources/blueprint/shop/model/entity.yml"
+printf '//ecd:-1H20261020123214_V3.0\nexport interface ProductDTO { name: string; }\n' > "$tse/src/main/ts/ProductDTO.ts"
+printf '{ "include": ["src", "../../src/main/ts"] }\n' > "$tse/apps/admin/tsconfig.json"
+run post-edit "$(edit_json Edit "$tse/src/main/resources/blueprint/shop/model/entity.yml" ts7)"
+check "a client with //ecd: lines, and screens two folders down found by their tsconfig.json" eval 'noted && has "$out" "elcore3ts" && has "$out" "(apps/admin)"'
+run stop "$(stop_json false ts7)"
+
+# No client: as before. Hand-written .ts files in src/main/ts are not a client.
+tsn="$work/tsn"
+tsproj "$tsn" no yes
+run post-edit "$(edit_json Edit "$tsn/src/main/resources/blueprint/shop/model/entity.yml" ts8)"
+check "a project without a generated client: the note is as before" eval 'noted && ! has "$out" "TypeScript"'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts8)"
+run stop "$(stop_json false ts8)"
+check "and a build ends the change" quiet
+run post-edit "$(edit_json Edit "$model" ts9)"
+run post-bash "$(bash_json "npm run check" "$checked" ts9)"
+check "a type check in a session without a client is not looked at" quiet
+
 # --- accepted DSL warnings: .elasticore/accepted-warnings.txt ----------------------
 # The rule engine's list as it prints it: the header, a line of dashes, each warning in red, a blank line.
 warnproj="$work/warnproj"

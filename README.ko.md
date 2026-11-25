@@ -145,6 +145,7 @@ kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트
 | `src/main/resources/blueprint/<도메인>/`의 모델을 고쳤을 때 | 끝내기 전에 `./gradlew compileJava`를 돌리고 경고를 고치라고 알려 줍니다. 2.x 생성기를 쓰는 빌드(`elasticore { output = 'v2' }`, 또는 ElastiCORE 2.x 프로젝트)면 접근 규칙·생명주기·계산 값을 무시한다는 것도 알려 줍니다 |
 | Gradle 빌드(성공이든 실패든) 출력에 DSL 검증 경고, 읽지 못한 YAML 파일, 손으로 고친 생성 파일이 나올 때 | 그 뜻과 할 일을 알려 줍니다 |
 | 성공한 빌드로 생성·컴파일되지 않은 DSL 변경을 둔 채 끝내려 할 때 | 한 번 돌려보내 빌드하게 합니다. 백그라운드 빌드, 잘리거나 걸러진 출력, 생성만 한 실행은 빌드로 치지 않습니다 |
+| ElastiCORE가 생성한 TypeScript 클라이언트(`src/main/ts`)와 그것으로 타입 검사하는 화면(`check` 스크립트가 있는 `package.json`, 또는 클라이언트를 포함하는 `tsconfig.json`)이 있는 프로젝트에서 DSL을 바꿨을 때 | 클라이언트를 다시 생성하고(`./gradlew elcore3ts`, 또는 `typescriptClient = true`인 빌드) 그다음 화면을 타입 검사하라고도 알려 주고, 끝낼 때 남은 단계의 이름을 대며 한 번 돌려보냅니다: 클라이언트를 다시 생성하지 않음, 그 뒤로 화면을 타입 검사하지 않음. 실패한 `tsc`나 클라이언트를 다시 생성하기 전에 돌린 `tsc`는 치지 않습니다. 생성된 클라이언트가 없는 프로젝트는 그대로입니다 |
 | 마지막 빌드가 변경을 컴파일했지만 DSL 경고가 남았을 때 | `built; N DSL warning(s) left: ...`로 한 번 돌려보냅니다 - 고치거나 사용자에게 알리라고. DSL로 고칠 수 없는 경고(ElastiCORE 결함)는 프로젝트의 `.elasticore/accepted-warnings.txt`에 한 줄로 받아들일 수 있고(코드처럼 리뷰), 모든 경고가 받아들여진 빌드는 빌드로 칩니다 |
 
 hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니다. 성공한 명령의 출력이 너무 길어 Claude Code가 넘기지 못하면 저장해 둔

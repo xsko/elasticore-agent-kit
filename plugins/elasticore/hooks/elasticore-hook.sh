@@ -8,8 +8,10 @@
 #                                                        and a Write over a merged generated file
 #   pre-bash   PreToolUse          Bash|PowerShell       refuse a Gradle run that forces overwriting
 #   post-edit  PostToolUse         Edit|Write|MultiEdit  after a DSL edit, say what to run before finishing
-#   post-bash  PostToolUse(Failure) Bash|PowerShell      after a Gradle run, pass on what the generator said
+#   post-bash  PostToolUse(Failure) Bash|PowerShell      after a Gradle run, pass on what the generator said;
+#                                                        note a type check of screens on the generated client
 #   stop       Stop                                      do not finish while a DSL change has not been compiled
+#                                                        (nor its TypeScript client regenerated and type-checked)
 #
 # Bash and POSIX tools only: Claude Code runs hooks with sh on macOS and Linux
 # and with Git Bash on Windows. Anything unexpected ends in exit 0 or 1, which
@@ -523,14 +525,14 @@ target_path() {
     printf '%s\n' "$p"
 }
 
-# What a Gradle run in the command writes its output to: "<w|a> TAB <file>" a line,
-# for each statement that runs Gradle.
+# What a Gradle run or a type check in the command writes its output to: "<w|a>
+# TAB <file>" a line, for each statement that runs one.
 output_files() {
     cwd="$(json_path cwd)"
     redirects "$1" | {
         cmds=""; files=""
         flush() {
-            if [ -n "$files" ] && printf '%s' "$cmds" | grep -Eq "$GRADLE"'([[:space:]]|$)'; then
+            if [ -n "$files" ] && printf '%s' "$cmds" | grep -Eq "$GRADLE"'([[:space:]]|$)|'"$TSC|$CHECK"; then
                 printf '%s' "$files" | while IFS="$tab" read -r mode f; do
                     f="$(target_path "$f" "$cwd")" && printf '%s\t%s\n' "$mode" "$f"
                 done
@@ -599,6 +601,11 @@ forces() {
 #                          it lists the project folders the changes were made in
 #   dsl-warned-<session>   the last build that compiled it left these DSL warnings, which
 #                          no line of .elasticore/accepted-warnings.txt accepts
+#   ts-client-<session>    the DSL changed in a project with a generated TypeScript
+#                          client, and nothing has generated the client since; it lists
+#                          those projects
+#   ts-screens-<session>   ... and screens type-checked against it have not been
+#                          checked since the client was; it lists their folders
 #   legacy-noted-<session> the 2.x-generator warning was given
 #   merged-noted-<session> what an edit of a merged generated file means was said
 state() {
@@ -607,6 +614,8 @@ state() {
     session="$(json_string session_id | tr -cd 'A-Za-z0-9_-')"
     marker="$state_dir/dsl-changed-${session:-default}"
     warned="$state_dir/dsl-warned-${session:-default}"
+    ts_client="$state_dir/ts-client-${session:-default}"
+    ts_screens="$state_dir/ts-screens-${session:-default}"
     legacy="$state_dir/legacy-noted-${session:-default}"
     merged_noted="$state_dir/merged-noted-${session:-default}"
 }
@@ -716,6 +725,75 @@ lines_in() {
     printf '%s\n' "$1" | grep -c .
 }
 
+# Whether the project holds a TypeScript client ElastiCORE generated, as
+# ElastiCORE itself tells one: src/main/ts with a file the merge base names, or a
+# .ts file there whose first line is //ecd: (before the merge).
+has_client() {
+    [ -d "$1/src/main/ts" ] || return 1
+    base_file="$(merge_base "$1")" && grep -a -q -F -e 'src/main/ts/' -- "$base_file" 2>/dev/null && return 0
+    for f in "$1"/src/main/ts/*.ts; do
+        [ -f "$f" ] || continue
+        case "$(head -n 1 -- "$f" 2>/dev/null)" in //ecd:*) return 0 ;; esac
+    done
+    return 1
+}
+
+# Whether a folder holds screens type-checked against the client: a tsconfig.json
+# that includes src/main/ts, or a package.json with a check (typecheck,
+# type-check) script.
+screens_in() {
+    { [ -f "$1/tsconfig.json" ] && grep -q -F -e 'src/main/ts' -- "$1/tsconfig.json" 2>/dev/null; } && return 0
+    [ -f "$1/package.json" ] && grep -Eq '"(check|typecheck|type-check)"[[:space:]]*:' -- "$1/package.json" 2>/dev/null
+}
+
+# The folders of such screens in a project, relative to it: the project folder,
+# src/main/ts (a client with a check of its own) and two levels of folders below
+# the project, leaving out build output, node_modules and the like.
+screen_dirs() {
+    screens_in "$1" && printf '.\n'
+    { [ -f "$1/src/main/ts/tsconfig.json" ] || screens_in "$1/src/main/ts"; } && printf 'src/main/ts\n'
+    for d1 in "$1"/*/; do
+        d1="${d1%/}"
+        n1="${d1##*/}"
+        case "$n1" in node_modules | build | out | bin | target | dist | gradle | src | .*) continue ;; esac
+        [ -d "$d1" ] || continue
+        screens_in "$d1" && printf '%s\n' "$n1"
+        for d2 in "$d1"/*/; do
+            d2="${d2%/}"
+            n2="${d2##*/}"
+            case "$n2" in node_modules | build | out | bin | target | dist | gradle | .*) continue ;; esac
+            [ -d "$d2" ] && screens_in "$d2" && printf '%s\n' "$n1/$n2"
+        done
+    done
+}
+
+# Whether the build scripts of a project, or of the folders above it, set
+# typescriptClient = true - then every build runs elcore3ts after elcore3.
+client_with_build() {
+    dir="$1"
+    i=0
+    while [ -n "$dir" ] && [ "$i" -lt 4 ]; do
+        for script in "$dir/build.gradle" "$dir/build.gradle.kts"; do
+            [ -f "$script" ] || continue
+            code_of "$script" | grep -Eq '(^|[^A-Za-z0-9_])typescriptClient[[:space:]]*(=|\.set[[:space:]]*\()[[:space:]]*true' && return 0
+        done
+        parent="$(dirname -- "$dir")"
+        [ "$parent" = "$dir" ] && break
+        dir="$parent"
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# A type check of TypeScript screens: tsc or vue-tsc (through npx, pnpm, yarn or
+# bunx too), or the check, typecheck or type-check script run by npm, pnpm, yarn
+# or bun - not tsc --help, --version, --init or --showConfig.
+TSC='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|time|nice|exec|command|call)[[:space:]]+)*([^[:space:]]*[/\\])?(((npx|bunx)(\.cmd)?|(pnpm|yarn)(\.cmd)?([[:space:]]+(exec|dlx))?)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?(tsc|vue-tsc)(\.cmd)?([[:space:]]|$)'
+CHECK='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|time|nice|exec|command|call)[[:space:]]+)*([^[:space:]]*[/\\])?(npm|pnpm|yarn|bun)(\.cmd)?([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+(run|run-script)[[:space:]]+(check|typecheck|type-check)([[:space:]]|$)'
+type_checks() {
+    commands "$1" | grep -E "$TSC|$CHECK" | grep -Evq '(^|[[:space:]])(--help|-h|--version|-v|--init|--showConfig)([[:space:]]|$)'
+}
+
 GENERATING='elcore[A-Za-z0-9]*|compileJava|compileKotlin|classes|processResources|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 COMPILING='compileJava|compileKotlin|classes|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 
@@ -759,7 +837,7 @@ pre-bash)
     # A build whose output goes to a file: note when it starts, and how long a file it
     # appends to is, so that post-bash reads only what this run wrote.
     case "$input" in
-        *gradle*)
+        *gradle* | *tsc* | *check*)
             state
             started="$(started_note)"
             rm -f -- "$started"
@@ -802,6 +880,23 @@ post-edit)
             text="You changed the ElastiCORE model. Before you finish, run ./gradlew compileJava - it generates first, unless the build sets generateBeforeCompile = false; then run elcore3 or elcore before it - and fix every DSL validation warning and compile error, in the DSL. Read the generator's SKIP(...) lines too. "
         fi
         note_line "$marker" "$project"
+        # A project with a generated TypeScript client: the change also needs a run that
+        # generates it, and the screens on it a type check after that.
+        if has_client "$project"; then
+            note_line "$ts_client" "$project"
+            screens="$(screen_dirs "$project")"
+            if [ -n "$screens" ]; then
+                printf '%s\n' "$screens" | while IFS= read -r d; do note_line "$ts_screens" "$project/$d"; done
+            fi
+            if [ -n "$text" ]; then
+                text="${text}This project has a TypeScript client generated into src/main/ts: regenerate it too - ./gradlew elcore3ts, or any build when the elasticore { } block sets typescriptClient = true - "
+                if [ -n "$screens" ]; then
+                    text="${text}and then type-check the screens that use it ($(printf '%s\n' "$screens" | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')): npm run check there, or npx tsc --noEmit, and fix what the change broke. "
+                else
+                    text="${text}and check the screens that use it. "
+                fi
+            fi
+        fi
         if is_dsl "$path" && [ ! -f "$legacy" ] \
             && grep -Eq '@(access|owner|password|login|compute|snapshot)([^A-Za-z]|$)|^[[:space:]]*states:|:[[:space:]]*(money|quantity)([^A-Za-z]|$)' "$path" 2>/dev/null \
             && runs_2x "${path%%/src/main/resources/blueprint/*}"; then
@@ -828,15 +923,23 @@ post-edit)
     ;;
 
 post-bash)
-    case "$input" in *gradle*) ;; *) exit 0 ;; esac
+    case "$input" in *gradle* | *tsc* | *check*) ;; *) exit 0 ;; esac
     # Returned before the build ran, or stopped partway: proves nothing.
     json_true run_in_background && exit 0
     json_true interrupted && exit 0
     json_true is_interrupt && exit 0
     command="$(json_string command)"
-    # A Gradle command whose own task list generates, and that is not a dry run.
-    runs_gradle "$command" "$GENERATING" || exit 0
-    gradle_commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)' && exit 0
+    # A Gradle command whose own task list generates, and that is not a dry run - or a
+    # type check of screens on a generated client that the session's change waits for.
+    gradle=0
+    if runs_gradle "$command" "$GENERATING" \
+        && ! gradle_commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)'; then
+        gradle=1
+    fi
+    state
+    checked=0
+    [ -f "$ts_screens" ] && type_checks "$command" && checked=1
+    [ "$gradle" = 1 ] || [ "$checked" = 1 ] || exit 0
 
     # What Gradle printed. The command itself may name the same words (a grep),
     # so only what came back counts: the tool's response - or the whole output,
@@ -953,7 +1056,9 @@ $from_file"
     # build in the same command failed. A cut or filtered output that lost a line
     # proves nothing. A build that compiled it with warnings left keeps them for
     # the reminder; a failed one makes them out of date.
-    if [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
+    if [ "$gradle" = 0 ]; then
+        :
+    elif [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
         && { has '=== elcore3: ' || has 'ModelExtractor execution mode'; } \
         && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' \
         && { runs_gradle "$command" "$COMPILING" || printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:compile(Java|Kotlin)'; }; then
@@ -965,6 +1070,34 @@ $from_file"
     elif [ "$failed" = 1 ] || has 'BUILD FAILED'; then
         rm -f -- "$warned"
     fi
+
+    # The TypeScript client. The rule engine says when a build left it older than
+    # the model: "... holds a generated TypeScript client made from an older model".
+    if [ "$gradle" = 1 ] && has 'holds a generated TypeScript client made from an older model'; then
+        text="${text}The build says the TypeScript client in src/main/ts was made from an older model: run ./gradlew elcore3ts, or set typescriptClient = true in the elasticore { } block so that every build runs it, then type-check the screens that use it. "
+    fi
+    # Generated again by a run that passed and read the whole model: elcore3ts in its
+    # output or its task list, or a build of a project that sets typescriptClient = true.
+    if [ "$gradle" = 1 ] && [ -f "$ts_client" ] && [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
+        && has '=== elcore3: ' && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED'; then
+        refreshed=0
+        if printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:elcore3ts([[:space:]]|\\|$)' || runs_gradle "$command" 'elcore3ts'; then
+            refreshed=1
+        else
+            while IFS= read -r root; do
+                [ -n "$root" ] && client_with_build "$root" && refreshed=1 && break
+            done < "$ts_client"
+        fi
+        [ "$refreshed" = 1 ] && rm -f -- "$ts_client"
+    fi
+    # The screens type-checked: a check that passed, after the client was generated again.
+    if [ "$checked" = 1 ]; then
+        if [ -f "$ts_client" ]; then
+            text="${text}This type check ran against the TypeScript client as it was before the model change - it has not been generated again since. Run ./gradlew elcore3ts (or a build, when typescriptClient = true) first, then check the screens again. "
+        elif [ "$failed" = 0 ] && ! printf '%s' "$output" | grep -Eq 'error TS[0-9]|Found [0-9]+ errors?|npm ERR!|npm error|ELIFECYCLE|Command failed'; then
+            rm -f -- "$ts_screens"
+        fi
+    fi
     [ -n "$text" ] && context "$hook_event" "$text"
     exit 0
     ;;
@@ -972,9 +1105,11 @@ $from_file"
 stop)
     json_true stop_hook_active && exit 0
     state
-    [ -f "$marker" ] || exit 0
+    [ -f "$marker" ] || [ -f "$ts_client" ] || [ -f "$ts_screens" ] || exit 0
     text=""
-    if [ -f "$warned" ]; then
+    if [ ! -f "$marker" ]; then
+        :
+    elif [ -f "$warned" ]; then
         # Built, with warnings left - unless they have been accepted since.
         left="$(unaccepted "$(cat -- "$warned" 2>/dev/null)")"
         if [ -n "$left" ]; then
@@ -984,8 +1119,19 @@ stop)
     else
         text="The ElastiCORE model changed in this session and no successful Gradle build has generated and compiled it since - a build that failed, ran in the background, only generated, or whose output was cut short or filtered does not count. Run ./gradlew compileJava - it generates first - and fix every DSL validation warning and compile error before you finish. If the user asked you not to build, say so in your answer instead."
     fi
-    # Remind once per DSL change; the next DSL edit sets the note again.
-    rm -f -- "$marker" "$warned"
+    # A project with a TypeScript client: each step the change still needs, by name.
+    screens=""
+    [ -f "$ts_screens" ] && screens="$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$ts_screens")"
+    if [ -f "$ts_client" ]; then
+        [ -n "$text" ] && text="$text "
+        text="${text}The TypeScript client was not regenerated since the ElastiCORE model changed: src/main/ts still has the client of the model before. Run ./gradlew elcore3ts - or a build, when the elasticore { } block sets typescriptClient = true."
+        [ -n "$screens" ] && text="$text Then the screens were not type-checked against it either: run npm run check (or npx tsc --noEmit) in $screens and fix what the change broke."
+    elif [ -n "$screens" ]; then
+        [ -n "$text" ] && text="$text "
+        text="${text}The screens were not type-checked since the TypeScript client was regenerated from the changed model: run npm run check (or npx tsc --noEmit) in $screens and fix what the change broke before you finish."
+    fi
+    # Remind once per DSL change; the next DSL edit sets the notes again.
+    rm -f -- "$marker" "$warned" "$ts_client" "$ts_screens"
     [ -n "$text" ] && context Stop "$text"
     exit 0
     ;;

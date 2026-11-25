@@ -49,6 +49,27 @@ raise it with every release, or `claude plugin update` finds nothing new.
     4 MB is not read; a file another statement of the line writes does not count;
   - the output Claude Code saves to a file (`persistedOutputPath`) is read as before. The opencode
     plugin passes the call's id and the project folder, so the same works there.
+- **A DSL change in a project with a TypeScript client is done when the client is regenerated and
+  the screens type-check** (#26). A plain `compileJava` leaves the client in `src/main/ts` as it
+  was, and no Gradle build of the server type-checks the screens, so an agent could rename a field,
+  see the Java build pass and stop, with every screen that used the old name broken. In the same
+  once-per-change way as the build check, with no new refusal:
+  - a project has a generated client when `src/main/ts` holds a file the merge base names (or, before
+    the merge, a `.ts` file whose first line is `//ecd:`) - what ElastiCORE itself takes for one; it
+    has screens on it when the project folder, `src/main/ts` or a folder up to two levels below the
+    project holds a `tsconfig.json` that includes `src/main/ts`, or a `package.json` with a `check`
+    (`typecheck`, `type-check`) script - the pet store's `web/`;
+  - a DSL change there also needs a run that regenerated the client - `elcore3ts` in the task list
+    or as a task in the output, or a successful build of a project that sets `typescriptClient =
+    true` - and then a type check that passed: `tsc` or `vue-tsc` (through `npx`, `pnpm`, `yarn`)
+    or the `check` script run by `npm`, `pnpm`, `yarn` or `bun`;
+  - the note after the DSL edit says so, naming the screen folders; the reminder at the end names
+    what is missing - "The TypeScript client was not regenerated", "The screens were not
+    type-checked" - once. A type check that failed (`error TS...`, also with exit 0 from
+    PowerShell) does not count, nor one run before the client was regenerated, which the hook
+    says; the build's own `... holds a generated TypeScript client made from an older model` is
+    passed on;
+  - a project without a generated client is unchanged.
 
 ## 1.1.1
 
