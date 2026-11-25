@@ -5,6 +5,10 @@ raise it with every release, or `claude plugin update` finds nothing new.
 
 ## 1.2.0
 
+For ElastiCORE 3.0.261119 and later, like 1.1.x; what it adds about `nestedRows: readers` and the
+sort refusal is for the releases that have them (3.0.261127, 3.0.261124). The hooks get three
+fixes and one new check; the skill gets three pages.
+
 - **A Write over a merged generated file is refused before it runs** (#23). In a project on the
   merge (`.elasticore/generated-base.zip`, or `.elasticore/cache`), a generated file has no `//ecd:`
   line, and the hook let every tool through on it; an agent that wrote a controller of its own under
