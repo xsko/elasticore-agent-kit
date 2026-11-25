@@ -41,6 +41,9 @@ The `references/` pages named below are in this skill's folder, next to this fil
 5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
    are generated. Extra rules go in `<Entity>Service.beforeSave`; an operation the CRUD does not
    have is a method there plus one small controller of your own, as in `recipe-library.md`.
+   A screen - a web page, a form, a list - is built on the TypeScript client ElastiCORE generates:
+   `references/screens.md`, before you write one. Never hand-written `fetch` calls, form rules or
+   labels.
 6. Write code and models in English: comments, Javadoc, names, log and exception messages in the
    code you write, and the `-- label`s of the DSL - the generated code is in English too. Use another
    language only when the user asks for one, or when the project's own code and models are already
@@ -212,6 +215,7 @@ warnings as missing behaviour, not as noise.
 | Check, as CI does, that the DSL passes and the generated files are up to date | `./gradlew elcoreValidate -Pstrict` (writes nothing) - `references/run-and-check.md` |
 | Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
+| A screen on the API (a page, a form, a list, buttons) | the generated TypeScript client - `references/screens.md`; an endpoint it lacks comes from the DSL, or from a controller of your own called through `request` of `apiSupport` |
 | A call to another system, or hand-written SQL | a port - `references/quick-reference.md` "ports", then `elasticore-dsl-port-guide.md` |
 | Anything the DSL cannot say | a file you own (section 2) |
 
@@ -226,7 +230,9 @@ A worked example that generates and compiles: `references/example-order.md`.
    The plugin generates before every compile, unless the `elasticore { }` block sets
    `generateBeforeCompile = false` - then run the generation task first. To regenerate alone:
    `./gradlew elcore3` on the rule engine, `./gradlew elcore` on the 2.x path. The TypeScript
-   client: `./gradlew elcore3ts`.
+   client: `./gradlew elcore3ts` (every build, with `typescriptClient = true`) - in a project with
+   screens on it, type-check them after that too (`npm run check`, `npx tsc --noEmit`):
+   `references/screens.md`.
 4. Read the whole output (section 5) - do not cut it with `head` or filter it with `grep` - and fix
    every DSL validation warning before anything else. To keep a long build out of the conversation,
    send it to a file and read the file: `mkdir -p build && ./gradlew compileJava > build/build.log 2>&1`
