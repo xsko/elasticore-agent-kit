@@ -7,7 +7,7 @@
 // The fixtures go to a fresh directory under the system temp directory, left for inspection.
 
 import { spawnSync } from "node:child_process"
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -49,6 +49,13 @@ write(own, "package com.acme.shop;\n\npublic class ShopApplication {}\n")
 const model = join(blueprint, "shop", "model", "entity.yml")
 write(model, "entity:\n  Product:\n    fields:\n      name: string(100)!\n")
 const built = "> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 9s\n"
+// A project on the merge: generated files have no //ecd: line and are named in the merge base,
+// a stored zip whose entry names can be read as they are.
+const merging = join(work, "merging")
+const mergedFile = join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunController.java")
+write(join(merging, "build.gradle"), "plugins { id 'io.elasticore' version '3.0.261127' }\n")
+write(mergedFile, "package com.acme.rating;\n\npublic class GoldenRunController {}\n")
+write(join(merging, ".elasticore", "generated-base.zip"), "PK\u0003\u0004....src/main/java/com/acme/rating/GoldenRunController.javapackage com.acme.rating;PK\u0001\u0002\n")
 
 // --- helpers -----------------------------------------------------------------------
 const prompts = []
@@ -122,6 +129,24 @@ check("an apply_patch of a //ecd: file throws", e && /ProductDTO\.java from the 
 e = await before(plugin, s, "apply_patch", { patchText: patch("Update", "src/main/java/com/acme/shop/ShopApplication.java") })
 check("an apply_patch of a hand-written file goes through", e === null, e && e.message)
 
+// A merged generated file: an edit is kept, a whole new content replaces it.
+e = await before(plugin, s, "write", { filePath: mergedFile, content: "public class GoldenRunController {}\n" })
+check("a write over a merged generated file throws", e && /GoldenRunController\.java holds a file ElastiCORE generates/.test(e.message) && /Edit it/.test(e.message) && /choose another name/.test(e.message), e && e.message)
+e = await before(plugin, s, "edit", { filePath: mergedFile, oldString: "{}", newString: "{ }" })
+check("an edit of a merged generated file goes through", e === null, e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Add", mergedFile) })
+check("an apply_patch that adds a merged generated file anew throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Update", mergedFile) })
+check("an apply_patch that changes a merged generated file goes through", e === null, e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: "*** Begin Patch\n*** Update File: " + join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunCommand.java") + "\n*** Move to: " + mergedFile + "\n*** End Patch" })
+check("an apply_patch that moves another file onto a merged generated file throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Add", join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunCommandController.java")) })
+check("an apply_patch that adds a class under another name goes through", e === null, e && e.message)
+process.env.ELASTICORE_ALLOW_GENERATED_EDITS = "1"
+e = await before(plugin, s, "write", { filePath: mergedFile, content: "x" })
+check("ELASTICORE_ALLOW_GENERATED_EDITS=1 lets the write through", e === null, e && e.message)
+delete process.env.ELASTICORE_ALLOW_GENERATED_EDITS
+
 // --- notes -------------------------------------------------------------------------
 s = session()
 let out = await after(plugin, s, "edit", { filePath: model, oldString: "string(100)!", newString: "string(200)!" }, "Edit applied successfully.")
@@ -164,6 +189,55 @@ await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b"
 await after(plugin, s, "bash", { command: "./gradlew compileJava" }, built, { output: built, exit: 1 })
 check("a build that failed does not", (await idle(plugin, s)).length === 1)
 
+// A project that accepts a DSL warning it cannot fix (.elasticore/accepted-warnings.txt).
+const accepting = join(work, "accepting")
+const acceptingModel = join(accepting, "src", "main", "resources", "blueprint", "rating", "model", "coverage.yml")
+write(join(accepting, "build.gradle"), "plugins { id 'io.elasticore' version '3.0.261127' }\n")
+write(acceptingModel, "entity:\n  Coverage:\n    fields:\n      id: long @id\n")
+write(join(accepting, ".elasticore", "accepted-warnings.txt"), "# waits for xsko/ElastiCORE#321\nCoverage.product is left out\n")
+const known = "> Task :elcore3\n\n[elcore3] DSL validation warnings:\n--------------------------------------\n\u001b[31m  [Product] Coverage.product is left out: ProductDTO is read under @access(read=user)\u001b[0m\n\n" + built
+s = session()
+await after(plugin, s, "edit", { filePath: acceptingModel, oldString: "a", newString: "b" }, "ok")
+out = await after(plugin, s, "bash", { command: "./gradlew compileJava" }, known, { output: known, exit: 0 })
+check("a build whose only DSL warning is accepted gets no note", out === known, out)
+check("and ends the change", (await idle(plugin, s)).length === 0)
+s = session()
+const unknown = known.replace("\u001b[0m\n\n", "\u001b[0m\n\u001b[31m  [rating] Coverage.weight: unresolved type kilogramz\u001b[0m\n\n")
+await after(plugin, s, "edit", { filePath: acceptingModel, oldString: "a", newString: "b" }, "ok")
+out = await after(plugin, s, "bash", { command: "./gradlew compileJava" }, unknown, { output: unknown, exit: 0 })
+check("a new warning beside it gets the note", out.includes(NOTE + "The 3.0 rule engine (elcore3) listed DSL validation warnings") && out.includes("1 of the 2 are accepted"), out)
+sent = await idle(plugin, s)
+check("and idle says built, with the warning left", sent.length === 1 && /built; 1 DSL warning\(s\) left: \[rating\] Coverage\.weight/.test(sent[0].body.parts[0].text), JSON.stringify(sent))
+
+// A project with a generated TypeScript client (src/main/ts, named in the merge base) and screens in web/.
+const clientProject = join(work, "client")
+const clientModel = join(clientProject, "src", "main", "resources", "blueprint", "shop", "model", "entity.yml")
+write(join(clientProject, "build.gradle"), "plugins { id 'io.elasticore' version '3.0.261127' }\n")
+write(clientModel, "entity:\n  Product:\n    fields:\n      name: string(100)!\n")
+write(join(clientProject, "src", "main", "ts", "ProductDTO.ts"), "export interface ProductDTO { name: string; }\n")
+write(join(clientProject, ".elasticore", "generated-base.zip"), "PK\u0003\u0004....src/main/ts/ProductDTO.tsexport interfacePK\u0001\u0002\n")
+write(join(clientProject, "web", "package.json"), '{ "name": "web", "scripts": { "check": "tsc --noEmit" } }\n')
+write(join(clientProject, "web", "tsconfig.json"), '{ "include": ["src", "../src/main/ts"] }\n')
+const tsBoth = "> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :elcore3ts\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 12s\n"
+s = session()
+out = await after(plugin, s, "edit", { filePath: clientModel, oldString: "a", newString: "b" }, "ok")
+check("a DSL edit in a project with a client asks for the client and the screens too", out.includes("elcore3ts") && out.includes("npm run check"), out)
+await after(plugin, s, "bash", { command: "./gradlew compileJava" }, built, { output: built, exit: 0 })
+sent = await idle(plugin, s)
+check("idle with the client not regenerated names it", sent.length === 1 && /The TypeScript client was not regenerated/.test(sent[0].body.parts[0].text), JSON.stringify(sent))
+s = session()
+await after(plugin, s, "edit", { filePath: clientModel, oldString: "a", newString: "b" }, "ok")
+await after(plugin, s, "bash", { command: "./gradlew elcore3ts compileJava" }, tsBoth, { output: tsBoth, exit: 0 })
+await after(plugin, s, "bash", { command: "npx tsc --noEmit -p web" }, "web/src/a.ts(1,1): error TS2305: Module has no exported member 'X'.", { output: "", exit: 2 })
+sent = await idle(plugin, s)
+check("idle after a type check that failed names the screens", sent.length === 1 && /The screens were not type-checked/.test(sent[0].body.parts[0].text), JSON.stringify(sent))
+s = session()
+await after(plugin, s, "edit", { filePath: clientModel, oldString: "a", newString: "b" }, "ok")
+await after(plugin, s, "bash", { command: "./gradlew elcore3ts compileJava" }, tsBoth, { output: tsBoth, exit: 0 })
+// The plugin's folder is another project: the check names the screens' folder.
+await after(plugin, s, "bash", { command: "cd " + join(clientProject, "web") + " && npm run check" }, "> check\n> tsc --noEmit\n", { output: "", exit: 0 })
+check("built, regenerated and checked: idle sends nothing", (await idle(plugin, s)).length === 0)
+
 // opencode cuts a long output and saves the whole of it
 s = session()
 const saved = join(work, "tool-output", "bash-1.txt")
@@ -178,6 +252,29 @@ const lost = cut.replace(saved, join(work, "tool-output", "no-such-file.txt"))
 await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b" }, "ok")
 await after(plugin, s, "bash", { command: "./gradlew compileJava" }, lost, { output: lost, exit: 0 })
 check("a cut output without its file proves nothing", (await idle(plugin, s)).length === 1)
+
+// A build whose output goes to a file: the plugin passes the call's id and the project
+// directory, and the hook script reads the file the command names, as new as the call.
+const logs = join(project, "build", "logs")
+mkdirSync(logs, { recursive: true })
+const future = new Date(Date.now() + 3600 * 1000)
+async function before1(sessionID, command, call) {
+  await plugin["tool.execute.before"]({ tool: "bash", sessionID, callID: call }, { args: { command } })
+}
+s = session()
+await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b" }, "ok")
+await before1(s, "./gradlew compileJava > build/logs/build.log 2>&1", "call-" + s)
+write(join(logs, "build.log"), built)
+utimesSync(join(logs, "build.log"), future, future)
+await plugin["tool.execute.after"]({ tool: "bash", sessionID: s, callID: "call-" + s, args: { command: "./gradlew compileJava > build/logs/build.log 2>&1" } }, { title: "", output: "", metadata: { output: "", exit: 0 } })
+check("a build whose output went to a file (> f) is read from the file", (await idle(plugin, s)).length === 0)
+s = session()
+await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b" }, "ok")
+await before1(s, "./gradlew elcore3 | tee build/logs/gen.log", "call-" + s)
+write(join(logs, "gen.log"), "> Task :elcore3\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n")
+utimesSync(join(logs, "gen.log"), future, future)
+await plugin["tool.execute.after"]({ tool: "bash", sessionID: s, callID: "call-" + s, args: { command: "./gradlew elcore3 | tee build/logs/gen.log" } }, { title: "", output: "", metadata: { output: "", exit: 0 } })
+check("and one that only generated, there, does not end the change", (await idle(plugin, s)).length === 1)
 
 s = session()
 out = await after(plugin, s, "apply_patch", { patchText: "*** Begin Patch\n*** Add File: src/main/resources/blueprint/shop/model/order.yml\n+entity: {}\n*** End Patch" }, "Success.")
@@ -284,6 +381,14 @@ e = await before2(s, "edit", { path: own, oldString: "{}", newString: "{ }" })
 check("2.x: an edit of a hand-written file goes through", e === null, e && e.message)
 e = await before2(s, "read", { path: managed })
 check("2.x: a read goes through", e === null, e && e.message)
+e = await before2(s, "write", { path: mergedFile, content: "public class GoldenRunController {}\n" })
+check("2.x: a write over a merged generated file throws", e && /holds a file ElastiCORE generates/.test(e.message), e && e.message)
+e = await before2(s, "edit", { path: mergedFile, oldString: "{}", newString: "{ }" })
+check("2.x: an edit of a merged generated file goes through", e === null, e && e.message)
+e = await before2(s, "patch", { patchText: patch("Add", mergedFile) })
+check("2.x: a patch that adds a merged generated file anew throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before2(s, "patch", { patchText: patch("Update", mergedFile) })
+check("2.x: a patch that changes a merged generated file goes through", e === null, e && e.message)
 
 s = session()
 let res = await after2(s, "edit", { path: "src/main/resources/blueprint/shop/model/entity.yml", oldString: "string(100)!", newString: "string(200)!" }, edited("entity.yml"))
@@ -333,6 +438,25 @@ s = session()
 await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
 await after2(s, "shell", { command: "./gradlew compileJava" }, { content: [{ type: "text", text: tail.replace(saved, join(work, "tool-output", "no-such-file.txt")) }], metadata: { exit: 0, truncated: true } })
 check("2.x: a cut output without its file proves nothing", (await idle2(s)).length === 1)
+
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await v2.hooks["execute.before"]({ tool: "shell", sessionID: s, id: "call-" + s, input: { command: "./gradlew compileJava *> build/logs/ps.log" } })
+write(join(logs, "ps.log"), built)
+utimesSync(join(logs, "ps.log"), future, future)
+await v2.hooks["execute.after"]({ tool: "shell", sessionID: s, id: "call-" + s, input: { command: "./gradlew compileJava *> build/logs/ps.log" }, status: "completed", result: shelled("", 0) })
+check("2.x: a build whose output went to a file (*> f) is read from the file", (await idle2(s)).length === 0)
+
+s = session()
+await after2(s, "edit", { path: clientModel, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew compileJava" }, shelled(built, 0))
+sent = await idle2(s)
+check("2.x: idle with the client not regenerated names it", sent.length === 1 && /The TypeScript client was not regenerated/.test(sent[0].text), JSON.stringify(sent))
+s = session()
+await after2(s, "edit", { path: clientModel, oldString: "a", newString: "b" }, edited("entity.yml"))
+await after2(s, "shell", { command: "./gradlew elcore3ts compileJava" }, shelled(tsBoth, 0))
+await after2(s, "shell", { command: "npm --prefix " + join(clientProject, "web") + " run check" }, shelled("> check\n> tsc --noEmit\n", 0))
+check("2.x: built, regenerated and checked: idle sends nothing", (await idle2(s)).length === 0)
 
 s = session()
 res = await after2(s, "shell", { command: "./gradlew compileJava" }, { output: { exitCode: 0, output: warned }, metadata: { exit: 0 } })

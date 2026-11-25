@@ -6,7 +6,8 @@ ElastiCORE is released to Maven Central: the Gradle plugin `io.elasticore`, the 
 uses a released version from there and nothing else.
 
 - **Do not** build ElastiCORE from its source or run `publishToMavenLocal` for it - that is for
-  working on ElastiCORE itself and gives the project a build no user has.
+  working on ElastiCORE itself and gives the project a build no user has. When the user asks to try
+  an ElastiCORE fix before its release, `local-elasticore.md` says how, and what it costs.
 - **Do not** look through other projects or repositories on the machine for a template, and do not
   change them. A local `~/.m2` without ElastiCORE 3 only means it was never downloaded.
 - **The version:** the last `3.` entry in the `<versions>` list of

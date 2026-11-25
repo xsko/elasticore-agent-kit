@@ -256,6 +256,24 @@ run pre-edit "$(edit_json Edit "$msrc/OrderDTO.java")"
 check "a file still carrying //ecd: is refused in a merging project too" eval 'denied && has "$out" "build once first"'
 run pre-edit "$(edit_json Edit "$msrc/ShopApplication.java")"
 check "a hand-written file of a merging project may be edited" quiet
+# A Write replaces the whole file: over a merged generated file it is refused before it runs.
+run pre-edit "$(edit_json Write "$msrc/ProductDTO.java")"
+check "a Write over a merged generated file is refused, naming the file and the base" \
+    eval 'denied && has "$out" "$msrc/ProductDTO.java" && has "$out" ".elasticore/cache" && valid_json'
+check "and saying what to do instead: Edit it, or another name for a class of your own" \
+    eval 'has "$out" "Edit it" && has "$out" "choose another name" && has "$out" "ELASTICORE_ALLOW_GENERATED_EDITS=1"'
+run pre-edit "$(edit_json MultiEdit "$msrc/ProductDTO.java")"
+check "a MultiEdit of a merged generated file may go ahead" quiet
+run pre-edit "$(edit_json Write "$mres/i18n/shop-messages.properties")"
+check "so is a Write over the merged messages file refused" denied
+run pre-edit "$(edit_json Write "$msrc/ProductService.java")"
+check "a Write over a developer's file in the base may go ahead" quiet
+run pre-edit "$(edit_json Write "$msrc/ShopApplication.java")"
+check "a Write over a hand-written file of a merging project may go ahead" quiet
+run pre-edit "$(edit_json Write "$msrc/GoldenRunCommandController.java")"
+check "a Write of a new file under another name may go ahead" quiet
+out="$(printf '%s' "$(edit_json Write "$msrc/ProductDTO.java")" | ELASTICORE_ALLOW_GENERATED_EDITS=1 "$shell" "$hook" pre-edit 2>"$work/stderr")"; rc=$?; err="$(cat "$work/stderr")"
+check "ELASTICORE_ALLOW_GENERATED_EDITS=1 lets a Write over a merged file through" quiet
 
 run post-edit "$(edit_json Edit "$msrc/ProductDTO.java" m1)"
 check "an edit of a merged file is explained, naming the base this project has" \
@@ -293,6 +311,9 @@ run pre-edit "$(edit_json Edit "$rres/blueprint/schema.yml")"
 check "with generated-base.zip, blueprint/schema.yml is still refused" denied
 run pre-edit "$(edit_json Edit "$rsrc/OrderDTO.java")"
 check "with generated-base.zip, a file still carrying //ecd: is refused" eval 'denied && has "$out" "build once first"'
+run pre-edit "$(edit_json Write "$rsrc/ProductDTO.java")"
+check "with generated-base.zip, a Write over a merged file is refused, naming the new file" \
+    eval 'denied && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache"'
 run post-edit "$(edit_json Edit "$rsrc/ProductDTO.java" r1)"
 check "with generated-base.zip, an edit of a merged file is explained, naming the new file" \
     eval 'noted && has "$out" "merged" && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache" && valid_json'
@@ -624,6 +645,309 @@ if command -v cygpath >/dev/null 2>&1; then saved="$(cygpath -w "$saved" | sed '
 run post-edit "$(edit_json Edit "$model")"
 run post-bash "$(bash_json "./gradlew compileJava" "> Task :elcore3\\n...the first 30000 characters" s1 "" ",\"persistedOutputPath\":\"$saved\",\"persistedOutputSize\":100022")"
 check "a long output is read from the file Claude Code saved it to" eval 'quiet && [ ! -f "$marker" ]'
+
+# --- a build whose output goes to a file ----------------------------------------------
+# pre-bash notes when the command starts; post-bash reads what the command wrote to the
+# file it names, if the file is newer than that. The times are set with touch -t, so the
+# test does not depend on how finely a file system keeps them.
+rproj="$work/rproj"
+mkdir -p "$rproj/src/main/resources/blueprint/shop/model" "$rproj/logs"
+cp "$engine/build.gradle" "$rproj/build.gradle"
+cp "$model" "$rproj/src/main/resources/blueprint/shop/model/entity.yml"
+rmodel="$rproj/src/main/resources/blueprint/shop/model/entity.yml"
+printf '> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 9s\n' > "$work/built.txt"
+printf '> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n' > "$work/generated.txt"
+export KIT_LOGS="$rproj/logs"
+pre_json() {  # pre_json <command> <session> <call> [tool]
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"%s","tool_use_id":"%s","tool_input":{"command":"%s"}}' \
+        "$2" "$rproj" "${4:-Bash}" "$3" "$1"
+}
+post_json() {  # post_json <command> <stdout> <session> <call> [tool]
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"%s","tool_use_id":"%s","tool_input":{"command":"%s"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' \
+        "$3" "$rproj" "${5:-Bash}" "$4" "$1" "$2"
+}
+redirected() {  # redirected <label> <command> <file> <content file> <touch time> <want: clears|stays> [tool] [stdout]
+    s="rd$((n = n + 1))"
+    run post-edit "$(edit_json Edit "$rmodel" "$s")"
+    run pre-bash "$(pre_json "$2" "$s" "call-$s" "${7:-Bash}")"
+    pre_out="$out"
+    cp "$4" "$3"
+    touch -t "$5" "$3"
+    run post-bash "$(post_json "$2" "${8:-}" "$s" "call-$s" "${7:-Bash}")"
+    if [ "$6" = clears ]; then
+        check "$1" eval '[ -z "$pre_out" ] && quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+    else
+        check "$1" eval '[ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+    fi
+}
+n=0
+future=209901010000
+past=202001010000
+redirected "a build into a file (> f 2>&1) counts" './gradlew compileJava > logs/build.log 2>&1' "$rproj/logs/build.log" "$work/built.txt" "$future" clears
+redirected "and the file's path may be absolute and quoted" "./gradlew compileJava > \\\"$rproj/logs/b q.log\\\" 2>&1" "$rproj/logs/b q.log" "$work/built.txt" "$future" clears
+redirected "2>&1 > f counts" './gradlew compileJava 2>&1 > logs/b2.log' "$rproj/logs/b2.log" "$work/built.txt" "$future" clears
+redirected "| tee f counts" './gradlew compileJava 2>&1 | tee logs/tee.log | tail -n 3' "$rproj/logs/tee.log" "$work/built.txt" "$future" clears
+redirected "a file older than the command's start does not" './gradlew compileJava > logs/old.log 2>&1' "$rproj/logs/old.log" "$work/built.txt" "$past" stays
+redirected "a file of a build that only generated does not" './gradlew elcore3 > logs/gen.log' "$rproj/logs/gen.log" "$work/generated.txt" "$future" stays
+redirected "a file another statement writes does not" './gradlew compileJava; cat logs/x.log > logs/copy.log' "$rproj/logs/copy.log" "$work/built.txt" "$future" stays
+redirected "the null device is no file" './gradlew compileJava > /dev/null' "$rproj/logs/null.log" "$work/built.txt" "$future" stays
+# (Inside single quotes \\ is a backslash and \" a quote, as the JSON has them.)
+redirected 'from PowerShell: *> $env:NAME\f; "exit=$LASTEXITCODE"' \
+    '.\\gradlew.bat build --console=plain *> $env:KIT_LOGS\\ps.log; \"exit=$LASTEXITCODE\"' "$rproj/logs/ps.log" "$work/built.txt" "$future" clears PowerShell 'exit=0'
+redirected "from PowerShell: | Tee-Object -FilePath f" \
+    '.\\gradlew.bat compileJava 2>&1 | Tee-Object -FilePath logs\\tee-ps.log | Select-Object -Last 3' "$rproj/logs/tee-ps.log" "$work/built.txt" "$future" clears PowerShell
+redirected 'from PowerShell: | Out-File "$PWD\f"' \
+    '.\\gradlew.bat compileJava *>&1 | Out-File -Encoding utf8 \"$PWD\\logs\\out.log\"' "$rproj/logs/out.log" "$work/built.txt" "$future" clears PowerShell
+if command -v iconv >/dev/null 2>&1; then
+    # What Windows PowerShell 5.1 writes with *>: UTF-16 with a byte order mark.
+    { printf '\377\376'; iconv -f UTF-8 -t UTF-16LE < "$work/built.txt"; } > "$work/built16.txt"
+    redirected "a UTF-16 file, as Windows PowerShell writes, counts" \
+        '.\\gradlew.bat compileJava *> logs\\ps16.log' "$rproj/logs/ps16.log" "$work/built16.txt" "$future" clears PowerShell
+fi
+# Appended to (>>): only what this run added counts.
+cp "$work/built.txt" "$rproj/logs/append.log"
+redirected "a file appended to (>>): what was in it before the run does not count" './gradlew compileJava >> logs/append.log 2>&1' "$rproj/logs/append.log" "$work/built.txt" "$future" stays
+s=rda1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run pre-bash "$(pre_json './gradlew compileJava >> logs/append2.log 2>&1' "$s" "call-$s")"
+cat "$work/built.txt" >> "$rproj/logs/append2.log"
+touch -t "$future" "$rproj/logs/append2.log"
+run post-bash "$(post_json './gradlew compileJava >> logs/append2.log 2>&1' "" "$s" "call-$s")"
+check "and an appended successful build clears the note" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+# The start not noted (no pre-bash): a file written whole (>) is read, one appended to is not.
+s=rdn1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+cp "$work/built.txt" "$rproj/logs/nostart.log"
+run post-bash "$(post_json './gradlew compileJava > logs/nostart.log' "" "$s" "call-$s")"
+check "without the start noted, a file written whole counts" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+s=rdn2
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run post-bash "$(post_json './gradlew compileJava >> logs/nostart.log' "" "$s" "call-$s")"
+check "and one appended to does not" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]
+# Appended to, but not the file noted at the start (the folder changed in between):
+# what earlier runs left in it does not count.
+s=rdc1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run pre-bash "$(pre_json './gradlew compileJava >> cdappend.log' "$s" "call-$s")"
+cp "$work/built.txt" "$rproj/logs/cdappend.log"; touch -t "$future" "$rproj/logs/cdappend.log"
+run post-bash "$(printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"%s","tool_input":{"command":"%s"},"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false}}' \
+    "$s" "$rproj/logs" "call-$s" './gradlew compileJava >> cdappend.log')"
+check "an appended file the start did not note proves nothing" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]
+# Bigger than 4 MB: not read.
+{ cat "$work/built.txt"; head -c 4300000 /dev/zero | tr '\000' 'x'; } > "$work/huge.txt"
+redirected "a file over 4 MB is not read" './gradlew compileJava > logs/huge.log' "$rproj/logs/huge.log" "$work/huge.txt" "$future" stays
+# The warnings and notes come from the file too.
+printf '> Task :elcore3\ndto  src/x/ProductDTO.java  SKIP(user-modified; -Pforce to overwrite)\n=== elcore3: 1 written / 0 unchanged / 1 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n' > "$work/skipped.txt"
+s=rdw1
+run pre-bash "$(pre_json './gradlew elcore3 > logs/skip.log' "$s" "call-$s")"
+cp "$work/skipped.txt" "$rproj/logs/skip.log"; touch -t "$future" "$rproj/logs/skip.log"
+run post-bash "$(post_json './gradlew elcore3 > logs/skip.log' "" "$s" "call-$s")"
+check "what the generator wrote to the file is passed on" eval 'noted && has "$out" "edited by hand"'
+
+# --- a project with a generated TypeScript client and screens on it -------------------
+# The client: src/main/ts with files the merge base names. The screens: web/, whose
+# package.json has a check script and whose tsconfig.json includes the client.
+tsproj() {  # tsproj <folder> <base: yes|no> <web: yes|no> [build.gradle text]  -> a project with .ts files
+    mkdir -p "$1/src/main/resources/blueprint/shop/model" "$1/src/main/ts" "$1/.elasticore"
+    script="${4:-}"
+    [ -n "$script" ] || script="plugins { id 'io.elasticore' version '3.0.261127' }\n"
+    printf "$script" > "$1/build.gradle"
+    cp "$model" "$1/src/main/resources/blueprint/shop/model/entity.yml"
+    printf 'export interface ProductDTO { name: string; }\n' > "$1/src/main/ts/ProductDTO.ts"
+    if [ "$2" = yes ]; then
+        printf 'PK\003\004....src/main/ts/ProductDTO.tsexport interfacePK\001\002\n' > "$1/.elasticore/generated-base.zip"
+    fi
+    if [ "$3" = yes ]; then
+        mkdir -p "$1/web/src"
+        printf '{ "name": "web", "scripts": { "check": "tsc --noEmit" } }\n' > "$1/web/package.json"
+        printf '{ "include": ["src", "../src/main/ts"] }\n' > "$1/web/tsconfig.json"
+    fi
+}
+tsgen='> Task :elcore3ts\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\nBUILD SUCCESSFUL in 6s'
+tsboth='> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :elcore3ts\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 12s'
+checked='\n> web@ check\n> tsc --noEmit\n'
+tsp="$work/tsp"
+tsproj "$tsp" yes yes
+tsmodel="$tsp/src/main/resources/blueprint/shop/model/entity.yml"
+
+run post-edit "$(edit_json Edit "$tsmodel" ts1)"
+check "a DSL change in a project with a client says to regenerate it and to type-check the screens" \
+    eval 'noted && has "$out" "compileJava" && has "$out" "elcore3ts" && has "$out" "typescriptClient = true" && has "$out" "(web)" && has "$out" "npm run check" && valid_json'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts1)"
+run post-bash "$(bash_json "./gradlew elcore3ts" "$tsgen" ts1)"
+run post-bash "$(bash_json "cd web && npm run check" "$checked" ts1)"
+run stop "$(stop_json false ts1)"
+check "built, client regenerated, screens checked: nothing said" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts2)"
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts2)"
+check "a build without elcore3ts compiles the change" [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-ts2" ]
+run stop "$(stop_json false ts2)"
+check "the client not regenerated: reminded, naming both steps, not the build" \
+    eval 'noted && has "$out" "The TypeScript client was not regenerated" && has "$out" "elcore3ts" && has "$out" "were not type-checked" && has "$out" "$tsp/web" && ! has "$out" "no successful Gradle build" && valid_json'
+run stop "$(stop_json false ts2)"
+check "once" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts3)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts3)"
+run stop "$(stop_json false ts3)"
+check "the screens not checked: reminded of that alone" \
+    eval 'noted && has "$out" "The screens were not type-checked" && has "$out" "npm run check" && ! has "$out" "was not regenerated" && valid_json'
+run stop "$(stop_json false ts3)"
+check "once too" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts4)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts4)"
+run post-bash "$(failure_json "npx tsc --noEmit -p web" "Exit code 2\\nsrc/orders.ts(12,30): error TS2339: Property 'name' does not exist on type 'ProductDTO'." ts4)"
+check "a type check that failed does not count" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run post-bash "$(bash_json 'npm --prefix web run check; \"exit=$LASTEXITCODE\"' "src/orders.ts(12,30): error TS2339: Property 'name' does not exist.\\nexit=2" ts4 "" "" PowerShell)"
+check "nor one whose errors came back with exit 0" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run post-bash "$(bash_json 'npm --prefix web run check' "$checked" ts4)"
+check "one that passed counts" [ ! -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts4" ]
+run stop "$(stop_json false ts4)"
+check "and then nothing is said" quiet
+
+run post-edit "$(edit_json Edit "$tsmodel" ts5)"
+run post-bash "$(bash_json "npx tsc --noEmit -p web" "" ts5)"
+check "a type check before the client was regenerated does not count, and says so" \
+    eval 'noted && has "$out" "before the model change" && [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts5" ]'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3\\n\\u001b[31m[elcore3] $tsp/src/main/ts holds a generated TypeScript client made from an older model - run the elcore3ts task after a model change, or set typescriptClient = true in the elasticore { } block so the build runs it.\\u001b[0m" ts5)"
+check "the build's word that the client is older than the model is passed on" eval 'noted && has "$out" "made from an older model" && has "$out" "elcore3ts"'
+run stop "$(stop_json false ts5)"
+
+# typescriptClient = true: every build regenerates the client, task lines or not.
+tsb="$work/tsb"
+tsproj "$tsb" yes no "plugins { id 'io.elasticore' version '3.0.261127' }\nelasticore {\n    architecture     = 'hexagonal'\n    typescriptClient = true\n}\n"
+run post-edit "$(edit_json Edit "$tsb/src/main/resources/blueprint/shop/model/entity.yml" ts6)"
+check "without screens the note asks for the client alone" eval 'noted && has "$out" "elcore3ts" && ! has "$out" "npm run check"'
+run post-bash "$(bash_json "./gradlew build" "=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\n=== elcore3: 0 written / 22 unchanged / 1 skipped / 0 failed ===\\nBUILD SUCCESSFUL in 30s" ts6)"
+run stop "$(stop_json false ts6)"
+check "a build of a project that sets typescriptClient = true regenerates the client" quiet
+
+# Before the merge: a client whose files start with //ecd:; screens found by their tsconfig.json alone.
+tse="$work/tse"
+mkdir -p "$tse/src/main/resources/blueprint/shop/model" "$tse/src/main/ts" "$tse/apps/admin"
+cp "$engine/build.gradle" "$tse/build.gradle"
+cp "$model" "$tse/src/main/resources/blueprint/shop/model/entity.yml"
+printf '//ecd:-1H20261020123214_V3.0\nexport interface ProductDTO { name: string; }\n' > "$tse/src/main/ts/ProductDTO.ts"
+printf '{ "include": ["src", "../../src/main/ts"] }\n' > "$tse/apps/admin/tsconfig.json"
+run post-edit "$(edit_json Edit "$tse/src/main/resources/blueprint/shop/model/entity.yml" ts7)"
+check "a client with //ecd: lines, and screens two folders down found by their tsconfig.json" eval 'noted && has "$out" "elcore3ts" && has "$out" "(apps/admin)"'
+run stop "$(stop_json false ts7)"
+
+# No client: as before. Hand-written .ts files in src/main/ts are not a client.
+tsn="$work/tsn"
+tsproj "$tsn" no yes
+run post-edit "$(edit_json Edit "$tsn/src/main/resources/blueprint/shop/model/entity.yml" ts8)"
+check "a project without a generated client: the note is as before" eval 'noted && ! has "$out" "TypeScript"'
+run post-bash "$(bash_json "./gradlew compileJava" "$built3" ts8)"
+run stop "$(stop_json false ts8)"
+check "and a build ends the change" quiet
+run post-edit "$(edit_json Edit "$model" ts9)"
+run post-bash "$(bash_json "npm run check" "$checked" ts9)"
+check "a type check in a session without a client is not looked at" quiet
+
+# Two screen folders: a check counts for the folder it ran in, not for the other.
+tsm="$work/tsm"
+tsproj "$tsm" yes yes
+mkdir -p "$tsm/apps/admin"
+printf '{ "include": ["src", "../../src/main/ts"] }\n' > "$tsm/apps/admin/tsconfig.json"
+cwd_json() {  # cwd_json <command> <stdout> <session> <cwd>
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' \
+        "$3" "$4" "$1" "$2"
+}
+run post-edit "$(edit_json Edit "$tsm/src/main/resources/blueprint/shop/model/entity.yml" ts10)"
+check "both screen folders are named" eval 'noted && has "$out" "web" && has "$out" "apps/admin"'
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts10)"
+run post-bash "$(cwd_json "cd web && npm run check" "$checked" ts10 "$tsm")"
+check "a check in web leaves apps/admin to check" eval 'grep -q "apps/admin" "$CLAUDE_PLUGIN_DATA/ts-screens-ts10" && ! grep -q "/web\$" "$CLAUDE_PLUGIN_DATA/ts-screens-ts10"'
+run post-bash "$(cwd_json "npx tsc --noEmit" "" ts10 "$tsm")"
+check "a check in the project folder is not one of apps/admin" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts10" ]
+run stop "$(stop_json false ts10)"
+check "Stop names the folder left" eval 'noted && has "$out" "were not type-checked" && has "$out" "apps/admin" && ! has "$out" "$tsm/web" && valid_json'
+run post-edit "$(edit_json Edit "$tsm/src/main/resources/blueprint/shop/model/entity.yml" ts11)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts11)"
+run post-bash "$(cwd_json "npm --prefix web run check" "$checked" ts11 "$tsm")"
+run post-bash "$(cwd_json "npx tsc --noEmit -p apps/admin/tsconfig.json" "" ts11 "$tsm")"
+check "npm --prefix and tsc -p name the folder; both checked, the note is gone" [ ! -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts11" ]
+run stop "$(stop_json false ts11)"
+check "and nothing is said" quiet
+
+# --- accepted DSL warnings: .elasticore/accepted-warnings.txt ----------------------
+# The rule engine's list as it prints it: the header, a line of dashes, each warning in red, a blank line.
+warnproj="$work/warnproj"
+mkdir -p "$warnproj/src/main/resources/blueprint/rating/model" "$warnproj/.elasticore" "$warnproj/sub/dir"
+printf "plugins { id 'io.elasticore' version '3.0.261127' }\n" > "$warnproj/build.gradle"
+printf 'entity:\n  Coverage:\n    fields:\n      id: long @id\n' > "$warnproj/src/main/resources/blueprint/rating/model/coverage.yml"
+wmodel="$warnproj/src/main/resources/blueprint/rating/model/coverage.yml"
+w1='[Product] Coverage.product is left out: ProductDTO is read under @access(read=user), and a DTO carrying it would show it to whoever reads Coverage. Its identity stays.'
+w2='[Product] Coverage.term is left out: TermDTO is read under @access(read=user).'
+w3='[rating] Coverage.weight: unresolved type kilogramz'
+warnlist() {  # warnlist <warning>...  -> a build's output, JSON-escaped
+    printf '> Task :elcore3\\n\\n[elcore3] DSL validation warnings:\\n--------------------------------------\\n'
+    for w in "$@"; do printf '\\u001b[31m  %s\\u001b[0m\\n' "$w"; done
+    printf '\\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\n> Task :compileJava\\nBUILD SUCCESSFUL in 9s'
+}
+# UTF-8 with a byte order mark and CRLF, as an editor on Windows may save it; comments; a pattern is text.
+printf '\357\273\277# Generator defects the DSL cannot get round\r\nCoverage.product is left out: ProductDTO is read under   # xsko/ElastiCORE#321\r\n\r\n  [Product] Coverage.term is left out\r\nCoverage.*kilogramz\r\n' \
+    > "$warnproj/.elasticore/accepted-warnings.txt"
+
+run post-edit "$(edit_json Edit "$wmodel" aw1)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w1" "$w2")" aw1)"
+check "a build whose every DSL warning is accepted says nothing of them and clears the note" \
+    eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw1" ]'
+run stop "$(stop_json false aw1)"
+check "and Claude may stop" quiet
+
+run post-edit "$(edit_json Edit "$wmodel" aw2)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w1" "$w3" "$w2")" aw2)"
+check "a new warning beside accepted ones is reported, counting the accepted" \
+    eval 'noted && has "$out" "listed DSL validation warnings" && has "$out" "2 of the 3 are accepted" && valid_json'
+check "and keeps the note" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw2" ]
+run stop "$(stop_json false aw2)"
+check "the Stop says built, the warnings left and how to accept one - not that nothing was built" \
+    eval 'noted && has "$out" "built; 1 DSL warning(s) left: $w3" && has "$out" ".elasticore/accepted-warnings.txt" && ! has "$out" "no successful Gradle build" && ! has "$out" "Coverage.term" && valid_json'
+run stop "$(stop_json false aw2)"
+check "once" quiet
+
+# Accepted after the build, before the Stop: the Stop reads the file again.
+warnlate="$work/warnlate"
+mkdir -p "$warnlate/src/main/resources/blueprint/rating/model"
+cp "$warnproj/build.gradle" "$warnlate/build.gradle"
+cp "$wmodel" "$warnlate/src/main/resources/blueprint/rating/model/coverage.yml"
+run post-edit "$(edit_json Edit "$warnlate/src/main/resources/blueprint/rating/model/coverage.yml" aw3)"
+run post-bash "$(bash_json "./gradlew build" "$(warnlist "$w3")" aw3)"
+check "with no accepted-warnings file every warning counts" eval 'noted && ! has "$out" "are accepted" && [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw3" ]'
+mkdir -p "$warnlate/.elasticore"
+printf '[rating] Coverage.weight: unresolved type\n' > "$warnlate/.elasticore/accepted-warnings.txt"
+run stop "$(stop_json false aw3)"
+check "a warning accepted after the build is accepted at the Stop" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw3" ]'
+
+# A failed build after one with warnings left: the Stop asks for a build again.
+run post-edit "$(edit_json Edit "$wmodel" aw4)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w3")" aw4)"
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :compileJava FAILED\\nBUILD FAILED in 3s" aw4)"
+run stop "$(stop_json false aw4)"
+check "a build that failed since: the Stop says no successful build" eval 'noted && has "$out" "no successful Gradle build"'
+# A DSL edit since the build: the warnings it left are about the model before.
+run post-edit "$(edit_json Edit "$wmodel" aw5)"
+run post-bash "$(bash_json "./gradlew compileJava" "$(warnlist "$w3")" aw5)"
+run post-edit "$(edit_json Edit "$wmodel" aw5)"
+run stop "$(stop_json false aw5)"
+check "a DSL edit since: the Stop says no successful build" eval 'noted && has "$out" "no successful Gradle build"'
+
+# The header without a list it can read: not accepted.
+run post-edit "$(edit_json Edit "$wmodel" aw6)"
+run post-bash "$(bash_json "./gradlew compileJava" "[elcore3] DSL validation warnings:\\n\\n$built3" aw6)"
+check "a warnings header with no readable list keeps the note" eval 'noted && [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-aw6" ]'
+
+# Without a model change in the session, the file is found from the folder the command ran in.
+json="$(printf '{"session_id":"aw7","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"./gradlew compileJava"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' "$warnproj/sub/dir" "$(warnlist "$w1" "$w2")")"
+run post-bash "$json"
+check "the accepted-warnings file is found above the folder the command ran in" quiet
+json="$(printf '{"session_id":"aw7","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"./gradlew compileJava"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' "$work/engine" "$(warnlist "$w1" "$w2")")"
+run post-bash "$json"
+check "and not in another project" eval 'noted && has "$out" "listed DSL validation warnings"'
 
 # --- stop: no finishing while a DSL change has not been built -------------------
 run stop "$(stop_json false)"

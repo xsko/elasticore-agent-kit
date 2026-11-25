@@ -112,12 +112,15 @@ function patchOf(args) {
   return args && typeof args.patchText === "string" ? args.patchText : ""
 }
 
-// The files a patch adds, changes, deletes or moves to.
+// The files a patch adds, changes, deletes or moves to, each with the tool the
+// hook script takes it for: a file the patch adds or moves to gets the whole of
+// its content from the patch, as from a Write; one it changes or deletes is
+// edited. Neither is ever the one-block Edit the hook lets through.
 function patchFiles(patchText, directory) {
   const files = []
   for (const line of String(patchText || "").split(/\r?\n/)) {
-    const m = /^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/.exec(line)
-    if (m) files.push(absolute(m[1].trim(), directory))
+    const m = /^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$/.exec(line)
+    if (m) files.push({ file: absolute(m[2].trim(), directory), tool: m[1] === "Add File" || m[1] === "Move to" ? "Write" : "Edit" })
   }
   return files
 }
@@ -126,17 +129,19 @@ function editHook(event, sessionID, tool, input) {
   return run(event, { session_id: sessionID, hook_event_name: event === "pre-edit" ? "PreToolUse" : "PostToolUse", tool_name: tool, tool_input: input })
 }
 
-// Before a tool runs: the hook's refusal, or null to let it go ahead.
-function refusalFor(tool, sessionID, args, directory) {
+// Before a tool runs: the hook's refusal, or null to let it go ahead. callID ties
+// a shell command's start to its end: the hook script notes when a build whose
+// output goes to a file started, and reads only what it wrote.
+function refusalFor(tool, sessionID, args, directory, callID) {
   try {
     const answers = []
     if (EDIT_TOOLS[tool] && args && fileOf(args)) {
       answers.push(editHook("pre-edit", sessionID, EDIT_TOOLS[tool], editInput(args, directory)))
     } else if (PATCH_TOOLS.has(tool) && patchOf(args)) {
-      // One file at a time, as a Write: a patch is never the one-block Edit the hook lets through.
-      for (const file of patchFiles(patchOf(args), directory)) answers.push(editHook("pre-edit", sessionID, "Write", { file_path: file }))
+      // One file at a time.
+      for (const { file, tool } of patchFiles(patchOf(args), directory)) answers.push(editHook("pre-edit", sessionID, tool, { file_path: file }))
     } else if (SHELL_TOOLS.has(tool) && args && args.command) {
-      answers.push(run("pre-bash", { session_id: sessionID, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: args.command } }))
+      answers.push(run("pre-bash", { session_id: sessionID, cwd: directory, tool_use_id: callID, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: args.command } }))
     }
     const refusal = answers.find((a) => a && a.permissionDecision === "deny")
     return refusal ? refusal.permissionDecisionReason || "Refused by the ElastiCORE agent kit." : null
@@ -154,8 +159,8 @@ function editNote(tool, sessionID, args, directory) {
     }
     if (PATCH_TOOLS.has(tool) && patchOf(args)) {
       const notes = []
-      for (const file of patchFiles(patchOf(args), directory)) {
-        const answer = editHook("post-edit", sessionID, "Write", { file_path: file })
+      for (const { file, tool } of patchFiles(patchOf(args), directory)) {
+        const answer = editHook("post-edit", sessionID, tool, { file_path: file })
         if (answer && answer.additionalContext && !notes.includes(answer.additionalContext)) notes.push(answer.additionalContext)
       }
       return notes.join(" ")
@@ -166,15 +171,17 @@ function editNote(tool, sessionID, args, directory) {
 
 // After a shell command ran: the hook's note, or "". text is what the command
 // printed as the model sees it, exit its exit code, saved the file opencode
-// keeps the whole of a long output in.
-function shellNote(sessionID, command, text, exit, saved) {
+// keeps the whole of a long output in; directory is where it ran (a file it
+// wrote its output to is read from there), callID as for refusalFor.
+function shellNote(sessionID, command, text, exit, saved, directory, callID) {
   try {
     const response = { stdout: text, stderr: "", interrupted: false, isImage: false }
     if (saved && existsSync(saved)) response.persistedOutputPath = saved
+    const common = { session_id: sessionID, cwd: directory, tool_use_id: callID, tool_name: "Bash", tool_input: { command } }
     const payload =
       exit === 0
-        ? { session_id: sessionID, hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_response: response }
-        : { session_id: sessionID, hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command }, error: "Exit code " + exit + "\n" + text, is_interrupt: false }
+        ? { ...common, hook_event_name: "PostToolUse", tool_response: response }
+        : { ...common, hook_event_name: "PostToolUseFailure", error: "Exit code " + exit + "\n" + text, is_interrupt: false }
     const answer = run("post-bash", payload)
     return (answer && answer.additionalContext) || ""
   } catch {
@@ -216,7 +223,7 @@ export const ElastiCore = async ({ client, directory }) => {
     "tool.execute.before": async (input, output) => {
       let refusal = null
       try {
-        refusal = refusalFor(input.tool, input.sessionID, output.args || {}, base)
+        refusal = refusalFor(input.tool, input.sessionID, output.args || {}, base, input.callID)
       } catch {}
       // The only way out of this hook that stops the tool.
       if (refusal) throw new Error(refusal)
@@ -230,7 +237,7 @@ export const ElastiCore = async ({ client, directory }) => {
           const meta = output.metadata || {}
           const exit = typeof meta.exit === "number" ? meta.exit : 0
           const text = [output.output, meta.output].filter((t) => typeof t === "string" && t).join("\n")
-          note(output, shellNote(input.sessionID, args.command, text, exit, savedPath(text)))
+          note(output, shellNote(input.sessionID, args.command, text, exit, savedPath(text), base, input.callID))
         } else {
           note(output, editNote(input.tool, input.sessionID, args, base))
         }
@@ -298,7 +305,7 @@ async function setup(ctx) {
   await register(ctx.tool, "execute.before", (event) => {
     let refusal = null
     try {
-      refusal = refusalFor(event.tool, event.sessionID, event.input, base)
+      refusal = refusalFor(event.tool, event.sessionID, event.input, base, event.id)
     } catch {}
     // Throwing is how a 2.x hook stops the call.
     if (refusal) throw new Error(refusal)
@@ -316,14 +323,14 @@ async function setup(ctx) {
           const exit = typeof meta.exit === "number" ? meta.exit : typeof out.exitCode === "number" ? out.exitCode : 0
           const text = resultText(result)
           const saved = typeof out.outputPath === "string" ? out.outputPath : savedPath(text)
-          noteResult(event, shellNote(event.sessionID, args.command, text, exit, saved))
+          noteResult(event, shellNote(event.sessionID, args.command, text, exit, saved, base, event.id))
         } else {
           // A call that failed outright - a command that ran comes back completed, with
           // its exit code in metadata.exit: the hook still learns of it, but an error
           // has no output to take a note.
           const error = event.error
           const message = typeof error === "string" ? error : (error && error.message) || "failed"
-          shellNote(event.sessionID, args.command, message, 1, null)
+          shellNote(event.sessionID, args.command, message, 1, null, base, event.id)
         }
       } else if (event.status === "completed") {
         noteResult(event, editNote(event.tool, event.sessionID, args, base))

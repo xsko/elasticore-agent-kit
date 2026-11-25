@@ -4,11 +4,14 @@
 # src/main/resources/blueprint/<domain>/, and a DSL change is generated and
 # compiled before the agent says it is done.
 #
-#   pre-edit   PreToolUse          Edit|Write|MultiEdit  refuse an edit to a file the generator rewrites
+#   pre-edit   PreToolUse          Edit|Write|MultiEdit  refuse an edit to a file the generator rewrites,
+#                                                        and a Write over a merged generated file
 #   pre-bash   PreToolUse          Bash|PowerShell       refuse a Gradle run that forces overwriting
 #   post-edit  PostToolUse         Edit|Write|MultiEdit  after a DSL edit, say what to run before finishing
-#   post-bash  PostToolUse(Failure) Bash|PowerShell      after a Gradle run, pass on what the generator said
+#   post-bash  PostToolUse(Failure) Bash|PowerShell      after a Gradle run, pass on what the generator said;
+#                                                        note a type check of screens on the generated client
 #   stop       Stop                                      do not finish while a DSL change has not been compiled
+#                                                        (nor its TypeScript client regenerated and type-checked)
 #
 # Bash and POSIX tools only: Claude Code runs hooks with sh on macOS and Linux
 # and with Git Bash on Windows. Anything unexpected ends in exit 0 or 1, which
@@ -25,6 +28,7 @@ export LC_ALL=C
 
 event="${1:-}"
 input="$(cat)" || exit 0
+tab="$(printf '\t')"
 
 # The raw value of a JSON string field, still escaped. Claude Code sends one
 # line of JSON; a key inside another string value is escaped (\"key\") and is
@@ -381,6 +385,208 @@ runs_gradle() {
     fi
 }
 
+# The files a command writes its output to, by statement - a pipeline between
+# ; && || & ( ) and line breaks: per statement a line "S", then "C <command>"
+# for each simple command of its pipeline (quotes dropped, redirections left
+# out), and "F <w|a> <file>" for each file it writes to: > 1> 2> *> &> >| (w)
+# and the same with >> (a, appended), and tee, Tee-Object, Out-File and
+# Set-Content (w) and Add-Content (a) after a pipe, with -a, --append or
+# -Append (a). A redirection to another stream (2>&1, *>&1) is no file.
+redirects() {
+    printf '%s\n' "$1" | awk '
+    function decode(s,   t, i, n, c, d) {
+        t = ""; n = length(s)
+        for (i = 1; i <= n; i++) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < n) {
+                i++; d = substr(s, i, 1)
+                if (d == "n") t = t "\n"
+                else if (d == "t") t = t "\t"
+                else if (d == "u") { t = t "?"; i += 4 }
+                else if (d != "r") t = t d
+            } else t = t c
+        }
+        return t
+    }
+    function word_end() { if (inword) words[++nw] = w; w = ""; inword = 0 }
+    function command_end(   k, line) {
+        word_end()
+        if (nw > 0) {
+            line = words[1]
+            for (k = 2; k <= nw; k++) line = line " " words[k]
+            print "C\t" line
+            writers()
+        }
+        nw = 0
+    }
+    # tee and the PowerShell cmdlets that write what comes down the pipe to a file.
+    function writers(   name, k, lw, mode, file) {
+        name = words[1]; sub(/^.*[\/\\]/, "", name); name = tolower(name); sub(/\.exe$/, "", name)
+        if (name == "tee") {
+            mode = "w"
+            for (k = 2; k <= nw; k++) if (words[k] == "-a" || words[k] == "--append") mode = "a"
+            for (k = 2; k <= nw; k++) if (substr(words[k], 1, 1) != "-") print "F\t" mode "\t" words[k]
+            return
+        }
+        if (name != "tee-object" && name != "out-file" && name != "set-content" && name != "add-content") return
+        mode = (name == "add-content") ? "a" : "w"; file = ""
+        for (k = 2; k <= nw; k++) {
+            lw = tolower(words[k])
+            if (lw == "-append") { mode = "a"; continue }
+            if (lw == "-filepath" || lw == "-path" || lw == "-literalpath") { if (k < nw) file = words[k + 1]; k++; continue }
+            if (lw == "-variable") { file = "-"; k++; continue }
+            if (substr(lw, 1, 1) == "-") { if (lw == "-encoding" || lw == "-width" || lw == "-value" || lw == "-inputobject") k++; continue }
+            if (file == "") file = words[k]
+        }
+        if (file != "" && file != "-") print "F\t" mode "\t" file
+    }
+    {
+        t = decode($0); n = length(t); q = ""; w = ""; inword = 0; nw = 0; i = 1
+        print "S"
+        while (i <= n) {
+            c = substr(t, i, 1)
+            if (q != "") { if (c == q) q = ""; else w = w c; i++; continue }
+            if (c == "\"" || c == "\047") { q = c; inword = 1; i++; continue }
+            if (c == ">" || (c == "&" && substr(t, i + 1, 1) == ">")) {
+                if (c == "&") i++
+                else if (inword && w ~ /^[0-9*]$/) { w = ""; inword = 0 }
+                else word_end()
+                i++; mode = "w"
+                if (substr(t, i, 1) == ">") { mode = "a"; i++ }
+                if (substr(t, i, 1) == "|") i++
+                if (substr(t, i, 1) == "&") {
+                    i++
+                    while (i <= n && substr(t, i, 1) ~ /[0-9-]/) i++
+                    continue
+                }
+                while (i <= n && (substr(t, i, 1) == " " || substr(t, i, 1) == "\t")) i++
+                target = ""; tq = ""
+                while (i <= n) {
+                    d = substr(t, i, 1)
+                    if (tq != "") { if (d == tq) tq = ""; else target = target d; i++; continue }
+                    if (d == "\"" || d == "\047") { tq = d; i++; continue }
+                    if (d == " " || d == "\t" || d == "\n" || d == ";" || d == "&" || d == "|" || d == "(" || d == ")" || d == "<" || d == ">") break
+                    target = target d; i++
+                }
+                if (target != "") print "F\t" mode "\t" target
+                continue
+            }
+            if (c == "\n" || c == ";" || c == "(" || c == ")") { command_end(); print "S"; i++; continue }
+            if (c == "&") { command_end(); print "S"; i++; if (substr(t, i, 1) == "&") i++; continue }
+            if (c == "|") {
+                command_end()
+                if (substr(t, i + 1, 1) == "|") { print "S"; i += 2 } else i++
+                continue
+            }
+            if (c == " " || c == "\t") { word_end(); i++; continue }
+            w = w c; inword = 1; i++
+        }
+        command_end()
+    }'
+}
+
+# A file named in a command, as the shell reads it: ~, $HOME, ${NAME}, $env:NAME,
+# ${env:NAME} and %NAME% from the environment (any case, as on Windows), $PWD as
+# the folder the command ran in, \ as /, and a relative path from that folder.
+# Fails on the null device and on a variable the environment does not have - a
+# variable of the shell session itself.
+target_path() {
+    case "$1" in '' | /dev/null | '$null' | [Nn][Uu][Ll] | [Nn][Uu][Ll]:) return 1 ;; esac
+    p="$(printf '%s\n' "$1" | HOOK_CWD="$2" awk '
+        function value(name,   k) {
+            if (toupper(name) == "PWD" && ENVIRON["HOOK_CWD"] != "") return ENVIRON["HOOK_CWD"]
+            if (name in ENVIRON) return ENVIRON[name]
+            for (k in ENVIRON) if (toupper(k) == toupper(name)) return ENVIRON[k]
+            missing = 1
+            return ""
+        }
+        {
+            s = $0; out = ""
+            if (s == "~" || substr(s, 1, 2) == "~/" || substr(s, 1, 2) == "~\\") { out = value("HOME"); s = substr(s, 2) }
+            while (s != "") {
+                if (match(s, /^\$\{env:[A-Za-z_][A-Za-z0-9_]*\}/)) { name = substr(s, 7, RLENGTH - 7) }
+                else if (match(s, /^\$env:[A-Za-z_][A-Za-z0-9_]*/)) { name = substr(s, 6, RLENGTH - 5) }
+                else if (match(s, /^\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) { name = substr(s, 3, RLENGTH - 3) }
+                else if (match(s, /^\$[A-Za-z_][A-Za-z0-9_]*/)) { name = substr(s, 2, RLENGTH - 1) }
+                else if (match(s, /^%[A-Za-z_][A-Za-z0-9_]*%/)) { name = substr(s, 2, RLENGTH - 2) }
+                else { out = out substr(s, 1, 1); s = substr(s, 2); continue }
+                len = RLENGTH
+                out = out value(name)
+                s = substr(s, len + 1)
+            }
+            if (missing) exit 1
+            print out
+        }' | tr '\\' '/')" || return 1
+    [ -n "$p" ] || return 1
+    case "$p" in
+        /* | [A-Za-z]:/*) ;;
+        *) [ -n "$2" ] || return 1; p="$2/$p" ;;
+    esac
+    printf '%s\n' "$p"
+}
+
+# What a Gradle run or a type check in the command writes its output to: "<w|a>
+# TAB <file>" a line, for each statement that runs one.
+output_files() {
+    cwd="$(json_path cwd)"
+    redirects "$1" | {
+        cmds=""; files=""
+        flush() {
+            if [ -n "$files" ] && printf '%s' "$cmds" | grep -Eq "$GRADLE"'([[:space:]]|$)|'"$TSC|$CHECK"; then
+                printf '%s' "$files" | while IFS="$tab" read -r mode f; do
+                    f="$(target_path "$f" "$cwd")" && printf '%s\t%s\n' "$mode" "$f"
+                done
+            fi
+            cmds=""; files=""
+        }
+        while IFS="$tab" read -r kind a b; do
+            case "$kind" in
+                S) flush ;;
+                C) cmds="$cmds$a
+" ;;
+                F) files="$files$a$tab$b
+" ;;
+            esac
+        done
+        flush
+    }
+}
+
+# Where pre-bash notes, for one tool call, when it started and how long each
+# file it appends to was then: "<w|a> TAB <bytes> TAB <file>" a line.
+started_note() {
+    call="$(json_string tool_use_id | tr -cd 'A-Za-z0-9_-')"
+    printf '%s' "$state_dir/started-${session:-default}-${call:-last}"
+}
+
+# The text a command wrote to the files it names, as far as it is new: for a file
+# the command appended to, what came after the size it had when the command
+# started; a file not written since then, or one appended to when the start was
+# not noted, proves nothing. At most 4 MB a file.
+redirected_output() {
+    started="$(started_note)"
+    output_files "$command" | while IFS="$tab" read -r mode f; do
+        [ -f "$f" ] || continue
+        skip=0
+        if [ -f "$started" ]; then
+            [ "$f" -nt "$started" ] || continue
+            if [ "$mode" = a ]; then
+                skip="$(F="$f" awk -F '\t' '$3 == ENVIRON["F"] { print $2; exit }' "$started")"
+                # Not the file noted at the start (a cd in the command, say): what is
+                # new in it cannot be told from what earlier runs left.
+                [ -n "$skip" ] || continue
+            fi
+        elif [ "$mode" = a ]; then
+            continue
+        fi
+        size="$(wc -c < "$f" | tr -d ' ')"
+        [ "$size" -ge "$skip" ] 2>/dev/null || skip=0
+        [ $((size - skip)) -le 4194304 ] || continue
+        tail -c +"$((skip + 1))" -- "$f" 2>/dev/null | plain_text
+    done
+    rm -f -- "$started"
+}
+
 # Whether a Gradle run sets the property that makes the generator overwrite
 # hand edits, in any form Gradle reads: -Pforce, -P force, --project-prop force,
 # -Dorg.gradle.project.force, or ORG_GRADLE_PROJECT_force set in the same
@@ -393,7 +599,15 @@ forces() {
 }
 
 # What this session has done, one file per note in the plugin's data directory:
-#   dsl-changed-<session>  the DSL changed and no successful compiling build followed
+#   dsl-changed-<session>  the DSL changed and no successful compiling build followed;
+#                          it lists the project folders the changes were made in
+#   dsl-warned-<session>   the last build that compiled it left these DSL warnings, which
+#                          no line of .elasticore/accepted-warnings.txt accepts
+#   ts-client-<session>    the DSL changed in a project with a generated TypeScript
+#                          client, and nothing has generated the client since; it lists
+#                          those projects
+#   ts-screens-<session>   ... and screens type-checked against it have not been
+#                          checked since the client was; it lists their folders
 #   legacy-noted-<session> the 2.x-generator warning was given
 #   merged-noted-<session> what an edit of a merged generated file means was said
 state() {
@@ -401,12 +615,232 @@ state() {
     state_dir="$(printf '%s' "$base" | tr '\\' '/')"
     session="$(json_string session_id | tr -cd 'A-Za-z0-9_-')"
     marker="$state_dir/dsl-changed-${session:-default}"
+    warned="$state_dir/dsl-warned-${session:-default}"
+    ts_client="$state_dir/ts-client-${session:-default}"
+    ts_screens="$state_dir/ts-screens-${session:-default}"
     legacy="$state_dir/legacy-noted-${session:-default}"
     merged_noted="$state_dir/merged-noted-${session:-default}"
 }
 
 note() {
     mkdir -p -- "$state_dir" 2>/dev/null && : > "$1"
+}
+
+# Adds a line to a note, once.
+note_line() {
+    mkdir -p -- "$state_dir" 2>/dev/null || return 0
+    [ -f "$1" ] && grep -q -x -F -e "$2" -- "$1" 2>/dev/null && return 0
+    printf '%s\n' "$2" >> "$1"
+}
+
+# A JSON string value's text as it was printed: the escapes decoded, carriage
+# returns dropped, a colour (\u001b[31m) left out; another \uXXXX becomes "?".
+decoded() {
+    printf '%s\n' "$1" | awk '{
+        n = length($0); t = ""
+        for (i = 1; i <= n; i++) {
+            c = substr($0, i, 1)
+            if (c != "\\" || i == n) { t = t c; continue }
+            i++; d = substr($0, i, 1)
+            if (d == "n") t = t "\n"
+            else if (d == "t") t = t "\t"
+            else if (d == "u") {
+                u = tolower(substr($0, i + 1, 4)); i += 4
+                if (u == "001b" && match(substr($0, i + 1), /^\[[0-9;]*m/)) i += RLENGTH
+                else if (u != "001b") t = t "?"
+            }
+            else if (d != "r") t = t d
+        }
+        print t
+    }'
+}
+
+# Text from a file: the NUL bytes of a UTF-16 file (what Windows PowerShell 5.1
+# writes with > and Out-File) and its byte order mark, carriage returns and
+# colours left out.
+plain_text() {
+    tr -d '\000\r\376\377' | awk '{ gsub(/\033\[[0-9;]*m/, ""); print }'
+}
+
+# The DSL validation warnings in a build's output, one a line, each once: the
+# lines after "[elcore3] DSL validation warnings:" and its dashes, up to the
+# blank line the rule engine ends the list with.
+dsl_warnings() {
+    printf '%s\n' "$1" | awk '
+        index($0, "DSL validation warnings:") { on = 1; next }
+        !on { next }
+        { line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line) }
+        line ~ /^-+$/ { next }
+        line == "" || line ~ /^(> Task |BUILD |=== |FAILURE: |\* What went wrong)/ { on = 0; next }
+        !(line in seen) { seen[line] = 1; print line }'
+}
+
+# The DSL warnings a project has accepted - a generator defect the DSL cannot
+# get round, say: the lines of .elasticore/accepted-warnings.txt, each a part
+# of a warning's text. A line starting with # is a comment, and so is what
+# follows a space and a # (the issue the warning waits for). Read from the
+# project folders this session changed the model in, and from the folder the
+# command ran in and those above it.
+accepted_patterns() {
+    {
+        [ -f "$marker" ] && cat -- "$marker"
+        dir="$(json_path cwd)"
+        i=0
+        while [ -n "$dir" ] && [ "$i" -lt 8 ]; do
+            printf '%s\n' "$dir"
+            parent="$(dirname -- "$dir")"
+            [ "$parent" = "$dir" ] && break
+            dir="$parent"
+            i=$((i + 1))
+        done
+    } | while IFS= read -r d; do
+        [ -n "$d" ] && [ -f "$d/.elasticore/accepted-warnings.txt" ] && printf '%s\n' "$d/.elasticore/accepted-warnings.txt"
+    done | sort -u | while IFS= read -r f; do
+        awk 'NR == 1 { sub(/^\357\273\277/, "") }
+             { sub(/\r$/, ""); sub(/^[ \t]+/, "") }
+             /^#/ { next }
+             { sub(/[ \t]+#.*$/, ""); sub(/[ \t]+$/, "") }
+             $0 != "" { print }' "$f"
+    done
+}
+
+# The warnings (one a line) that no accepted line is a part of.
+unaccepted() {
+    [ -n "$1" ] || return 0
+    patterns="$(accepted_patterns)"
+    if [ -z "$patterns" ]; then
+        printf '%s\n' "$1"
+        return 0
+    fi
+    printf '%s\n' "$1" | PATTERNS="$patterns" awk '
+        BEGIN { n = split(ENVIRON["PATTERNS"], p, "\n") }
+        { for (i = 1; i <= n; i++) if (p[i] != "" && index($0, p[i]) > 0) next; print }'
+}
+
+# The first warnings of a list, for a message: at most five, each cut at 300 characters.
+some_warnings() {
+    printf '%s\n' "$1" | awk 'NR <= 5 { print (length($0) > 300 ? substr($0, 1, 300) "..." : $0) }' \
+        | awk 'NR > 1 { printf " | " } { printf "%s", $0 }'
+}
+
+lines_in() {
+    printf '%s\n' "$1" | grep -c .
+}
+
+# Whether the project holds a TypeScript client ElastiCORE generated, as
+# ElastiCORE itself tells one: src/main/ts with a file the merge base names, or a
+# .ts file there whose first line is //ecd: (before the merge).
+has_client() {
+    [ -d "$1/src/main/ts" ] || return 1
+    base_file="$(merge_base "$1")" && grep -a -q -F -e 'src/main/ts/' -- "$base_file" 2>/dev/null && return 0
+    for f in "$1"/src/main/ts/*.ts; do
+        [ -f "$f" ] || continue
+        case "$(head -n 1 -- "$f" 2>/dev/null)" in //ecd:*) return 0 ;; esac
+    done
+    return 1
+}
+
+# Whether a folder holds screens type-checked against the client: a tsconfig.json
+# that includes src/main/ts, or a package.json with a check (typecheck,
+# type-check) script.
+screens_in() {
+    { [ -f "$1/tsconfig.json" ] && grep -q -F -e 'src/main/ts' -- "$1/tsconfig.json" 2>/dev/null; } && return 0
+    [ -f "$1/package.json" ] && grep -Eq '"(check|typecheck|type-check)"[[:space:]]*:' -- "$1/package.json" 2>/dev/null
+}
+
+# The folders of such screens in a project, relative to it: the project folder,
+# src/main/ts (a client with a check of its own) and two levels of folders below
+# the project, leaving out build output, node_modules and the like.
+screen_dirs() {
+    screens_in "$1" && printf '.\n'
+    { [ -f "$1/src/main/ts/tsconfig.json" ] || screens_in "$1/src/main/ts"; } && printf 'src/main/ts\n'
+    for d1 in "$1"/*/; do
+        d1="${d1%/}"
+        n1="${d1##*/}"
+        case "$n1" in node_modules | build | out | bin | target | dist | gradle | src | .*) continue ;; esac
+        [ -d "$d1" ] || continue
+        screens_in "$d1" && printf '%s\n' "$n1"
+        for d2 in "$d1"/*/; do
+            d2="${d2%/}"
+            n2="${d2##*/}"
+            case "$n2" in node_modules | build | out | bin | target | dist | gradle | .*) continue ;; esac
+            [ -d "$d2" ] && screens_in "$d2" && printf '%s\n' "$n1/$n2"
+        done
+    done
+}
+
+# Whether the build scripts of a project, or of the folders above it, set
+# typescriptClient = true - then every build runs elcore3ts after elcore3.
+client_with_build() {
+    dir="$1"
+    i=0
+    while [ -n "$dir" ] && [ "$i" -lt 4 ]; do
+        for script in "$dir/build.gradle" "$dir/build.gradle.kts"; do
+            [ -f "$script" ] || continue
+            code_of "$script" | grep -Eq '(^|[^A-Za-z0-9_])typescriptClient[[:space:]]*(=|\.set[[:space:]]*\()[[:space:]]*true' && return 0
+        done
+        parent="$(dirname -- "$dir")"
+        [ "$parent" = "$dir" ] && break
+        dir="$parent"
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# A type check of TypeScript screens: tsc or vue-tsc (through npx, pnpm, yarn or
+# bunx too), or the check, typecheck or type-check script run by npm, pnpm, yarn
+# or bun - not tsc --help, --version, --init or --showConfig.
+TSC='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|time|nice|exec|command|call)[[:space:]]+)*([^[:space:]]*[/\\])?(((npx|bunx)(\.cmd)?|(pnpm|yarn)(\.cmd)?([[:space:]]+(exec|dlx))?)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?(tsc|vue-tsc)(\.cmd)?([[:space:]]|$)'
+CHECK='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|time|nice|exec|command|call)[[:space:]]+)*([^[:space:]]*[/\\])?(npm|pnpm|yarn|bun)(\.cmd)?([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+(run|run-script)[[:space:]]+(check|typecheck|type-check)([[:space:]]|$)'
+type_checks() {
+    commands "$1" | grep -E "$TSC|$CHECK" | grep -Evq '(^|[[:space:]])(--help|-h|--version|-v|--init|--showConfig)([[:space:]]|$)'
+}
+
+# The folder a type check ran in: the folder the command ran in, then its last cd
+# (pushd, Set-Location), then the folder the check names (npm --prefix, pnpm -C /
+# --dir, yarn --cwd, tsc -p / --project, a tsconfig file standing for its folder).
+# Fails when the command's folder is not known.
+check_dir() {
+    base="$(json_path cwd)"
+    [ -n "$base" ] || return 1
+    commands "$1" | P="$TSC|$CHECK" awk '
+        tolower($1) ~ /^(cd|pushd|set-location|sl|chdir)$/ {
+            x = ""
+            for (k = 2; k <= NF; k++) {
+                if (x == "" && tolower($k) ~ /^(-l|-p|\/d|--|-path|-literalpath)$/) continue
+                x = (x == "" ? $k : x " " $k)
+            }
+            if (x != "") { print "D\t" x; named = "" }
+            next
+        }
+        $0 ~ ENVIRON["P"] {
+            for (k = 1; k < NF; k++)
+                if ($k ~ /^(--prefix|-C|--dir|--cwd|-p|--project)$/) named = $(k + 1)
+            for (k = 1; k <= NF; k++)
+                if ($k ~ /^(--prefix|--dir|--cwd|--project)=/) { named = $k; sub(/^[^=]*=/, "", named) }
+        }
+        END { if (named != "") print "D\t" named }' | {
+        dir="$base"
+        while IFS="$tab" read -r kind d; do
+            [ "$kind" = D ] || continue
+            p="$(target_path "$d" "$dir")" || continue
+            case "$p" in *.json) p="$(dirname -- "$p")" ;; esac
+            dir="$p"
+        done
+        printf '%s\n' "$dir"
+    }
+}
+
+# The noted screen folders other than the one a passing type check ran in.
+screens_left() {
+    D="$1" awk '
+        function norm(p) {
+            gsub(/\\/, "/", p)
+            while (sub(/\/\.\//, "/", p)) ;
+            sub(/\/\.$/, "", p); sub(/\/+$/, "", p)
+            return tolower(p)
+        }
+        norm($0) != norm(ENVIRON["D"])' "$ts_screens"
 }
 
 GENERATING='elcore[A-Za-z0-9]*|compileJava|compileKotlin|classes|processResources|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
@@ -435,11 +869,37 @@ pre-edit)
         esac
         deny "ElastiCORE writes $path again on every generation, so an edit to it is lost. The model is the YAML in src/main/resources/blueprint/<domain>/; a message is translated or reworded in a copy with a locale suffix next to the default file, such as <domain>-messages_ko.properties. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
+    merged)
+        # An edit of a merged file is kept; a Write replaces all of it - usually a class
+        # of the agent's own given the name of a generated one, whose code (an entity's
+        # controller, say) is then gone, and into which the next build merges the DSL's
+        # changes as if it were still that file. Edit and MultiEdit stay allowed.
+        [ "$(json_string tool_name)" = Write ] || exit 0
+        base_name=".elasticore/$(basename -- "$(merge_base "$(merge_root "$path")")")"
+        deny "$path holds a file ElastiCORE generates from the DSL (it is in the merge base, $base_name), and Write replaces all of it: what the generator wrote there - an entity's API, its DTO, its mapper - would be gone, and the next build would merge the DSL's changes into a file that no longer has anything to do with them. To change this file, Edit it: the edit is kept and merged with the DSL's changes. To add a class of your own, choose another name, one the generator does not write. Do not replace it another way, with a shell command or a script. If the user wants the file replaced anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
+        ;;
     esac
     exit 0
     ;;
 
 pre-bash)
+    # A build whose output goes to a file: note when it starts, and how long a file it
+    # appends to is, so that post-bash reads only what this run wrote.
+    case "$input" in
+        *gradle* | *tsc* | *check*)
+            state
+            started="$(started_note)"
+            rm -f -- "$started"
+            files="$(output_files "$(json_string command)")"
+            if [ -n "$files" ] && mkdir -p -- "$state_dir" 2>/dev/null; then
+                printf '%s\n' "$files" | while IFS="$tab" read -r mode f; do
+                    size=0
+                    [ "$mode" = a ] && [ -f "$f" ] && size="$(wc -c < "$f" | tr -d ' ')"
+                    printf '%s\t%s\t%s\n' "$mode" "$size" "$f"
+                done > "$started"
+            fi
+            ;;
+    esac
     [ "${ELASTICORE_ALLOW_FORCE:-}" = 1 ] && exit 0
     case "$input" in *force*) ;; *) exit 0 ;; esac
     command="$(json_string command)"
@@ -454,17 +914,37 @@ post-edit)
     model=0
     if is_dsl "$path"; then
         model=1
+        project="${path%%/src/main/resources/blueprint/*}"
     else
         case "$path" in
-            */build.gradle | */build.gradle.kts) grep -q 'elasticore' "$path" 2>/dev/null && model=1 ;;
+            */build.gradle | */build.gradle.kts) grep -q 'elasticore' "$path" 2>/dev/null && model=1 && project="$(dirname -- "$path")" ;;
         esac
     fi
     if [ "$model" = 1 ]; then
         state
         text=""
+        # What the last build left is about the model before this change.
+        rm -f -- "$warned"
         if [ ! -f "$marker" ]; then
-            note "$marker"
             text="You changed the ElastiCORE model. Before you finish, run ./gradlew compileJava - it generates first, unless the build sets generateBeforeCompile = false; then run elcore3 or elcore before it - and fix every DSL validation warning and compile error, in the DSL. Read the generator's SKIP(...) lines too. "
+        fi
+        note_line "$marker" "$project"
+        # A project with a generated TypeScript client: the change also needs a run that
+        # generates it, and the screens on it a type check after that.
+        if has_client "$project"; then
+            note_line "$ts_client" "$project"
+            screens="$(screen_dirs "$project")"
+            if [ -n "$screens" ]; then
+                printf '%s\n' "$screens" | while IFS= read -r d; do note_line "$ts_screens" "$project/$d"; done
+            fi
+            if [ -n "$text" ]; then
+                text="${text}This project has a TypeScript client generated into src/main/ts: regenerate it too - ./gradlew elcore3ts, or any build when the elasticore { } block sets typescriptClient = true - "
+                if [ -n "$screens" ]; then
+                    text="${text}and then type-check the screens that use it ($(printf '%s\n' "$screens" | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')): npm run check there, or npx tsc --noEmit, and fix what the change broke. "
+                else
+                    text="${text}and check the screens that use it. "
+                fi
+            fi
         fi
         if is_dsl "$path" && [ ! -f "$legacy" ] \
             && grep -Eq '@(access|owner|password|login|compute|snapshot)([^A-Za-z]|$)|^[[:space:]]*states:|:[[:space:]]*(money|quantity)([^A-Za-z]|$)' "$path" 2>/dev/null \
@@ -492,34 +972,55 @@ post-edit)
     ;;
 
 post-bash)
-    case "$input" in *gradle*) ;; *) exit 0 ;; esac
+    case "$input" in *gradle* | *tsc* | *check*) ;; *) exit 0 ;; esac
     # Returned before the build ran, or stopped partway: proves nothing.
     json_true run_in_background && exit 0
     json_true interrupted && exit 0
     json_true is_interrupt && exit 0
     command="$(json_string command)"
-    # A Gradle command whose own task list generates, and that is not a dry run.
-    runs_gradle "$command" "$GENERATING" || exit 0
-    gradle_commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)' && exit 0
+    # A Gradle command whose own task list generates, and that is not a dry run - or a
+    # type check of screens on a generated client that the session's change waits for.
+    gradle=0
+    if runs_gradle "$command" "$GENERATING" \
+        && ! gradle_commands "$command" | grep -Eq '(^|[[:space:]])(--dry-run|-m|help|tasks|--task)([[:space:]]|$)'; then
+        gradle=1
+    fi
+    state
+    checked=0
+    [ -f "$ts_screens" ] && type_checks "$command" && checked=1
+    [ "$gradle" = 1 ] || [ "$checked" = 1 ] || { rm -f -- "$(started_note)"; exit 0; }
 
     # What Gradle printed. The command itself may name the same words (a grep),
     # so only what came back counts: the tool's response - or the whole output,
     # which Claude Code saves to a file when it is too long to pass on - or, for
     # a command that failed, its error.
+    # In two parts: what came in the JSON, still escaped, and what was read from a file.
     hook_event="$(json_string hook_event_name)"
+    from_file=""
     if [ "$hook_event" = PostToolUseFailure ]; then
         failed=1
-        output="$(printf '%s' "$input" | sed -n 's/.*"error"//p')"
+        from_json="$(printf '%s' "$input" | sed -n 's/.*"error"//p')"
     else
         hook_event=PostToolUse
         failed=0
-        output="$(printf '%s' "$input" | sed -n 's/.*"tool_response"//p')"
-        saved="$(printf '%s' "$output" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
+        from_json="$(printf '%s' "$input" | sed -n 's/.*"tool_response"//p')"
+        saved="$(printf '%s' "$from_json" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
         if [ -n "$saved" ] && [ -f "$saved" ]; then
-            output="$(cat -- "$saved" 2>/dev/null)"
+            from_json=""
+            from_file="$(plain_text < "$saved" 2>/dev/null)"
         fi
     fi
+    state
+    # A build whose output went to a file (> build.log, *> build.log, | tee build.log):
+    # what it wrote there, as new as this run.
+    redirected="$(redirected_output)"
+    [ -n "$redirected" ] && from_file="$from_file
+$redirected"
+    output="$from_json
+$from_file"
     has() { printf '%s' "$output" | grep -q -F -e "$1"; }
+    # The output as it was printed, line by line.
+    printed() { decoded "$from_json"; printf '%s\n' "$from_file"; }
 
     state
     text=""
@@ -530,8 +1031,24 @@ post-bash)
         unreadable=1
         text="A blueprint YAML file could not be read: the generator printed its path and the parse error, left the file out of the model and went on - the build can pass without what that file declares. Fix the YAML at the line the error names (indentation, a missing ':' or quote) and build again. "
     fi
+    # The warnings no line of .elasticore/accepted-warnings.txt accepts. A list the
+    # hook cannot read counts as one that is not accepted.
+    left=""
     if has 'DSL validation warnings:'; then
-        text="${text}The 3.0 rule engine (elcore3) listed DSL validation warnings. The model is wrong until they are gone, even when the build passes: fix each line under that header in the DSL and build again. "
+        warnings="$(dsl_warnings "$(printed)")"
+        if [ -z "$warnings" ]; then
+            left="(the list of warnings could not be read)"
+        else
+            left="$(unaccepted "$warnings")"
+        fi
+        if [ -n "$left" ]; then
+            text="${text}The 3.0 rule engine (elcore3) listed DSL validation warnings. The model is wrong until they are gone, even when the build passes: fix each line under that header in the DSL and build again. "
+            if [ -n "$warnings" ]; then
+                accepted=$(( $(lines_in "$warnings") - $(lines_in "$left") ))
+                [ "$accepted" -gt 0 ] && text="${text}(${accepted} of the $(lines_in "$warnings") are accepted in .elasticore/accepted-warnings.txt; the others are not.) "
+            fi
+            text="${text}Only a warning the DSL cannot fix - an ElastiCORE defect, with an issue - is accepted instead, by a line of .elasticore/accepted-warnings.txt, with the user's agreement (the elasticore skill's references/run-and-check.md). "
+        fi
     fi
     # The rule engine stops before writing when the model cannot be generated as written
     # (a relation in an exposed composite key, a @deleted a delete would bypass, ...):
@@ -584,13 +1101,60 @@ post-bash)
         text="${text}The generator left files alone that the merge base (.elasticore/generated-base.zip, or .elasticore/cache before ElastiCORE renamed it) has no record of - edited before merging was turned on, or not written by ElastiCORE - so they no longer follow the DSL. If such a file should be generated, it has to be deleted and generated again: ask the user unless you created it. If the base itself is missing, it belongs in git with the generated files - take it from there. "
     fi
     # Cleared only by a build that shows the generator ran, compiled what it
-    # generated and passed - and no other build in the same command failed. A cut
-    # or filtered output that lost a line proves nothing.
-    if [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
+    # generated and passed, with no DSL warning but accepted ones - and no other
+    # build in the same command failed. A cut or filtered output that lost a line
+    # proves nothing. A build that compiled it with warnings left keeps them for
+    # the reminder; a failed one makes them out of date.
+    if [ "$gradle" = 0 ]; then
+        :
+    elif [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
         && { has '=== elcore3: ' || has 'ModelExtractor execution mode'; } \
-        && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' && ! has 'DSL validation warnings:' \
+        && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED' \
         && { runs_gradle "$command" "$COMPILING" || printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:compile(Java|Kotlin)'; }; then
-        rm -f -- "$marker"
+        if [ -z "$left" ]; then
+            rm -f -- "$marker" "$warned"
+        elif mkdir -p -- "$state_dir" 2>/dev/null; then
+            printf '%s\n' "$left" > "$warned"
+        fi
+    elif [ "$failed" = 1 ] || has 'BUILD FAILED'; then
+        rm -f -- "$warned"
+    fi
+
+    # The TypeScript client. The rule engine says when a build left it older than
+    # the model: "... holds a generated TypeScript client made from an older model".
+    if [ "$gradle" = 1 ] && has 'holds a generated TypeScript client made from an older model'; then
+        text="${text}The build says the TypeScript client in src/main/ts was made from an older model: run ./gradlew elcore3ts, or set typescriptClient = true in the elasticore { } block so that every build runs it, then type-check the screens that use it. "
+    fi
+    # Generated again by a run that passed and read the whole model: elcore3ts in its
+    # output or its task list, or a build of a project that sets typescriptClient = true.
+    if [ "$gradle" = 1 ] && [ -f "$ts_client" ] && [ "$failed" = 0 ] && [ "$unreadable" = 0 ] \
+        && has '=== elcore3: ' && has 'BUILD SUCCESSFUL' && ! has 'BUILD FAILED'; then
+        refreshed=0
+        if printf '%s' "$output" | grep -Eq '> Task [A-Za-z0-9_:-]*:elcore3ts([[:space:]]|\\|$)' || runs_gradle "$command" 'elcore3ts'; then
+            refreshed=1
+        else
+            while IFS= read -r root; do
+                [ -n "$root" ] && client_with_build "$root" && refreshed=1 && break
+            done < "$ts_client"
+        fi
+        [ "$refreshed" = 1 ] && rm -f -- "$ts_client"
+    fi
+    # The screens type-checked: a check that passed, after the client was generated again.
+    if [ "$checked" = 1 ]; then
+        if [ -f "$ts_client" ]; then
+            text="${text}This type check ran against the TypeScript client as it was before the model change - it has not been generated again since. Run ./gradlew elcore3ts (or a build, when typescriptClient = true) first, then check the screens again. "
+        elif [ "$failed" = 0 ] && ! printf '%s' "$output" | grep -Eq 'error TS[0-9]|Found [0-9]+ errors?|npm ERR!|npm error|ELIFECYCLE|Command failed'; then
+            # Only the screens in the folder it ran in: another screen folder may
+            # still be broken by the change.
+            # Where it ran cannot be told without the command's folder: all of them, as before.
+            left_screens=""
+            dir="$(check_dir "$command")" && left_screens="$(screens_left "$dir")"
+            if [ -n "$left_screens" ]; then
+                printf '%s\n' "$left_screens" > "$ts_screens"
+            else
+                rm -f -- "$ts_screens"
+            fi
+        fi
     fi
     [ -n "$text" ] && context "$hook_event" "$text"
     exit 0
@@ -599,10 +1163,34 @@ post-bash)
 stop)
     json_true stop_hook_active && exit 0
     state
-    [ -f "$marker" ] || exit 0
-    # Remind once per DSL change; the next DSL edit sets the note again.
-    rm -f -- "$marker"
-    context Stop "The ElastiCORE model changed in this session and no successful Gradle build has generated and compiled it since - a build that failed, ran in the background, only generated, or whose output was cut short or filtered does not count. Run ./gradlew compileJava - it generates first - and fix every DSL validation warning and compile error before you finish. If the user asked you not to build, say so in your answer instead."
+    [ -f "$marker" ] || [ -f "$ts_client" ] || [ -f "$ts_screens" ] || exit 0
+    text=""
+    if [ ! -f "$marker" ]; then
+        :
+    elif [ -f "$warned" ]; then
+        # Built, with warnings left - unless they have been accepted since.
+        left="$(unaccepted "$(cat -- "$warned" 2>/dev/null)")"
+        if [ -n "$left" ]; then
+            n="$(lines_in "$left")"
+            text="The ElastiCORE model changed in this session and the last Gradle build generated and compiled it: built; $n DSL warning(s) left: $(some_warnings "$left"). Building again changes nothing - fix each warning in the DSL, then build. A warning the DSL cannot fix - an ElastiCORE defect, with an issue - can be accepted instead, with the user's agreement: add its text, or a part of it, as a line of .elasticore/accepted-warnings.txt in the project, with a # comment naming the issue it waits for (the elasticore skill's references/run-and-check.md). Otherwise tell the user in your answer which warnings are left and why."
+        fi
+    else
+        text="The ElastiCORE model changed in this session and no successful Gradle build has generated and compiled it since - a build that failed, ran in the background, only generated, or whose output was cut short or filtered does not count. Run ./gradlew compileJava - it generates first - and fix every DSL validation warning and compile error before you finish. If the user asked you not to build, say so in your answer instead."
+    fi
+    # A project with a TypeScript client: each step the change still needs, by name.
+    screens=""
+    [ -f "$ts_screens" ] && screens="$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$ts_screens")"
+    if [ -f "$ts_client" ]; then
+        [ -n "$text" ] && text="$text "
+        text="${text}The TypeScript client was not regenerated since the ElastiCORE model changed: src/main/ts still has the client of the model before. Run ./gradlew elcore3ts - or a build, when the elasticore { } block sets typescriptClient = true."
+        [ -n "$screens" ] && text="$text Then the screens were not type-checked against it either: run npm run check (or npx tsc --noEmit) in $screens and fix what the change broke."
+    elif [ -n "$screens" ]; then
+        [ -n "$text" ] && text="$text "
+        text="${text}The screens were not type-checked since the TypeScript client was regenerated from the changed model: run npm run check (or npx tsc --noEmit) in $screens and fix what the change broke before you finish."
+    fi
+    # Remind once per DSL change; the next DSL edit sets the notes again.
+    rm -f -- "$marker" "$warned" "$ts_client" "$ts_screens"
+    [ -n "$text" ] && context Stop "$text"
     exit 0
     ;;
 

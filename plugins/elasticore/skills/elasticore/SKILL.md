@@ -41,6 +41,9 @@ The `references/` pages named below are in this skill's folder, next to this fil
 5. Do not write controllers, DTOs, repositories, security, sign-in or error handlers by hand: they
    are generated. Extra rules go in `<Entity>Service.beforeSave`; an operation the CRUD does not
    have is a method there plus one small controller of your own, as in `recipe-library.md`.
+   A screen - a web page, a form, a list - is built on the TypeScript client ElastiCORE generates:
+   `references/screens.md`, before you write one. Never hand-written `fetch` calls, form rules or
+   labels.
 6. Write code and models in English: comments, Javadoc, names, log and exception messages in the
    code you write, and the `-- label`s of the DSL - the generated code is in English too. Use another
    language only when the user asks for one, or when the project's own code and models are already
@@ -53,7 +56,8 @@ Work on the project you were asked to work on and nothing else on the machine. D
 projects or repositories for templates or examples, do not change them, and do not run git commands
 that discard work (`checkout --`, `reset --hard`, `clean`) anywhere you did not create the changes.
 ElastiCORE itself comes from Maven Central as a released version - never build it from its source
-or publish it to the local Maven repository for a project.
+or publish it to the local Maven repository for a project, unless the user asks to try an ElastiCORE
+build that is not released yet: then `references/local-elasticore.md`.
 
 **Starting a new project:** follow `references/new-project.md` - the coordinates, how to find the
 newest version, a template that is built in CI every week, and how to try the result in a browser.
@@ -122,7 +126,10 @@ fails until they are resolved (`CONFLICT`). A file whose first line starts
 then takes only the DSL's changes that merge cleanly - when one does not, the build leaves the file
 as it is and says what to carry over (`KEPT(yours ...)`). Still put in the DSL whatever it can say; a
 hand edit is for what it cannot. A file there that still has an `//ecd:` line has not been taken
-over yet: build once, then edit. The base is committed with the generated files - never delete it,
+over yet: build once, then edit. Change such a file with an edit, never by writing it anew: a whole
+new content replaces what the generator wrote (an entity's API, say), and the plugin refuses that
+Write. A class of your own gets a name no generated file has - look in the base before you pick one.
+The base is committed with the generated files - never delete it,
 never put it in `.gitignore`, and never edit it; `.elasticore/.gitattributes` beside it is committed
 too, and so is `.elasticore/.gitignore` (`!generated-base.zip`), which the newer ElastiCORE writes.
 It is a zip: `unzip -Z1 .elasticore/generated-base.zip` lists the files it holds (or `grep -a -c -F '<path>' .elasticore/generated-base.zip`; `.elasticore/cache` in place of the
@@ -206,9 +213,11 @@ warnings as missing behaviour, not as noise.
 | The data in MongoDB | `mode: mongo` in `env.yml` (layered Java only) - the model stays the same |
 | A role change or a deleted member that reaches open sessions | `@signin(refresh=request)` |
 | Sign-in already done by Spring Security (form login, JWT, OIDC) | no `@signin`; a `CurrentUser` bean `SpringSecurityCurrentUser.of(...)` - `references/quick-reference.md` "Who may do what" |
+| Run the generated contract tests (`testCode: "contract"`) on the project's real database, PostgreSQL say | one `ContextCustomizerFactory` of the tests - `references/contract-tests-on-a-database.md`; never an edit of each `<Domain>ContractSupport` |
 | Check, as CI does, that the DSL passes and the generated files are up to date | `./gradlew elcoreValidate -Pstrict` (writes nothing) - `references/run-and-check.md` |
 | Move a project from the 2.x code (`output = 'v2'`) to the 3.0 code | `/elasticore:migrate` - `references/migrate.md`; the user decides, the migration check goes first |
 | Which API exists | `@expose(...)` on the entity |
+| A screen on the API (a page, a form, a list, buttons) | the generated TypeScript client - `references/screens.md`; an endpoint it lacks comes from the DSL, or from a controller of your own called through `request` of `apiSupport` |
 | A call to another system, or hand-written SQL | a port - `references/quick-reference.md` "ports", then `elasticore-dsl-port-guide.md` |
 | Anything the DSL cannot say | a file you own (section 2) |
 
@@ -223,9 +232,15 @@ A worked example that generates and compiles: `references/example-order.md`.
    The plugin generates before every compile, unless the `elasticore { }` block sets
    `generateBeforeCompile = false` - then run the generation task first. To regenerate alone:
    `./gradlew elcore3` on the rule engine, `./gradlew elcore` on the 2.x path. The TypeScript
-   client: `./gradlew elcore3ts`.
+   client: `./gradlew elcore3ts` (every build, with `typescriptClient = true`) - in a project with
+   screens on it, type-check them after that too (`npm run check`, `npx tsc --noEmit`):
+   `references/screens.md`.
 4. Read the whole output (section 5) - do not cut it with `head` or filter it with `grep` - and fix
-   every DSL validation warning before anything else.
+   every DSL validation warning before anything else. To keep a long build out of the conversation,
+   send it to a file and read the file: `mkdir -p build && ./gradlew compileJava > build/build.log 2>&1`
+   (`./gradlew.bat` on Windows), or `.\gradlew.bat compileJava *> build\build.log` in PowerShell
+   (`| tee` and `| Tee-Object` too; not with `clean`, which deletes `build/`). The plugin's hooks read
+   that file as the build's output.
 5. **Compile even when generation succeeded.** On the rule engine generation succeeds with DSL
    warnings, and the code then may not compile - a DTO named in `@dtype(...)` that no `dto:` section
    defines warns `unresolved type` and breaks `compileJava`.
@@ -264,7 +279,9 @@ Problems in the model are listed one line each, for example
   `[ERROR] DSL Validation: N warning(s) found` and **fails the build**. It reports hand-edited
   generated files under `[WARN] Externally Modified Files Detected:`.
 
-Either way the model is wrong until they are gone.
+Either way the model is wrong until they are gone. Only a warning that no DSL change can remove - an
+ElastiCORE defect with an issue - is accepted instead, with the user's agreement, in
+`.elasticore/accepted-warnings.txt` (`references/run-and-check.md`).
 
 A YAML file that does not parse is not a warning. The model loader prints `* LOAD ERROR: <path>`
 and the parser's exception (`MarkedYAMLException: while parsing ...`) and leaves that file out. The

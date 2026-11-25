@@ -82,6 +82,10 @@ write), a hand-written GraphQL controller or `.graphqls` schema of an entity's o
 (`graphql: enable: true`), a filter that reloads the signed-in member (`@signin(refresh=request)`),
 and generated access checks rewritten for Spring Security (a `SpringSecurityCurrentUser` bean).
 
+A line added to `.elasticore/accepted-warnings.txt` accepts a DSL warning instead of fixing it: a
+finding unless the warning is one no DSL change can remove (an ElastiCORE defect) and the line names
+its issue in a `#` comment; a line so short that it accepts other warnings too is one as well.
+
 ## 4. Does the generated code match the DSL? (only when asked)
 
 `./gradlew elcoreValidate -Pstrict` answers this without writing anything but
