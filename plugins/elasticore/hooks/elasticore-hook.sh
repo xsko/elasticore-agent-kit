@@ -4,7 +4,8 @@
 # src/main/resources/blueprint/<domain>/, and a DSL change is generated and
 # compiled before the agent says it is done.
 #
-#   pre-edit   PreToolUse          Edit|Write|MultiEdit  refuse an edit to a file the generator rewrites
+#   pre-edit   PreToolUse          Edit|Write|MultiEdit  refuse an edit to a file the generator rewrites,
+#                                                        and a Write over a merged generated file
 #   pre-bash   PreToolUse          Bash|PowerShell       refuse a Gradle run that forces overwriting
 #   post-edit  PostToolUse         Edit|Write|MultiEdit  after a DSL edit, say what to run before finishing
 #   post-bash  PostToolUse(Failure) Bash|PowerShell      after a Gradle run, pass on what the generator said
@@ -434,6 +435,15 @@ pre-edit)
             ;;
         esac
         deny "ElastiCORE writes $path again on every generation, so an edit to it is lost. The model is the YAML in src/main/resources/blueprint/<domain>/; a message is translated or reworded in a copy with a locale suffix next to the default file, such as <domain>-messages_ko.properties. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
+        ;;
+    merged)
+        # An edit of a merged file is kept; a Write replaces all of it - usually a class
+        # of the agent's own given the name of a generated one, whose code (an entity's
+        # controller, say) is then gone, and into which the next build merges the DSL's
+        # changes as if it were still that file. Edit and MultiEdit stay allowed.
+        [ "$(json_string tool_name)" = Write ] || exit 0
+        base_name=".elasticore/$(basename -- "$(merge_base "$(merge_root "$path")")")"
+        deny "$path holds a file ElastiCORE generates from the DSL (it is in the merge base, $base_name), and Write replaces all of it: what the generator wrote there - an entity's API, its DTO, its mapper - would be gone, and the next build would merge the DSL's changes into a file that no longer has anything to do with them. To change this file, Edit it: the edit is kept and merged with the DSL's changes. To add a class of your own, choose another name, one the generator does not write. Do not replace it another way, with a shell command or a script. If the user wants the file replaced anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
     esac
     exit 0

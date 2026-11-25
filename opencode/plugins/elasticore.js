@@ -112,12 +112,15 @@ function patchOf(args) {
   return args && typeof args.patchText === "string" ? args.patchText : ""
 }
 
-// The files a patch adds, changes, deletes or moves to.
+// The files a patch adds, changes, deletes or moves to, each with the tool the
+// hook script takes it for: a file the patch adds or moves to gets the whole of
+// its content from the patch, as from a Write; one it changes or deletes is
+// edited. Neither is ever the one-block Edit the hook lets through.
 function patchFiles(patchText, directory) {
   const files = []
   for (const line of String(patchText || "").split(/\r?\n/)) {
-    const m = /^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/.exec(line)
-    if (m) files.push(absolute(m[1].trim(), directory))
+    const m = /^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$/.exec(line)
+    if (m) files.push({ file: absolute(m[2].trim(), directory), tool: m[1] === "Add File" || m[1] === "Move to" ? "Write" : "Edit" })
   }
   return files
 }
@@ -133,8 +136,8 @@ function refusalFor(tool, sessionID, args, directory) {
     if (EDIT_TOOLS[tool] && args && fileOf(args)) {
       answers.push(editHook("pre-edit", sessionID, EDIT_TOOLS[tool], editInput(args, directory)))
     } else if (PATCH_TOOLS.has(tool) && patchOf(args)) {
-      // One file at a time, as a Write: a patch is never the one-block Edit the hook lets through.
-      for (const file of patchFiles(patchOf(args), directory)) answers.push(editHook("pre-edit", sessionID, "Write", { file_path: file }))
+      // One file at a time.
+      for (const { file, tool } of patchFiles(patchOf(args), directory)) answers.push(editHook("pre-edit", sessionID, tool, { file_path: file }))
     } else if (SHELL_TOOLS.has(tool) && args && args.command) {
       answers.push(run("pre-bash", { session_id: sessionID, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: args.command } }))
     }
@@ -154,8 +157,8 @@ function editNote(tool, sessionID, args, directory) {
     }
     if (PATCH_TOOLS.has(tool) && patchOf(args)) {
       const notes = []
-      for (const file of patchFiles(patchOf(args), directory)) {
-        const answer = editHook("post-edit", sessionID, "Write", { file_path: file })
+      for (const { file, tool } of patchFiles(patchOf(args), directory)) {
+        const answer = editHook("post-edit", sessionID, tool, { file_path: file })
         if (answer && answer.additionalContext && !notes.includes(answer.additionalContext)) notes.push(answer.additionalContext)
       }
       return notes.join(" ")

@@ -256,6 +256,24 @@ run pre-edit "$(edit_json Edit "$msrc/OrderDTO.java")"
 check "a file still carrying //ecd: is refused in a merging project too" eval 'denied && has "$out" "build once first"'
 run pre-edit "$(edit_json Edit "$msrc/ShopApplication.java")"
 check "a hand-written file of a merging project may be edited" quiet
+# A Write replaces the whole file: over a merged generated file it is refused before it runs.
+run pre-edit "$(edit_json Write "$msrc/ProductDTO.java")"
+check "a Write over a merged generated file is refused, naming the file and the base" \
+    eval 'denied && has "$out" "$msrc/ProductDTO.java" && has "$out" ".elasticore/cache" && valid_json'
+check "and saying what to do instead: Edit it, or another name for a class of your own" \
+    eval 'has "$out" "Edit it" && has "$out" "choose another name" && has "$out" "ELASTICORE_ALLOW_GENERATED_EDITS=1"'
+run pre-edit "$(edit_json MultiEdit "$msrc/ProductDTO.java")"
+check "a MultiEdit of a merged generated file may go ahead" quiet
+run pre-edit "$(edit_json Write "$mres/i18n/shop-messages.properties")"
+check "so is a Write over the merged messages file refused" denied
+run pre-edit "$(edit_json Write "$msrc/ProductService.java")"
+check "a Write over a developer's file in the base may go ahead" quiet
+run pre-edit "$(edit_json Write "$msrc/ShopApplication.java")"
+check "a Write over a hand-written file of a merging project may go ahead" quiet
+run pre-edit "$(edit_json Write "$msrc/GoldenRunCommandController.java")"
+check "a Write of a new file under another name may go ahead" quiet
+out="$(printf '%s' "$(edit_json Write "$msrc/ProductDTO.java")" | ELASTICORE_ALLOW_GENERATED_EDITS=1 "$shell" "$hook" pre-edit 2>"$work/stderr")"; rc=$?; err="$(cat "$work/stderr")"
+check "ELASTICORE_ALLOW_GENERATED_EDITS=1 lets a Write over a merged file through" quiet
 
 run post-edit "$(edit_json Edit "$msrc/ProductDTO.java" m1)"
 check "an edit of a merged file is explained, naming the base this project has" \
@@ -293,6 +311,9 @@ run pre-edit "$(edit_json Edit "$rres/blueprint/schema.yml")"
 check "with generated-base.zip, blueprint/schema.yml is still refused" denied
 run pre-edit "$(edit_json Edit "$rsrc/OrderDTO.java")"
 check "with generated-base.zip, a file still carrying //ecd: is refused" eval 'denied && has "$out" "build once first"'
+run pre-edit "$(edit_json Write "$rsrc/ProductDTO.java")"
+check "with generated-base.zip, a Write over a merged file is refused, naming the new file" \
+    eval 'denied && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache"'
 run post-edit "$(edit_json Edit "$rsrc/ProductDTO.java" r1)"
 check "with generated-base.zip, an edit of a merged file is explained, naming the new file" \
     eval 'noted && has "$out" "merged" && has "$out" ".elasticore/generated-base.zip" && ! has "$out" ".elasticore/cache" && valid_json'

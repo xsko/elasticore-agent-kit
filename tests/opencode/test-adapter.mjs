@@ -49,6 +49,13 @@ write(own, "package com.acme.shop;\n\npublic class ShopApplication {}\n")
 const model = join(blueprint, "shop", "model", "entity.yml")
 write(model, "entity:\n  Product:\n    fields:\n      name: string(100)!\n")
 const built = "> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 9s\n"
+// A project on the merge: generated files have no //ecd: line and are named in the merge base,
+// a stored zip whose entry names can be read as they are.
+const merging = join(work, "merging")
+const mergedFile = join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunController.java")
+write(join(merging, "build.gradle"), "plugins { id 'io.elasticore' version '3.0.261127' }\n")
+write(mergedFile, "package com.acme.rating;\n\npublic class GoldenRunController {}\n")
+write(join(merging, ".elasticore", "generated-base.zip"), "PK\u0003\u0004....src/main/java/com/acme/rating/GoldenRunController.javapackage com.acme.rating;PK\u0001\u0002\n")
 
 // --- helpers -----------------------------------------------------------------------
 const prompts = []
@@ -121,6 +128,24 @@ e = await before(plugin, s, "apply_patch", { patchText: patch("Update", "src/mai
 check("an apply_patch of a //ecd: file throws", e && /ProductDTO\.java from the DSL/.test(e.message), e && e.message)
 e = await before(plugin, s, "apply_patch", { patchText: patch("Update", "src/main/java/com/acme/shop/ShopApplication.java") })
 check("an apply_patch of a hand-written file goes through", e === null, e && e.message)
+
+// A merged generated file: an edit is kept, a whole new content replaces it.
+e = await before(plugin, s, "write", { filePath: mergedFile, content: "public class GoldenRunController {}\n" })
+check("a write over a merged generated file throws", e && /GoldenRunController\.java holds a file ElastiCORE generates/.test(e.message) && /Edit it/.test(e.message) && /choose another name/.test(e.message), e && e.message)
+e = await before(plugin, s, "edit", { filePath: mergedFile, oldString: "{}", newString: "{ }" })
+check("an edit of a merged generated file goes through", e === null, e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Add", mergedFile) })
+check("an apply_patch that adds a merged generated file anew throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Update", mergedFile) })
+check("an apply_patch that changes a merged generated file goes through", e === null, e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: "*** Begin Patch\n*** Update File: " + join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunCommand.java") + "\n*** Move to: " + mergedFile + "\n*** End Patch" })
+check("an apply_patch that moves another file onto a merged generated file throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before(plugin, s, "apply_patch", { patchText: patch("Add", join(merging, "src", "main", "java", "com", "acme", "rating", "GoldenRunCommandController.java")) })
+check("an apply_patch that adds a class under another name goes through", e === null, e && e.message)
+process.env.ELASTICORE_ALLOW_GENERATED_EDITS = "1"
+e = await before(plugin, s, "write", { filePath: mergedFile, content: "x" })
+check("ELASTICORE_ALLOW_GENERATED_EDITS=1 lets the write through", e === null, e && e.message)
+delete process.env.ELASTICORE_ALLOW_GENERATED_EDITS
 
 // --- notes -------------------------------------------------------------------------
 s = session()
@@ -284,6 +309,14 @@ e = await before2(s, "edit", { path: own, oldString: "{}", newString: "{ }" })
 check("2.x: an edit of a hand-written file goes through", e === null, e && e.message)
 e = await before2(s, "read", { path: managed })
 check("2.x: a read goes through", e === null, e && e.message)
+e = await before2(s, "write", { path: mergedFile, content: "public class GoldenRunController {}\n" })
+check("2.x: a write over a merged generated file throws", e && /holds a file ElastiCORE generates/.test(e.message), e && e.message)
+e = await before2(s, "edit", { path: mergedFile, oldString: "{}", newString: "{ }" })
+check("2.x: an edit of a merged generated file goes through", e === null, e && e.message)
+e = await before2(s, "patch", { patchText: patch("Add", mergedFile) })
+check("2.x: a patch that adds a merged generated file anew throws", e && /Write replaces all of it/.test(e.message), e && e.message)
+e = await before2(s, "patch", { patchText: patch("Update", mergedFile) })
+check("2.x: a patch that changes a merged generated file goes through", e === null, e && e.message)
 
 s = session()
 let res = await after2(s, "edit", { path: "src/main/resources/blueprint/shop/model/entity.yml", oldString: "string(100)!", newString: "string(200)!" }, edited("entity.yml"))

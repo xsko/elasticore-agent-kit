@@ -122,7 +122,10 @@ fails until they are resolved (`CONFLICT`). A file whose first line starts
 then takes only the DSL's changes that merge cleanly - when one does not, the build leaves the file
 as it is and says what to carry over (`KEPT(yours ...)`). Still put in the DSL whatever it can say; a
 hand edit is for what it cannot. A file there that still has an `//ecd:` line has not been taken
-over yet: build once, then edit. The base is committed with the generated files - never delete it,
+over yet: build once, then edit. Change such a file with an edit, never by writing it anew: a whole
+new content replaces what the generator wrote (an entity's API, say), and the plugin refuses that
+Write. A class of your own gets a name no generated file has - look in the base before you pick one.
+The base is committed with the generated files - never delete it,
 never put it in `.gitignore`, and never edit it; `.elasticore/.gitattributes` beside it is committed
 too, and so is `.elasticore/.gitignore` (`!generated-base.zip`), which the newer ElastiCORE writes.
 It is a zip: `unzip -Z1 .elasticore/generated-base.zip` lists the files it holds (or `grep -a -c -F '<path>' .elasticore/generated-base.zip`; `.elasticore/cache` in place of the
