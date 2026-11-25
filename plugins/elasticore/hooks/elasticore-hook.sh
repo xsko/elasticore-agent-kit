@@ -572,7 +572,9 @@ redirected_output() {
             [ "$f" -nt "$started" ] || continue
             if [ "$mode" = a ]; then
                 skip="$(F="$f" awk -F '\t' '$3 == ENVIRON["F"] { print $2; exit }' "$started")"
-                [ -n "$skip" ] || skip=0
+                # Not the file noted at the start (a cd in the command, say): what is
+                # new in it cannot be told from what earlier runs left.
+                [ -n "$skip" ] || continue
             fi
         elif [ "$mode" = a ]; then
             continue
@@ -794,6 +796,53 @@ type_checks() {
     commands "$1" | grep -E "$TSC|$CHECK" | grep -Evq '(^|[[:space:]])(--help|-h|--version|-v|--init|--showConfig)([[:space:]]|$)'
 }
 
+# The folder a type check ran in: the folder the command ran in, then its last cd
+# (pushd, Set-Location), then the folder the check names (npm --prefix, pnpm -C /
+# --dir, yarn --cwd, tsc -p / --project, a tsconfig file standing for its folder).
+# Fails when the command's folder is not known.
+check_dir() {
+    base="$(json_path cwd)"
+    [ -n "$base" ] || return 1
+    commands "$1" | P="$TSC|$CHECK" awk '
+        tolower($1) ~ /^(cd|pushd|set-location|sl|chdir)$/ {
+            x = ""
+            for (k = 2; k <= NF; k++) {
+                if (x == "" && tolower($k) ~ /^(-l|-p|\/d|--|-path|-literalpath)$/) continue
+                x = (x == "" ? $k : x " " $k)
+            }
+            if (x != "") { print "D\t" x; named = "" }
+            next
+        }
+        $0 ~ ENVIRON["P"] {
+            for (k = 1; k < NF; k++)
+                if ($k ~ /^(--prefix|-C|--dir|--cwd|-p|--project)$/) named = $(k + 1)
+            for (k = 1; k <= NF; k++)
+                if ($k ~ /^(--prefix|--dir|--cwd|--project)=/) { named = $k; sub(/^[^=]*=/, "", named) }
+        }
+        END { if (named != "") print "D\t" named }' | {
+        dir="$base"
+        while IFS="$tab" read -r kind d; do
+            [ "$kind" = D ] || continue
+            p="$(target_path "$d" "$dir")" || continue
+            case "$p" in *.json) p="$(dirname -- "$p")" ;; esac
+            dir="$p"
+        done
+        printf '%s\n' "$dir"
+    }
+}
+
+# The noted screen folders other than the one a passing type check ran in.
+screens_left() {
+    D="$1" awk '
+        function norm(p) {
+            gsub(/\\/, "/", p)
+            while (sub(/\/\.\//, "/", p)) ;
+            sub(/\/\.$/, "", p); sub(/\/+$/, "", p)
+            return tolower(p)
+        }
+        norm($0) != norm(ENVIRON["D"])' "$ts_screens"
+}
+
 GENERATING='elcore[A-Za-z0-9]*|compileJava|compileKotlin|classes|processResources|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 COMPILING='compileJava|compileKotlin|classes|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 
@@ -939,7 +988,7 @@ post-bash)
     state
     checked=0
     [ -f "$ts_screens" ] && type_checks "$command" && checked=1
-    [ "$gradle" = 1 ] || [ "$checked" = 1 ] || exit 0
+    [ "$gradle" = 1 ] || [ "$checked" = 1 ] || { rm -f -- "$(started_note)"; exit 0; }
 
     # What Gradle printed. The command itself may name the same words (a grep),
     # so only what came back counts: the tool's response - or the whole output,
@@ -1095,7 +1144,16 @@ $from_file"
         if [ -f "$ts_client" ]; then
             text="${text}This type check ran against the TypeScript client as it was before the model change - it has not been generated again since. Run ./gradlew elcore3ts (or a build, when typescriptClient = true) first, then check the screens again. "
         elif [ "$failed" = 0 ] && ! printf '%s' "$output" | grep -Eq 'error TS[0-9]|Found [0-9]+ errors?|npm ERR!|npm error|ELIFECYCLE|Command failed'; then
-            rm -f -- "$ts_screens"
+            # Only the screens in the folder it ran in: another screen folder may
+            # still be broken by the change.
+            # Where it ran cannot be told without the command's folder: all of them, as before.
+            left_screens=""
+            dir="$(check_dir "$command")" && left_screens="$(screens_left "$dir")"
+            if [ -n "$left_screens" ]; then
+                printf '%s\n' "$left_screens" > "$ts_screens"
+            else
+                rm -f -- "$ts_screens"
+            fi
         fi
     fi
     [ -n "$text" ] && context "$hook_event" "$text"

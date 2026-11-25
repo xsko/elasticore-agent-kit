@@ -724,6 +724,15 @@ s=rdn2
 run post-edit "$(edit_json Edit "$rmodel" "$s")"
 run post-bash "$(post_json './gradlew compileJava >> logs/nostart.log' "" "$s" "call-$s")"
 check "and one appended to does not" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]
+# Appended to, but not the file noted at the start (the folder changed in between):
+# what earlier runs left in it does not count.
+s=rdc1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run pre-bash "$(pre_json './gradlew compileJava >> cdappend.log' "$s" "call-$s")"
+cp "$work/built.txt" "$rproj/logs/cdappend.log"; touch -t "$future" "$rproj/logs/cdappend.log"
+run post-bash "$(printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"%s","tool_input":{"command":"%s"},"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false}}' \
+    "$s" "$rproj/logs" "call-$s" './gradlew compileJava >> cdappend.log')"
+check "an appended file the start did not note proves nothing" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]
 # Bigger than 4 MB: not read.
 { cat "$work/built.txt"; head -c 4300000 /dev/zero | tr '\000' 'x'; } > "$work/huge.txt"
 redirected "a file over 4 MB is not read" './gradlew compileJava > logs/huge.log' "$rproj/logs/huge.log" "$work/huge.txt" "$future" stays
@@ -837,6 +846,32 @@ check "and a build ends the change" quiet
 run post-edit "$(edit_json Edit "$model" ts9)"
 run post-bash "$(bash_json "npm run check" "$checked" ts9)"
 check "a type check in a session without a client is not looked at" quiet
+
+# Two screen folders: a check counts for the folder it ran in, not for the other.
+tsm="$work/tsm"
+tsproj "$tsm" yes yes
+mkdir -p "$tsm/apps/admin"
+printf '{ "include": ["src", "../../src/main/ts"] }\n' > "$tsm/apps/admin/tsconfig.json"
+cwd_json() {  # cwd_json <command> <stdout> <session> <cwd>
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' \
+        "$3" "$4" "$1" "$2"
+}
+run post-edit "$(edit_json Edit "$tsm/src/main/resources/blueprint/shop/model/entity.yml" ts10)"
+check "both screen folders are named" eval 'noted && has "$out" "web" && has "$out" "apps/admin"'
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts10)"
+run post-bash "$(cwd_json "cd web && npm run check" "$checked" ts10 "$tsm")"
+check "a check in web leaves apps/admin to check" eval 'grep -q "apps/admin" "$CLAUDE_PLUGIN_DATA/ts-screens-ts10" && ! grep -q "/web\$" "$CLAUDE_PLUGIN_DATA/ts-screens-ts10"'
+run post-bash "$(cwd_json "npx tsc --noEmit" "" ts10 "$tsm")"
+check "a check in the project folder is not one of apps/admin" [ -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts10" ]
+run stop "$(stop_json false ts10)"
+check "Stop names the folder left" eval 'noted && has "$out" "were not type-checked" && has "$out" "apps/admin" && ! has "$out" "$tsm/web" && valid_json'
+run post-edit "$(edit_json Edit "$tsm/src/main/resources/blueprint/shop/model/entity.yml" ts11)"
+run post-bash "$(bash_json "./gradlew elcore3ts compileJava" "$tsboth" ts11)"
+run post-bash "$(cwd_json "npm --prefix web run check" "$checked" ts11 "$tsm")"
+run post-bash "$(cwd_json "npx tsc --noEmit -p apps/admin/tsconfig.json" "" ts11 "$tsm")"
+check "npm --prefix and tsc -p name the folder; both checked, the note is gone" [ ! -f "$CLAUDE_PLUGIN_DATA/ts-screens-ts11" ]
+run stop "$(stop_json false ts11)"
+check "and nothing is said" quiet
 
 # --- accepted DSL warnings: .elasticore/accepted-warnings.txt ----------------------
 # The rule engine's list as it prints it: the header, a line of dashes, each warning in red, a blank line.

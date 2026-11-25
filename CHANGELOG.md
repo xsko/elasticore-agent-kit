@@ -44,11 +44,12 @@ fixes and one new check; the skill gets three pages.
   and the agent built again with the whole output in the conversation. Now `post-bash` also reads
   the file a Gradle command names - `>`, `>>`, `1>`, `2>`, `*>`, `&>`, `2>&1 > f`, `| tee [-a] f`,
   `| Tee-Object [-FilePath] f`, `| Out-File`, `| Set-Content`, `| Add-Content`, quoted, relative
-  to the folder the command ran in, or with `~`, `$HOME`, `$env:NAME`, `${env:NAME}`, `%NAME%` or
-  `$PWD` in it:
+  to the folder the command ran in (a `cd` inside the command is not followed), or with `~`,
+  `$HOME`, `$env:NAME`, `${env:NAME}`, `%NAME%` or `$PWD` in it:
   - only a file written after the command started: `pre-bash` notes the start (per tool call), and
     a file not newer than that proves nothing; of a file appended to, only what the command added;
-    without the start noted, a file written whole is read and one appended to is not;
+    without the start noted, a file written whole is read and one appended to is not, nor one
+    appended to that the start did not note;
   - UTF-16 (what Windows PowerShell 5.1 writes with `*>` and `Out-File`) is read as text; a file over
     4 MB is not read; a file another statement of the line writes does not count;
   - the output Claude Code saves to a file (`persistedOutputPath`) is read as before. The opencode
@@ -66,7 +67,9 @@ fixes and one new check; the skill gets three pages.
   - a DSL change there also needs a run that regenerated the client - `elcore3ts` in the task list
     or as a task in the output, or a successful build of a project that sets `typescriptClient =
     true` - and then a type check that passed: `tsc` or `vue-tsc` (through `npx`, `pnpm`, `yarn`)
-    or the `check` script run by `npm`, `pnpm`, `yarn` or `bun`;
+    or the `check` script run by `npm`, `pnpm`, `yarn` or `bun` - in each screen folder: a check
+    counts for the folder it ran in (the command's folder, its `cd`, or `npm --prefix`, `pnpm -C`,
+    `yarn --cwd`, `tsc -p`), and the other screen folders are still to check;
   - the note after the DSL edit says so, naming the screen folders; the reminder at the end names
     what is missing - "The TypeScript client was not regenerated", "The screens were not
     type-checked" - once. A type check that failed (`error TS...`, also with exit 0 from

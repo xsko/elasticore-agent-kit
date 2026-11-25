@@ -234,7 +234,8 @@ check("idle after a type check that failed names the screens", sent.length === 1
 s = session()
 await after(plugin, s, "edit", { filePath: clientModel, oldString: "a", newString: "b" }, "ok")
 await after(plugin, s, "bash", { command: "./gradlew elcore3ts compileJava" }, tsBoth, { output: tsBoth, exit: 0 })
-await after(plugin, s, "bash", { command: "cd web && npm run check" }, "> check\n> tsc --noEmit\n", { output: "", exit: 0 })
+// The plugin's folder is another project: the check names the screens' folder.
+await after(plugin, s, "bash", { command: "cd " + join(clientProject, "web") + " && npm run check" }, "> check\n> tsc --noEmit\n", { output: "", exit: 0 })
 check("built, regenerated and checked: idle sends nothing", (await idle(plugin, s)).length === 0)
 
 // opencode cuts a long output and saves the whole of it
@@ -454,7 +455,7 @@ check("2.x: idle with the client not regenerated names it", sent.length === 1 &&
 s = session()
 await after2(s, "edit", { path: clientModel, oldString: "a", newString: "b" }, edited("entity.yml"))
 await after2(s, "shell", { command: "./gradlew elcore3ts compileJava" }, shelled(tsBoth, 0))
-await after2(s, "shell", { command: "npm --prefix web run check" }, shelled("> check\n> tsc --noEmit\n", 0))
+await after2(s, "shell", { command: "npm --prefix " + join(clientProject, "web") + " run check" }, shelled("> check\n> tsc --noEmit\n", 0))
 check("2.x: built, regenerated and checked: idle sends nothing", (await idle2(s)).length === 0)
 
 s = session()
