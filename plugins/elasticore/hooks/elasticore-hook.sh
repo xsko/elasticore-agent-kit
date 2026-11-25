@@ -26,6 +26,7 @@ export LC_ALL=C
 
 event="${1:-}"
 input="$(cat)" || exit 0
+tab="$(printf '\t')"
 
 # The raw value of a JSON string field, still escaped. Claude Code sends one
 # line of JSON; a key inside another string value is escaped (\"key\") and is
@@ -382,6 +383,206 @@ runs_gradle() {
     fi
 }
 
+# The files a command writes its output to, by statement - a pipeline between
+# ; && || & ( ) and line breaks: per statement a line "S", then "C <command>"
+# for each simple command of its pipeline (quotes dropped, redirections left
+# out), and "F <w|a> <file>" for each file it writes to: > 1> 2> *> &> >| (w)
+# and the same with >> (a, appended), and tee, Tee-Object, Out-File and
+# Set-Content (w) and Add-Content (a) after a pipe, with -a, --append or
+# -Append (a). A redirection to another stream (2>&1, *>&1) is no file.
+redirects() {
+    printf '%s\n' "$1" | awk '
+    function decode(s,   t, i, n, c, d) {
+        t = ""; n = length(s)
+        for (i = 1; i <= n; i++) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < n) {
+                i++; d = substr(s, i, 1)
+                if (d == "n") t = t "\n"
+                else if (d == "t") t = t "\t"
+                else if (d == "u") { t = t "?"; i += 4 }
+                else if (d != "r") t = t d
+            } else t = t c
+        }
+        return t
+    }
+    function word_end() { if (inword) words[++nw] = w; w = ""; inword = 0 }
+    function command_end(   k, line) {
+        word_end()
+        if (nw > 0) {
+            line = words[1]
+            for (k = 2; k <= nw; k++) line = line " " words[k]
+            print "C\t" line
+            writers()
+        }
+        nw = 0
+    }
+    # tee and the PowerShell cmdlets that write what comes down the pipe to a file.
+    function writers(   name, k, lw, mode, file) {
+        name = words[1]; sub(/^.*[\/\\]/, "", name); name = tolower(name); sub(/\.exe$/, "", name)
+        if (name == "tee") {
+            mode = "w"
+            for (k = 2; k <= nw; k++) if (words[k] == "-a" || words[k] == "--append") mode = "a"
+            for (k = 2; k <= nw; k++) if (substr(words[k], 1, 1) != "-") print "F\t" mode "\t" words[k]
+            return
+        }
+        if (name != "tee-object" && name != "out-file" && name != "set-content" && name != "add-content") return
+        mode = (name == "add-content") ? "a" : "w"; file = ""
+        for (k = 2; k <= nw; k++) {
+            lw = tolower(words[k])
+            if (lw == "-append") { mode = "a"; continue }
+            if (lw == "-filepath" || lw == "-path" || lw == "-literalpath") { if (k < nw) file = words[k + 1]; k++; continue }
+            if (lw == "-variable") { file = "-"; k++; continue }
+            if (substr(lw, 1, 1) == "-") { if (lw == "-encoding" || lw == "-width" || lw == "-value" || lw == "-inputobject") k++; continue }
+            if (file == "") file = words[k]
+        }
+        if (file != "" && file != "-") print "F\t" mode "\t" file
+    }
+    {
+        t = decode($0); n = length(t); q = ""; w = ""; inword = 0; nw = 0; i = 1
+        print "S"
+        while (i <= n) {
+            c = substr(t, i, 1)
+            if (q != "") { if (c == q) q = ""; else w = w c; i++; continue }
+            if (c == "\"" || c == "\047") { q = c; inword = 1; i++; continue }
+            if (c == ">" || (c == "&" && substr(t, i + 1, 1) == ">")) {
+                if (c == "&") i++
+                else if (inword && w ~ /^[0-9*]$/) { w = ""; inword = 0 }
+                else word_end()
+                i++; mode = "w"
+                if (substr(t, i, 1) == ">") { mode = "a"; i++ }
+                if (substr(t, i, 1) == "|") i++
+                if (substr(t, i, 1) == "&") {
+                    i++
+                    while (i <= n && substr(t, i, 1) ~ /[0-9-]/) i++
+                    continue
+                }
+                while (i <= n && (substr(t, i, 1) == " " || substr(t, i, 1) == "\t")) i++
+                target = ""; tq = ""
+                while (i <= n) {
+                    d = substr(t, i, 1)
+                    if (tq != "") { if (d == tq) tq = ""; else target = target d; i++; continue }
+                    if (d == "\"" || d == "\047") { tq = d; i++; continue }
+                    if (d == " " || d == "\t" || d == "\n" || d == ";" || d == "&" || d == "|" || d == "(" || d == ")" || d == "<" || d == ">") break
+                    target = target d; i++
+                }
+                if (target != "") print "F\t" mode "\t" target
+                continue
+            }
+            if (c == "\n" || c == ";" || c == "(" || c == ")") { command_end(); print "S"; i++; continue }
+            if (c == "&") { command_end(); print "S"; i++; if (substr(t, i, 1) == "&") i++; continue }
+            if (c == "|") {
+                command_end()
+                if (substr(t, i + 1, 1) == "|") { print "S"; i += 2 } else i++
+                continue
+            }
+            if (c == " " || c == "\t") { word_end(); i++; continue }
+            w = w c; inword = 1; i++
+        }
+        command_end()
+    }'
+}
+
+# A file named in a command, as the shell reads it: ~, $HOME, ${NAME}, $env:NAME,
+# ${env:NAME} and %NAME% from the environment (any case, as on Windows), $PWD as
+# the folder the command ran in, \ as /, and a relative path from that folder.
+# Fails on the null device and on a variable the environment does not have - a
+# variable of the shell session itself.
+target_path() {
+    case "$1" in '' | /dev/null | '$null' | [Nn][Uu][Ll] | [Nn][Uu][Ll]:) return 1 ;; esac
+    p="$(printf '%s\n' "$1" | HOOK_CWD="$2" awk '
+        function value(name,   k) {
+            if (toupper(name) == "PWD" && ENVIRON["HOOK_CWD"] != "") return ENVIRON["HOOK_CWD"]
+            if (name in ENVIRON) return ENVIRON[name]
+            for (k in ENVIRON) if (toupper(k) == toupper(name)) return ENVIRON[k]
+            missing = 1
+            return ""
+        }
+        {
+            s = $0; out = ""
+            if (s == "~" || substr(s, 1, 2) == "~/" || substr(s, 1, 2) == "~\\") { out = value("HOME"); s = substr(s, 2) }
+            while (s != "") {
+                if (match(s, /^\$\{env:[A-Za-z_][A-Za-z0-9_]*\}/)) { name = substr(s, 7, RLENGTH - 7) }
+                else if (match(s, /^\$env:[A-Za-z_][A-Za-z0-9_]*/)) { name = substr(s, 6, RLENGTH - 5) }
+                else if (match(s, /^\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) { name = substr(s, 3, RLENGTH - 3) }
+                else if (match(s, /^\$[A-Za-z_][A-Za-z0-9_]*/)) { name = substr(s, 2, RLENGTH - 1) }
+                else if (match(s, /^%[A-Za-z_][A-Za-z0-9_]*%/)) { name = substr(s, 2, RLENGTH - 2) }
+                else { out = out substr(s, 1, 1); s = substr(s, 2); continue }
+                len = RLENGTH
+                out = out value(name)
+                s = substr(s, len + 1)
+            }
+            if (missing) exit 1
+            print out
+        }' | tr '\\' '/')" || return 1
+    [ -n "$p" ] || return 1
+    case "$p" in
+        /* | [A-Za-z]:/*) ;;
+        *) [ -n "$2" ] || return 1; p="$2/$p" ;;
+    esac
+    printf '%s\n' "$p"
+}
+
+# What a Gradle run in the command writes its output to: "<w|a> TAB <file>" a line,
+# for each statement that runs Gradle.
+output_files() {
+    cwd="$(json_path cwd)"
+    redirects "$1" | {
+        cmds=""; files=""
+        flush() {
+            if [ -n "$files" ] && printf '%s' "$cmds" | grep -Eq "$GRADLE"'([[:space:]]|$)'; then
+                printf '%s' "$files" | while IFS="$tab" read -r mode f; do
+                    f="$(target_path "$f" "$cwd")" && printf '%s\t%s\n' "$mode" "$f"
+                done
+            fi
+            cmds=""; files=""
+        }
+        while IFS="$tab" read -r kind a b; do
+            case "$kind" in
+                S) flush ;;
+                C) cmds="$cmds$a
+" ;;
+                F) files="$files$a$tab$b
+" ;;
+            esac
+        done
+        flush
+    }
+}
+
+# Where pre-bash notes, for one tool call, when it started and how long each
+# file it appends to was then: "<w|a> TAB <bytes> TAB <file>" a line.
+started_note() {
+    call="$(json_string tool_use_id | tr -cd 'A-Za-z0-9_-')"
+    printf '%s' "$state_dir/started-${session:-default}-${call:-last}"
+}
+
+# The text a command wrote to the files it names, as far as it is new: for a file
+# the command appended to, what came after the size it had when the command
+# started; a file not written since then, or one appended to when the start was
+# not noted, proves nothing. At most 4 MB a file.
+redirected_output() {
+    started="$(started_note)"
+    output_files "$command" | while IFS="$tab" read -r mode f; do
+        [ -f "$f" ] || continue
+        skip=0
+        if [ -f "$started" ]; then
+            [ "$f" -nt "$started" ] || continue
+            if [ "$mode" = a ]; then
+                skip="$(F="$f" awk -F '\t' '$3 == ENVIRON["F"] { print $2; exit }' "$started")"
+                [ -n "$skip" ] || skip=0
+            fi
+        elif [ "$mode" = a ]; then
+            continue
+        fi
+        size="$(wc -c < "$f" | tr -d ' ')"
+        [ "$size" -ge "$skip" ] 2>/dev/null || skip=0
+        [ $((size - skip)) -le 4194304 ] || continue
+        tail -c +"$((skip + 1))" -- "$f" 2>/dev/null | plain_text
+    done
+    rm -f -- "$started"
+}
+
 # Whether a Gradle run sets the property that makes the generator overwrite
 # hand edits, in any form Gradle reads: -Pforce, -P force, --project-prop force,
 # -Dorg.gradle.project.force, or ORG_GRADLE_PROJECT_force set in the same
@@ -555,6 +756,23 @@ pre-edit)
     ;;
 
 pre-bash)
+    # A build whose output goes to a file: note when it starts, and how long a file it
+    # appends to is, so that post-bash reads only what this run wrote.
+    case "$input" in
+        *gradle*)
+            state
+            started="$(started_note)"
+            rm -f -- "$started"
+            files="$(output_files "$(json_string command)")"
+            if [ -n "$files" ] && mkdir -p -- "$state_dir" 2>/dev/null; then
+                printf '%s\n' "$files" | while IFS="$tab" read -r mode f; do
+                    size=0
+                    [ "$mode" = a ] && [ -f "$f" ] && size="$(wc -c < "$f" | tr -d ' ')"
+                    printf '%s\t%s\t%s\n' "$mode" "$size" "$f"
+                done > "$started"
+            fi
+            ;;
+    esac
     [ "${ELASTICORE_ALLOW_FORCE:-}" = 1 ] && exit 0
     case "$input" in *force*) ;; *) exit 0 ;; esac
     command="$(json_string command)"
@@ -640,6 +858,12 @@ post-bash)
             from_file="$(plain_text < "$saved" 2>/dev/null)"
         fi
     fi
+    state
+    # A build whose output went to a file (> build.log, *> build.log, | tee build.log):
+    # what it wrote there, as new as this run.
+    redirected="$(redirected_output)"
+    [ -n "$redirected" ] && from_file="$from_file
+$redirected"
     output="$from_json
 $from_file"
     has() { printf '%s' "$output" | grep -q -F -e "$1"; }

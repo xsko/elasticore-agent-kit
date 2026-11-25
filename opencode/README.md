@@ -79,7 +79,8 @@ The tools differ by version and the plugin knows both: 1.x has `edit`, `write`, 
 Covered by [`tests/opencode/test-adapter.mjs`](../tests/opencode/test-adapter.mjs) with the tool
 input each version sends, but not seen live: the notes after a Gradle build (DSL validation
 warnings, a YAML file that could not be read, hand-edited generated files), the whole output
-opencode saves when it cuts a long one, `apply_patch` / `patch`, the edit tool opencode gives
+opencode saves when it cuts a long one, a build whose output goes to a file (`> build.log`,
+`*> build.log`, `| tee build.log`), `apply_patch` / `patch`, the edit tool opencode gives
 some models instead of `edit`, and the refusal of a `write` - or a patch that adds a file anew or
 moves another onto it - over a merged generated file of a project with a merge base (an `edit` of
 it, or a patch that changes it, goes through).

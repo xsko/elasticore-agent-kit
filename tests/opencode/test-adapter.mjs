@@ -7,7 +7,7 @@
 // The fixtures go to a fresh directory under the system temp directory, left for inspection.
 
 import { spawnSync } from "node:child_process"
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -224,6 +224,29 @@ await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b"
 await after(plugin, s, "bash", { command: "./gradlew compileJava" }, lost, { output: lost, exit: 0 })
 check("a cut output without its file proves nothing", (await idle(plugin, s)).length === 1)
 
+// A build whose output goes to a file: the plugin passes the call's id and the project
+// directory, and the hook script reads the file the command names, as new as the call.
+const logs = join(project, "build", "logs")
+mkdirSync(logs, { recursive: true })
+const future = new Date(Date.now() + 3600 * 1000)
+async function before1(sessionID, command, call) {
+  await plugin["tool.execute.before"]({ tool: "bash", sessionID, callID: call }, { args: { command } })
+}
+s = session()
+await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b" }, "ok")
+await before1(s, "./gradlew compileJava > build/logs/build.log 2>&1", "call-" + s)
+write(join(logs, "build.log"), built)
+utimesSync(join(logs, "build.log"), future, future)
+await plugin["tool.execute.after"]({ tool: "bash", sessionID: s, callID: "call-" + s, args: { command: "./gradlew compileJava > build/logs/build.log 2>&1" } }, { title: "", output: "", metadata: { output: "", exit: 0 } })
+check("a build whose output went to a file (> f) is read from the file", (await idle(plugin, s)).length === 0)
+s = session()
+await after(plugin, s, "edit", { filePath: model, oldString: "a", newString: "b" }, "ok")
+await before1(s, "./gradlew elcore3 | tee build/logs/gen.log", "call-" + s)
+write(join(logs, "gen.log"), "> Task :elcore3\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n")
+utimesSync(join(logs, "gen.log"), future, future)
+await plugin["tool.execute.after"]({ tool: "bash", sessionID: s, callID: "call-" + s, args: { command: "./gradlew elcore3 | tee build/logs/gen.log" } }, { title: "", output: "", metadata: { output: "", exit: 0 } })
+check("and one that only generated, there, does not end the change", (await idle(plugin, s)).length === 1)
+
 s = session()
 out = await after(plugin, s, "apply_patch", { patchText: "*** Begin Patch\n*** Add File: src/main/resources/blueprint/shop/model/order.yml\n+entity: {}\n*** End Patch" }, "Success.")
 check("an apply_patch that adds a DSL file gets the note", out.includes(NOTE + "You changed the ElastiCORE model"), out)
@@ -386,6 +409,14 @@ s = session()
 await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
 await after2(s, "shell", { command: "./gradlew compileJava" }, { content: [{ type: "text", text: tail.replace(saved, join(work, "tool-output", "no-such-file.txt")) }], metadata: { exit: 0, truncated: true } })
 check("2.x: a cut output without its file proves nothing", (await idle2(s)).length === 1)
+
+s = session()
+await after2(s, "edit", { path: model, oldString: "a", newString: "b" }, edited("entity.yml"))
+await v2.hooks["execute.before"]({ tool: "shell", sessionID: s, id: "call-" + s, input: { command: "./gradlew compileJava *> build/logs/ps.log" } })
+write(join(logs, "ps.log"), built)
+utimesSync(join(logs, "ps.log"), future, future)
+await v2.hooks["execute.after"]({ tool: "shell", sessionID: s, id: "call-" + s, input: { command: "./gradlew compileJava *> build/logs/ps.log" }, status: "completed", result: shelled("", 0) })
+check("2.x: a build whose output went to a file (*> f) is read from the file", (await idle2(s)).length === 0)
 
 s = session()
 res = await after2(s, "shell", { command: "./gradlew compileJava" }, { output: { exitCode: 0, output: warned }, metadata: { exit: 0 } })

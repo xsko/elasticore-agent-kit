@@ -646,6 +646,95 @@ run post-edit "$(edit_json Edit "$model")"
 run post-bash "$(bash_json "./gradlew compileJava" "> Task :elcore3\\n...the first 30000 characters" s1 "" ",\"persistedOutputPath\":\"$saved\",\"persistedOutputSize\":100022")"
 check "a long output is read from the file Claude Code saved it to" eval 'quiet && [ ! -f "$marker" ]'
 
+# --- a build whose output goes to a file ----------------------------------------------
+# pre-bash notes when the command starts; post-bash reads what the command wrote to the
+# file it names, if the file is newer than that. The times are set with touch -t, so the
+# test does not depend on how finely a file system keeps them.
+rproj="$work/rproj"
+mkdir -p "$rproj/src/main/resources/blueprint/shop/model" "$rproj/logs"
+cp "$engine/build.gradle" "$rproj/build.gradle"
+cp "$model" "$rproj/src/main/resources/blueprint/shop/model/entity.yml"
+rmodel="$rproj/src/main/resources/blueprint/shop/model/entity.yml"
+printf '> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\n> Task :compileJava\nBUILD SUCCESSFUL in 9s\n' > "$work/built.txt"
+printf '> Task :elcore3\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n' > "$work/generated.txt"
+export KIT_LOGS="$rproj/logs"
+pre_json() {  # pre_json <command> <session> <call> [tool]
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"%s","tool_use_id":"%s","tool_input":{"command":"%s"}}' \
+        "$2" "$rproj" "${4:-Bash}" "$3" "$1"
+}
+post_json() {  # post_json <command> <stdout> <session> <call> [tool]
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"%s","tool_use_id":"%s","tool_input":{"command":"%s"},"tool_response":{"stdout":"%s","stderr":"","interrupted":false,"isImage":false}}' \
+        "$3" "$rproj" "${5:-Bash}" "$4" "$1" "$2"
+}
+redirected() {  # redirected <label> <command> <file> <content file> <touch time> <want: clears|stays> [tool] [stdout]
+    s="rd$((n = n + 1))"
+    run post-edit "$(edit_json Edit "$rmodel" "$s")"
+    run pre-bash "$(pre_json "$2" "$s" "call-$s" "${7:-Bash}")"
+    pre_out="$out"
+    cp "$4" "$3"
+    touch -t "$5" "$3"
+    run post-bash "$(post_json "$2" "${8:-}" "$s" "call-$s" "${7:-Bash}")"
+    if [ "$6" = clears ]; then
+        check "$1" eval '[ -z "$pre_out" ] && quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+    else
+        check "$1" eval '[ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+    fi
+}
+n=0
+future=209901010000
+past=202001010000
+redirected "a build into a file (> f 2>&1) counts" './gradlew compileJava > logs/build.log 2>&1' "$rproj/logs/build.log" "$work/built.txt" "$future" clears
+redirected "and the file's path may be absolute and quoted" "./gradlew compileJava > \\\"$rproj/logs/b q.log\\\" 2>&1" "$rproj/logs/b q.log" "$work/built.txt" "$future" clears
+redirected "2>&1 > f counts" './gradlew compileJava 2>&1 > logs/b2.log' "$rproj/logs/b2.log" "$work/built.txt" "$future" clears
+redirected "| tee f counts" './gradlew compileJava 2>&1 | tee logs/tee.log | tail -n 3' "$rproj/logs/tee.log" "$work/built.txt" "$future" clears
+redirected "a file older than the command's start does not" './gradlew compileJava > logs/old.log 2>&1' "$rproj/logs/old.log" "$work/built.txt" "$past" stays
+redirected "a file of a build that only generated does not" './gradlew elcore3 > logs/gen.log' "$rproj/logs/gen.log" "$work/generated.txt" "$future" stays
+redirected "a file another statement writes does not" './gradlew compileJava; cat logs/x.log > logs/copy.log' "$rproj/logs/copy.log" "$work/built.txt" "$future" stays
+redirected "the null device is no file" './gradlew compileJava > /dev/null' "$rproj/logs/null.log" "$work/built.txt" "$future" stays
+# (Inside single quotes \\ is a backslash and \" a quote, as the JSON has them.)
+redirected 'from PowerShell: *> $env:NAME\f; "exit=$LASTEXITCODE"' \
+    '.\\gradlew.bat build --console=plain *> $env:KIT_LOGS\\ps.log; \"exit=$LASTEXITCODE\"' "$rproj/logs/ps.log" "$work/built.txt" "$future" clears PowerShell 'exit=0'
+redirected "from PowerShell: | Tee-Object -FilePath f" \
+    '.\\gradlew.bat compileJava 2>&1 | Tee-Object -FilePath logs\\tee-ps.log | Select-Object -Last 3' "$rproj/logs/tee-ps.log" "$work/built.txt" "$future" clears PowerShell
+redirected 'from PowerShell: | Out-File "$PWD\f"' \
+    '.\\gradlew.bat compileJava *>&1 | Out-File -Encoding utf8 \"$PWD\\logs\\out.log\"' "$rproj/logs/out.log" "$work/built.txt" "$future" clears PowerShell
+if command -v iconv >/dev/null 2>&1; then
+    # What Windows PowerShell 5.1 writes with *>: UTF-16 with a byte order mark.
+    { printf '\377\376'; iconv -f UTF-8 -t UTF-16LE < "$work/built.txt"; } > "$work/built16.txt"
+    redirected "a UTF-16 file, as Windows PowerShell writes, counts" \
+        '.\\gradlew.bat compileJava *> logs\\ps16.log' "$rproj/logs/ps16.log" "$work/built16.txt" "$future" clears PowerShell
+fi
+# Appended to (>>): only what this run added counts.
+cp "$work/built.txt" "$rproj/logs/append.log"
+redirected "a file appended to (>>): what was in it before the run does not count" './gradlew compileJava >> logs/append.log 2>&1' "$rproj/logs/append.log" "$work/built.txt" "$future" stays
+s=rda1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run pre-bash "$(pre_json './gradlew compileJava >> logs/append2.log 2>&1' "$s" "call-$s")"
+cat "$work/built.txt" >> "$rproj/logs/append2.log"
+touch -t "$future" "$rproj/logs/append2.log"
+run post-bash "$(post_json './gradlew compileJava >> logs/append2.log 2>&1' "" "$s" "call-$s")"
+check "and an appended successful build clears the note" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+# The start not noted (no pre-bash): a file written whole (>) is read, one appended to is not.
+s=rdn1
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+cp "$work/built.txt" "$rproj/logs/nostart.log"
+run post-bash "$(post_json './gradlew compileJava > logs/nostart.log' "" "$s" "call-$s")"
+check "without the start noted, a file written whole counts" eval 'quiet && [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]'
+s=rdn2
+run post-edit "$(edit_json Edit "$rmodel" "$s")"
+run post-bash "$(post_json './gradlew compileJava >> logs/nostart.log' "" "$s" "call-$s")"
+check "and one appended to does not" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-$s" ]
+# Bigger than 4 MB: not read.
+{ cat "$work/built.txt"; head -c 4300000 /dev/zero | tr '\000' 'x'; } > "$work/huge.txt"
+redirected "a file over 4 MB is not read" './gradlew compileJava > logs/huge.log' "$rproj/logs/huge.log" "$work/huge.txt" "$future" stays
+# The warnings and notes come from the file too.
+printf '> Task :elcore3\ndto  src/x/ProductDTO.java  SKIP(user-modified; -Pforce to overwrite)\n=== elcore3: 1 written / 0 unchanged / 1 skipped / 0 failed ===\nBUILD SUCCESSFUL in 4s\n' > "$work/skipped.txt"
+s=rdw1
+run pre-bash "$(pre_json './gradlew elcore3 > logs/skip.log' "$s" "call-$s")"
+cp "$work/skipped.txt" "$rproj/logs/skip.log"; touch -t "$future" "$rproj/logs/skip.log"
+run post-bash "$(post_json './gradlew elcore3 > logs/skip.log' "" "$s" "call-$s")"
+check "what the generator wrote to the file is passed on" eval 'noted && has "$out" "edited by hand"'
+
 # --- accepted DSL warnings: .elasticore/accepted-warnings.txt ----------------------
 # The rule engine's list as it prints it: the header, a line of dashes, each warning in red, a blank line.
 warnproj="$work/warnproj"

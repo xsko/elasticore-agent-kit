@@ -148,7 +148,9 @@ kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트
 | 마지막 빌드가 변경을 컴파일했지만 DSL 경고가 남았을 때 | `built; N DSL warning(s) left: ...`로 한 번 돌려보냅니다 - 고치거나 사용자에게 알리라고. DSL로 고칠 수 없는 경고(ElastiCORE 결함)는 프로젝트의 `.elasticore/accepted-warnings.txt`에 한 줄로 받아들일 수 있고(코드처럼 리뷰), 모든 경고가 받아들여진 빌드는 빌드로 칩니다 |
 
 hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니다. 성공한 명령의 출력이 너무 길어 Claude Code가 넘기지 못하면 저장해 둔
-파일에서 읽습니다. 실패한 명령은 Claude Code가 앞 10,000자만 넘기므로, 아주 큰 프로젝트에서는 경고가 그 뒤에 있어 hook이 못 볼 수 있습니다.
+파일에서 읽습니다. 출력을 파일로 보낸 빌드(`> build.log 2>&1`, `>> build.log`, `*> build.log`, `| tee build.log`, `| Tee-Object build.log`,
+`| Out-File build.log`)는 명령에 그 파일이 적혀 있고 명령이 시작된 뒤에 쓰였으면 그 파일에서 읽습니다(Windows PowerShell 5.1의 UTF-16 포함,
+4 MB까지, 덧붙인 파일은 그 명령이 덧붙인 부분만). 실패한 명령은 Claude Code가 앞 10,000자만 넘기므로, 아주 큰 프로젝트에서는 경고가 그 뒤에 있어 hook이 못 볼 수 있습니다.
 셸에서 스크립트를 돌려 고치는 것은 막지 못하며, skill이 그렇게 하지 말라고 안내합니다.
 
 그래도 생성 파일을 고치게 하려면 `ELASTICORE_ALLOW_GENERATED_EDITS=1`, `-Pforce`를 허용하려면 `ELASTICORE_ALLOW_FORCE=1`을

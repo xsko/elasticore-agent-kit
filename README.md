@@ -173,7 +173,11 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | The last build compiled the change but printed DSL warnings | Sent back once with `built; N DSL warning(s) left: ...` - fix them, or tell you. A warning the DSL cannot fix (an ElastiCORE defect) can be accepted by a line in the project's `.elasticore/accepted-warnings.txt`, reviewed like code; a build whose every warning is accepted counts |
 
 The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
-command too long for Claude Code to pass on is read from the file it saves it to; of a failed one,
+command too long for Claude Code to pass on is read from the file it saves it to. A build whose
+output goes to a file - `> build.log 2>&1`, `>> build.log`, `*> build.log`, `| tee build.log`,
+`| Tee-Object build.log`, `| Out-File build.log` - is read from that file, when the command names it
+and it was written after the command started (UTF-16 from Windows PowerShell 5.1 included; at most
+4 MB, and of a file appended to only what the command added). Of a failed command,
 Claude Code passes on only the first 10,000 characters, so in a very large project the warnings may
 be past what the hook sees. An edit made another way - a script through a shell - is not stopped;
 the skill tells Claude not to make one.

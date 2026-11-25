@@ -228,7 +228,11 @@ A worked example that generates and compiles: `references/example-order.md`.
    `./gradlew elcore3` on the rule engine, `./gradlew elcore` on the 2.x path. The TypeScript
    client: `./gradlew elcore3ts`.
 4. Read the whole output (section 5) - do not cut it with `head` or filter it with `grep` - and fix
-   every DSL validation warning before anything else.
+   every DSL validation warning before anything else. To keep a long build out of the conversation,
+   send it to a file and read the file: `mkdir -p build && ./gradlew compileJava > build/build.log 2>&1`
+   (`./gradlew.bat` on Windows), or `.\gradlew.bat compileJava *> build\build.log` in PowerShell
+   (`| tee` and `| Tee-Object` too; not with `clean`, which deletes `build/`). The plugin's hooks read
+   that file as the build's output.
 5. **Compile even when generation succeeded.** On the rule engine generation succeeds with DSL
    warnings, and the code then may not compile - a DTO named in `@dtype(...)` that no `dto:` section
    defines warns `unresolved type` and breaks `compileJava`.
