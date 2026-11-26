@@ -4,7 +4,8 @@ Installs the ElastiCORE agent kit for opencode, for the current user.
   powershell -ExecutionPolicy Bypass -File opencode\install.ps1            into ~\.config\opencode\ ($env:XDG_CONFIG_HOME\opencode\ when set)
   powershell -ExecutionPolicy Bypass -File opencode\install.ps1 -Project   into .\.opencode\ of the current directory
 
-Copies the plugin, the hook script, the elasticore skill, the agents and the
+Copies the plugin, the hook script, the skills (elasticore, report-issue,
+contribute), the agents and the
 commands, and overwrites those files when they are there already - run it
 again to update. It deletes nothing. --project works as well as -Project.
 #>
@@ -49,9 +50,11 @@ function Copy-KitFile([string]$Source, [string]$Relative) {
 Write-Output "Installing the ElastiCORE agent kit for opencode into $target"
 Copy-KitFile (Join-Path $here 'plugins\elasticore.js') 'plugins\elasticore.js'
 Copy-KitFile (Join-Path $kit 'hooks\elasticore-hook.sh') 'elasticore-kit\elasticore-hook.sh'
-$skill = (Resolve-Path -LiteralPath (Join-Path $kit 'skills\elasticore')).Path
-Get-ChildItem -LiteralPath $skill -Recurse -File | Sort-Object FullName | ForEach-Object {
-    Copy-KitFile $_.FullName ('skills\elasticore\' + $_.FullName.Substring($skill.Length).TrimStart('\', '/'))
+foreach ($name in @('elasticore', 'report-issue', 'contribute')) {
+    $skill = (Resolve-Path -LiteralPath (Join-Path $kit "skills\$name")).Path
+    Get-ChildItem -LiteralPath $skill -Recurse -File | Sort-Object FullName | ForEach-Object {
+        Copy-KitFile $_.FullName ("skills\$name\" + $_.FullName.Substring($skill.Length).TrimStart('\', '/'))
+    }
 }
 Get-ChildItem -LiteralPath (Join-Path $here 'agents') -Filter '*.md' -File | ForEach-Object {
     Copy-KitFile $_.FullName ('agents\' + $_.Name)

@@ -4,9 +4,9 @@
 #   bash opencode/install.sh            into ~/.config/opencode/ ($XDG_CONFIG_HOME/opencode/ when set)
 #   bash opencode/install.sh --project  into ./.opencode/ of the current directory
 #
-# Copies the plugin, the hook script, the elasticore skill, the agents and the
-# commands, and overwrites those files when they are there already - run it
-# again to update. It deletes nothing.
+# Copies the plugin, the hook script, the skills (elasticore, report-issue,
+# contribute), the agents and the commands, and overwrites those files when
+# they are there already - run it again to update. It deletes nothing.
 
 set -eu
 
@@ -48,8 +48,10 @@ copy() {
 printf 'Installing the ElastiCORE agent kit for opencode into %s\n' "$target"
 copy "$here/plugins/elasticore.js" plugins/elasticore.js
 copy "$kit/hooks/elasticore-hook.sh" elasticore-kit/elasticore-hook.sh
-(cd "$kit/skills/elasticore" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) | while IFS= read -r file; do
-    copy "$kit/skills/elasticore/$file" "skills/elasticore/$file"
+for skill in elasticore report-issue contribute; do
+    (cd "$kit/skills/$skill" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) | while IFS= read -r file; do
+        copy "$kit/skills/$skill/$file" "skills/$skill/$file"
+    done
 done
 for file in "$here"/agents/*.md; do
     copy "$file" "agents/$(basename "$file")"

@@ -17,6 +17,10 @@ You review a change in an ElastiCORE project. The YAML under `src/main/resources
 is the source of truth; the Java is generated from it. You report findings - you do not edit files.
 Load the `elasticore` skill first, with the skill tool. Look only at this project.
 
+**In a checkout of ElastiCORE itself** - `elasticore-project/elasticore-base` and a
+`settings.gradle` that includes it - review as a maintainer instead, and skip sections 1 to 5:
+see "Contributor review" at the end.
+
 ## 1. Collect the change
 
 Use the range the user names; otherwise the working tree against `HEAD` (staged, unstaged and new
@@ -114,3 +118,30 @@ or renamed field; a narrowed type; a removed state or move; a removed API operat
    not compile), *should fix*, *note*.
 2. **What changes for the business**, as in section 5, readable without Java.
 3. **Checked**: which generator the build runs, what you ran and its result, or that you did not build.
+
+## Contributor review (an ElastiCORE checkout)
+
+Read the checkout's `CONTRIBUTING.md` and `changes/README.md` first; they are the rules, and they
+change with the version. Take the diff against the merge base with `origin/main` (or the range
+named), and report each rule it breaks, with `file:line`:
+
+- **Every mode it reaches.** Which of JPA / MyBatis / MongoDB, Java / Kotlin / TypeScript and
+  layered / ddd / hexagonal the change reaches; a combination it leaves out without a warning that
+  the build prints there is a blocker.
+- **End to end.** A value followed from the YAML to the generated code that uses it: a field added
+  to the model in one loader only, a DTO field the mapper never fills, a check one way in skips.
+- **Tests on the output.** A unit test that would fail without the change, and a test that checks
+  the generated output or calls the generated application - a build that passes is not one.
+- **2.x compatibility.** A change to what an existing project generates without the reason the
+  checkout's rules ask for, or a template regenerated differently and not committed.
+- **The record.** `elasticore-history.md` edited on a feature branch (a blocker); a change to
+  `src/main` without a new `changes/<topic>.md`; a fragment not in the form of `changes/README.md`.
+- **Guides.** An `elasticore-guide/*.md` changed without its `ko/` twin at the same lines (or the
+  other way round), a guide copy committed in a sample's `blueprint/`.
+- **Sources.** Non-ASCII in `elasticore-base` main sources, `FileWriter` / `FileReader`, a comment
+  not in English.
+- **The branch.** A change to existing output aimed at a release line rather than `main`, an
+  additive part and an output-changing part in one pull request, a branch far behind `main`.
+
+Say what you ran (the targeted tests, `elcoreRulesCheck -Pstrict`, `elcoreTreeCheck`, the format
+and Error Prone gates) and their results, or that you only read.

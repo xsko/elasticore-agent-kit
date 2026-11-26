@@ -31,7 +31,7 @@ To copy by hand:
 |---|---|
 | `opencode/plugins/elasticore.js` | `plugins/elasticore.js` |
 | `plugins/elasticore/hooks/elasticore-hook.sh` | `elasticore-kit/elasticore-hook.sh` |
-| `plugins/elasticore/skills/elasticore/` (the whole folder) | `skills/elasticore/` |
+| `plugins/elasticore/skills/elasticore/`, `report-issue/`, `contribute/` (the whole folders) | `skills/elasticore/`, `skills/report-issue/`, `skills/contribute/` |
 | `opencode/agents/*.md` | `agents/` |
 | `opencode/commands/*.md` | `commands/` |
 
@@ -50,6 +50,7 @@ off; opencode itself goes on working.
 | Part | What it does |
 |---|---|
 | Skill `elasticore` | The same skill as in Claude Code: which generator the build runs, whose a file is, where a change belongs, the loop, what to ask first. |
+| Skills `report-issue`, `contribute` | As in Claude Code: draft a reproducible ElastiCORE issue (posted only on your yes); plan work on ElastiCORE itself in a checkout of it, where the plugin's contributor checks replace the user-project ones. |
 | Plugin `elasticore.js` | Refuses an edit to a generated file and a Gradle run with `-Pforce`; after a DSL edit or a build, adds a note to the tool's output; when the session goes idle with a DSL change no build has compiled, sends it back once. |
 | Agent `elasticore-modeler` | Turns a requirement into a DSL change that generates and compiles, and reports it in business terms. Call it with `@elasticore-modeler`. |
 | Agent `elasticore-reviewer` | Reviews a change; it cannot edit files. |
@@ -122,7 +123,7 @@ directory.
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": {
-    "skill": { "*": "deny", "elasticore": "allow" },
+    "skill": { "*": "deny", "elasticore": "allow", "report-issue": "allow", "contribute": "allow" },
     "bash": {
       "*": "allow",
       "*taskkill*/IM*": "deny",
@@ -155,8 +156,8 @@ directory.
 
 ## Uninstall
 
-Delete what the installer copied: `plugins/elasticore.js`, the folders `elasticore-kit/` and
-`skills/elasticore/`, `agents/elasticore-*.md` and `commands/elasticore-*.md` in
+Delete what the installer copied: `plugins/elasticore.js`, the folders `elasticore-kit/`,
+`skills/elasticore/`, `skills/report-issue/` and `skills/contribute/`, `agents/elasticore-*.md` and `commands/elasticore-*.md` in
 `~/.config/opencode/` or `.opencode/`.
 
 ## Develop

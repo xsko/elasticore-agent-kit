@@ -2,8 +2,8 @@
 
 [ElastiCORE](https://github.com/xsko/ElastiCORE)로 만든 프로젝트를 위한 [Claude Code](https://code.claude.com) 플러그인입니다.
 ElastiCORE는 YAML 모델에서 Spring Boot 애플리케이션 - 엔티티, DTO, 리포지토리, 서비스, REST 컨트롤러, 검증, 오류 처리 - 을
-생성하고, 빌드할 때마다 다시 생성합니다. 같은 skill을 [opencode](https://opencode.ai)용으로도 패키징했고,
-[Codex CLI](https://github.com/openai/codex)에서도 씁니다.
+생성하고, 빌드할 때마다 다시 생성합니다. 같은 skill과 hook을 [opencode](https://opencode.ai)와
+[Codex CLI](https://github.com/openai/codex)용으로도 패키징했습니다.
 
 그냥 두면 에이전트는 생성된 Java를 고칩니다. 다음 빌드가 그 수정을 덮어쓰거나, 그 파일이 소리 없이 YAML을 따라가지 않게 되는데
 아무도 모르고 지나갑니다. 이 플러그인을 쓰면 에이전트는 YAML을 고치고, 다시 생성하고, 컴파일한 뒤 업무에 무엇이 바뀌었는지 알려 줍니다.
@@ -38,8 +38,12 @@ entity:
 - **hook:** 편집과 빌드마다 하는 검사. 생성 파일을 고치려 하면 막고 대신 고칠 자리를 알려 주고, `-Pforce` - ElastiCORE가 손으로
   고친 파일을 덮어쓰게 하는 Gradle 속성 - 빌드를 막고, 모델을 고친 뒤에는 생성·컴파일하라고 알려 주며, 성공한 빌드가 둘 다 하기
   전에는 끝내지 못하게 합니다.
-- **agent 둘과 command 셋:** 요구사항을 모델 변경으로 바꾸고 업무 말로 보고하는 modeler, reviewer, 그리고
+- **agent 둘과 command 넷:** 요구사항을 모델 변경으로 바꾸고 업무 말로 보고하는 modeler, reviewer, 그리고
   `/elasticore:generate`, `/elasticore:change-report`, `/elasticore:review`, `/elasticore:migrate`.
+- **ElastiCORE 자체가 모자랄 때:** `report-issue` skill이 문제를 최소 프로젝트로 재현하고, 같은 이슈가 있는지 찾고, 비공개 정보를
+  뺀 xsko/ElastiCORE 이슈 초안을 씁니다. 올리는 것은 사용자가 "예"라고 한 뒤에만.
+- **기여자 모드:** ElastiCORE 자체의 체크아웃에서는 사용자 프로젝트용 hook이 꺼지고, 그 체크아웃의 규칙을 보는 hook이 대신
+  동작합니다. `contribute` skill은 이슈에 대한 변경을 코드보다 먼저 계획합니다.
 
 ## 필요한 것
 
@@ -62,9 +66,11 @@ claude plugin install elasticore@elasticore-agent-kit
 **opencode:** 이 저장소를 받아 `opencode/install.sh`(또는 `opencode/install.ps1`)를 실행합니다. 같은 skill과 hook 스크립트,
 그것을 돌리는 opencode 플러그인(opencode 1.x와 2.x), opencode 형식의 agent·command가 설치됩니다. 자세한 내용은 [opencode/README.md](opencode/README.md).
 
-**Codex CLI:** `plugins/elasticore/skills/elasticore`를 프로젝트의 `.agents/skills/elasticore`로(모든 프로젝트에 쓰려면
-`~/.agents/skills/elasticore`로) 복사합니다. Codex는 skill - 빠른 길, 요약, 레시피 - 을 받고, hook은 Claude Code와 opencode의
-것입니다. 아래 비교의 Codex도 그렇게 돌렸습니다.
+**Codex CLI:** 이 저장소를 받아 `codex/install.sh`(또는 `codex/install.ps1`)를 실행합니다. 한 프로젝트에만 쓰려면 `--project`.
+skill, Codex agent 형식의 modeler와 reviewer, 그리고 hook과 그것을 돌리는 `hooks.json`이 설치되고, Codex의 `/hooks`에서 hook을
+신뢰(trust)하면 됩니다. skill과 hook은 플러그인으로도 받을 수 있습니다 - `codex plugin marketplace add xsko/elasticore-agent-kit` 다음
+`codex plugin add elasticore@elasticore-agent-kit`. 자세한 내용은 [codex/README.md](codex/README.md). (아래 비교의 Codex는
+skill만으로, kit 0.3.0으로 돌렸습니다.)
 
 ## 써 보기
 
@@ -130,6 +136,8 @@ kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트
 | `/elasticore:change-report [범위]` | DSL 변경이 업무에 뜻하는 것과 결정이 필요한 것을 씁니다. |
 | `/elasticore:review [범위] [full]` | 커밋하지 않은 변경이나 지정한 범위를 reviewer로 검토합니다. 읽기만 하고, `full`을 붙이면 빌드까지 합니다(파일이 다시 생성됨). |
 | `/elasticore:migrate [check \| move]` | 2.x가 생성한(또는 `output = 'v2'`인) 프로젝트를 3.0 코드로 옮깁니다: 먼저 `elcoreMigrationCheck`(아무것도 쓰지 않음), 점검이 요구하는 DSL 수정, 그다음 `move`와 사용자 동의가 있을 때 전환, 컴파일 오류를 원인과 짝지어 수정, 테스트. |
+| skill `report-issue` | ElastiCORE의 결함이나 빈틈 - DSL은 맞는데 생성 코드가 컴파일되지 않거나 틀릴 때, 생성기 예외, DSL로 말할 수 없는 요구사항, 빌드와 다른 가이드 - 에 씁니다. 사용 중인 버전·설정으로 최소 프로젝트에서 재현하고, 열린·닫힌 이슈를 찾고(같은 것이 있으면 새 이슈 대신 댓글), 저장소의 이슈 템플릿을 채우고(빈틈은 필요로 쓰고 새 DSL 문법은 제안하지 않음), 패키지·업무 이름, 호스트, 경로, 자격 증명을 뺍니다. 초안 전체를 보여 주고, 사용자가 "예"라고 할 때만 `gh issue create`, 아니면 붙여 넣을 글을 줍니다. hook이 세션마다 한 번 권합니다. |
+| skill `contribute <이슈> [plan \| build]` | ElastiCORE 체크아웃에서: 그 체크아웃의 `CONTRIBUTING.md`와 `changes/README.md`를 읽고 변경을 계획합니다 - 들어갈 자리, 닿는 JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd / hexagonal 조합 전부, 실제 출력을 보는 테스트, 2.x 검사, 두 언어의 가이드, fragment, 브랜치. `build`이거나 사용자가 승인할 때만 만듭니다. |
 
 ### hook
 
@@ -147,6 +155,8 @@ kit 없이는 에이전트가 엔티티·DTO·리포지토리·서비스·컨트
 | 성공한 빌드로 생성·컴파일되지 않은 DSL 변경을 둔 채 끝내려 할 때 | 한 번 돌려보내 빌드하게 합니다. 백그라운드 빌드, 잘리거나 걸러진 출력, 생성만 한 실행은 빌드로 치지 않습니다 |
 | ElastiCORE가 생성한 TypeScript 클라이언트(`src/main/ts`)와 그것으로 타입 검사하는 화면(`check` 스크립트가 있는 `package.json`, 또는 클라이언트를 포함하는 `tsconfig.json`)이 있는 프로젝트에서 DSL을 바꿨을 때 | 클라이언트를 다시 생성하고(`./gradlew elcore3ts`, 또는 `typescriptClient = true`인 빌드) 그다음 화면을 타입 검사하라고도 알려 주고, 끝낼 때 남은 단계의 이름을 대며 한 번 돌려보냅니다: 클라이언트를 다시 생성하지 않음, 그 뒤로 화면을 타입 검사하지 않음. 실패한 `tsc`나 클라이언트를 다시 생성하기 전에 돌린 `tsc`는 치지 않습니다. 생성된 클라이언트가 없는 프로젝트는 그대로입니다 |
 | 마지막 빌드가 변경을 컴파일했지만 DSL 경고가 남았을 때 | `built; N DSL warning(s) left: ...`로 한 번 돌려보냅니다 - 고치거나 사용자에게 알리라고. DSL로 고칠 수 없는 경고(ElastiCORE 결함)는 프로젝트의 `.elasticore/accepted-warnings.txt`에 한 줄로 받아들일 수 있고(코드처럼 리뷰), 모든 경고가 받아들여진 빌드는 빌드로 칩니다 |
+| ElastiCORE가 생성한 파일에서 컴파일 오류가 나거나, 생성기가 자기 예외로 실패할 때(고칠 것을 알려 주는 모델 검사가 아니라) | 먼저 DSL을 확인하라고, 그리고 `report-issue` skill이 이슈 초안을 쓸 수 있다고 알려 줍니다 - 세션마다 한 번 |
+| 고치기가 막힌 생성 파일을 셸 명령으로 바꿀 때 | 막힘을 우회하지 말라고, DSL로 말할 수 없으면 `report-issue`가 있다고 알려 줍니다 |
 
 hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니다. 성공한 명령의 출력이 너무 길어 Claude Code가 넘기지 못하면 저장해 둔
 파일에서 읽습니다. 출력을 파일로 보낸 빌드(`> build.log 2>&1`, `>> build.log`, `*> build.log`, `| tee build.log`, `| Tee-Object build.log`,
@@ -160,6 +170,20 @@ hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니�
 ```json
 { "env": { "ELASTICORE_ALLOW_GENERATED_EDITS": "1" } }
 ```
+
+### 기여자 모드
+
+ElastiCORE 자체의 체크아웃 - `elasticore-project/elasticore-base`가 있고 `settings.gradle`이 그것을 포함 - 에서는 샘플과 템플릿을
+일부러 생성하고 고치므로 위 hook은 하나도 동작하지 않습니다. 대신 이것들이 동작합니다:
+
+| 언제 | 무슨 일 |
+|---|---|
+| `elasticore-history.md`를 고칠 때 | 막고, 대신 `changes/<topic>.md` fragment를 쓰라고 합니다 - `changes/`가 없는 체크아웃, `version/*` 브랜치, `ELASTICORE_ALLOW_HISTORY_EDITS=1`에서는 막지 않음 |
+| 편집 뒤 `elasticore-base/src/main/java`에 ASCII가 아닌 문자가 남을 때 | 그 줄과 이유(`SourceAsciiTest`, 한국어 Windows의 MS949)를 알려 줍니다 |
+| `elasticore-guide/` 아래 가이드를 `ko/` 짝 없이(또는 그 반대로) 고친 채 끝내려 할 때 | 한 번 돌려보냅니다 |
+| `src/main`을 바꾸는데 새 `changes/*.md`가 없거나, 세션에서 `formatCheck diffErrorprone`(또는 `prCheck`)이 마지막으로 통과한 뒤 Java가 바뀐 브랜치에서 `git push`나 `gh pr create`를 할 때 | 빠진 것을 말하며 한 번 막고, 다음 시도는 통과시킵니다 |
+
+`contribute` skill과 reviewer는 체크아웃의 `CONTRIBUTING.md`를 따르며, 사본을 두지 않고 매번 읽습니다.
 
 ## ElastiCORE 변화 따라가기
 
@@ -176,7 +200,9 @@ hook은 편집 도구와, Bash나 PowerShell로 돌린 Gradle 실행을 봅니�
 ## 개발
 
 ```bash
-bash tests/hooks/test-hooks.sh                     # Claude Code가 보내는 JSON으로 hook 스크립트 검사 (HOOK_BASH=/bin/bash로 셸 지정)
+bash tests/hooks/test-hooks.sh                     # Claude Code와 Codex가 보내는 JSON으로 hook 스크립트 검사 (HOOK_BASH=/bin/bash로 셸 지정)
+bash tests/codex/test-codex.sh                     # Codex용 agent, manifest, hooks 파일, 설치 스크립트
+node tests/opencode/test-adapter.mjs               # opencode 플러그인
 python3 tests/contract/check.py                    # PATH에 JDK 17, Gradle 8.14 이상
 claude plugin validate ./plugins/elasticore --strict
 claude plugin validate . --strict

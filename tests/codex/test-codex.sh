@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Checks the Codex CLI parts of the kit without Codex: the agents' TOML says what
+# their Markdown says, the plugin manifest and its hooks file name the hook script
+# with the codex argument, and codex/install.sh installs into a project and a home
+# folder and leaves a hooks.json of the user's alone.
+#
+# usage: bash tests/codex/test-codex.sh
+# The fixtures go to a fresh directory under $TMPDIR, left for inspection.
+
+set -u
+here="$(cd "$(dirname "$0")" && pwd)"
+repo="$here/../.."
+work="$(mktemp -d "${TMPDIR:-/tmp}/elasticore-codex-test.XXXXXX")"
+passed=0
+failed=0
+
+check() {  # check <name> <condition...>
+    name="$1"; shift
+    if "$@"; then
+        passed=$((passed + 1))
+    else
+        failed=$((failed + 1))
+        printf 'FAIL %s\n' "$name"
+        [ "${GITHUB_ACTIONS:-}" = true ] && printf '::error title=Codex test failed::%s\n' "$name"
+    fi
+}
+
+# --- the agents: TOML from the Markdown ------------------------------------------
+# The body of an agent's Markdown (after its front matter), and the developer
+# instructions of its TOML (between the ''' lines).
+md_body() { awk 'n >= 2 { print; next } /^---$/ { n++; if (n == 2) getline; next }' "$1" | tr -d '\r'; }
+md_key() { awk -v k="$2" 'NR > 1 && /^---$/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3) }' "$1" | tr -d '\r'; }
+toml_body() { awk "/^developer_instructions = '''\$/ { on = 1; next } on && /^'''\$/ { exit } on { print }" "$1" | tr -d '\r'; }
+toml_key() { sed -nE 's/^'"$2"' = "(.*)"$/\1/p' "$1" | sed 's/\\"/"/g; s/\\\\/\\/g' | tr -d '\r'; }
+for pair in modeler:elasticore-modeler reviewer:elasticore-reviewer; do
+    md="$repo/plugins/elasticore/agents/${pair%%:*}.md"
+    toml="$repo/codex/agents/${pair#*:}.toml"
+    check "${pair#*:}.toml has the instructions of ${pair%%:*}.md" [ "$(md_body "$md")" = "$(toml_body "$toml")" ]
+    check "${pair#*:}.toml has its description" [ "$(md_key "$md" description)" = "$(toml_key "$toml" description)" ]
+    check "${pair#*:}.toml is named ${pair#*:}" [ "$(toml_key "$toml" name)" = "${pair#*:}" ]
+done
+
+# --- the plugin: its manifest and the Codex hooks file -----------------------------
+plugin="$repo/plugins/elasticore"
+check "the plugin has a portable plugin.json at its root" [ -f "$plugin/plugin.json" ]
+check "plugin.json names the Codex hooks file" grep -q '"hooks": "./hooks/codex-hooks.json"' "$plugin/plugin.json"
+check "plugin.json and .claude-plugin/plugin.json have the same version" \
+    [ "$(sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$plugin/plugin.json")" = "$(sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$plugin/.claude-plugin/plugin.json")" ]
+for event in pre-edit pre-bash post-edit post-bash stop; do
+    check "codex-hooks.json runs the hook script's $event with the codex argument" \
+        grep -q "elasticore-hook.sh[^ ]* $event codex" "$plugin/hooks/codex-hooks.json"
+done
+check "codex-hooks.json has no event Codex does not send" eval '! grep -q PostToolUseFailure "$plugin/hooks/codex-hooks.json"'
+check "the Codex marketplace lists the plugin" grep -q '"path": "./plugins/elasticore"' "$repo/.agents/plugins/marketplace.json"
+
+# --- codex/install.sh ------------------------------------------------------------
+proj="$work/project"
+mkdir -p "$proj"
+out="$(cd "$proj" && bash "$repo/codex/install.sh" --project 2>&1)"; rc=$?
+check "install.sh --project succeeds" [ "$rc" -eq 0 ]
+for f in .agents/skills/elasticore/SKILL.md .agents/skills/elasticore/references/quick-reference.md \
+    .agents/skills/report-issue/SKILL.md .agents/skills/contribute/SKILL.md \
+    .codex/agents/elasticore-modeler.toml .codex/agents/elasticore-reviewer.toml \
+    .codex/elasticore-kit/elasticore-hook.sh .codex/hooks.json; do
+    check "install.sh --project writes $f" [ -f "$proj/$f" ]
+done
+valid_json_file() {
+    for py in python3 python; do
+        if command -v "$py" >/dev/null 2>&1 && "$py" -c 'print(1)' >/dev/null 2>&1; then
+            "$py" -c 'import json,sys; json.load(open(sys.argv[1]))' "$1"
+            return
+        fi
+    done
+    return 0
+}
+check "the hooks.json it writes is valid JSON" valid_json_file "$proj/.codex/hooks.json"
+check "and runs the installed hook script with the codex argument" grep -q 'elasticore-kit/elasticore-hook.sh[^ ]* stop codex' "$proj/.codex/hooks.json"
+check "the hook script it installs is the kit's" cmp -s "$repo/plugins/elasticore/hooks/elasticore-hook.sh" "$proj/.codex/elasticore-kit/elasticore-hook.sh"
+printf '{ "hooks": { "Stop": [] } }\n' > "$proj/.codex/hooks.json"
+out="$(cd "$proj" && bash "$repo/codex/install.sh" --project 2>&1)"; rc=$?
+check "a hooks.json of the user's is left as it is" eval '[ "$rc" -eq 0 ] && [ "$(cat "$proj/.codex/hooks.json")" = "{ \"hooks\": { \"Stop\": [] } }" ]'
+check "and the hooks to add are printed" eval 'case "$out" in *"Add these hooks"*pre-edit\ codex*) true ;; *) false ;; esac'
+home="$work/home"
+mkdir -p "$home"
+out="$(HOME="$home" USERPROFILE="$home" CODEX_HOME= bash "$repo/codex/install.sh" --no-hooks 2>&1)"; rc=$?
+check "install.sh --no-hooks installs skills and agents for the user" \
+    eval '[ "$rc" -eq 0 ] && [ -f "$home/.agents/skills/elasticore/SKILL.md" ] && [ -f "$home/.codex/agents/elasticore-reviewer.toml" ] && [ ! -f "$home/.codex/hooks.json" ]'
+out="$(bash "$repo/codex/install.sh" --unknown 2>&1)"; rc=$?
+check "install.sh refuses an unknown option" [ "$rc" -eq 2 ]
+
+printf '%d passed, %d failed (fixtures in %s)\n' "$passed" "$failed" "$work"
+[ "$failed" -eq 0 ]

@@ -3,6 +3,62 @@
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
 raise it with every release, or `claude plugin update` finds nothing new.
 
+## 1.3.0
+
+For ElastiCORE 3.0.261119 and later, like 1.2.0. Codex CLI gets the hooks and the agents, a user
+can have an ElastiCORE defect drafted as an issue, and a checkout of ElastiCORE itself gets hooks
+of its own.
+
+- **Codex CLI: hooks, agents, an installer.** `codex/install.sh` (`install.ps1` on Windows) copies
+  the skills into `.agents/skills/` (or `~/.agents/skills/`), the modeler and the reviewer as
+  `.codex/agents/elasticore-*.toml`, and the hook script with a `hooks.json` that runs it - see
+  [codex/README.md](codex/README.md). The hook script reads Codex's own payloads: an `apply_patch`
+  call is checked file by file from its patch text (`*** Add File:` and `*** Move to:` as a whole
+  new content, `*** Update File:` and `*** Delete File:` as an edit), relative paths from the
+  call's folder; a Stop is answered with `decision: "block"` and the reminder as `reason`, once
+  (`stop_hook_active`); Codex has no `PostToolUseFailure`, so a failed command is told by its exit
+  code in `tool_response`. The plugin also installs into Codex from this repository as a
+  marketplace (`.agents/plugins/marketplace.json`; the plugin's root `plugin.json` names
+  `hooks/codex-hooks.json`, which passes `codex` to the hook script). Checked with Codex CLI
+  0.172.0: the plugin's install from a local marketplace, the installer; not yet seen live: the
+  hooks in a Codex session.
+- **report-issue: an ElastiCORE defect as a reproducible issue.** A new skill, for Claude Code,
+  opencode and Codex, for when ElastiCORE itself falls short - generated code that does not compile
+  or is wrong while the DSL is right, a generator exception, a requirement the DSL cannot say, a
+  guide that says what the build does not do. It reproduces the problem in a minimal project on
+  the same ElastiCORE version and settings first, searches the open and closed issues of
+  xsko/ElastiCORE (and drafts a comment on a match instead), fills the repository's own issue
+  template (a gap as a need: what the guide says, the workaround and what it costs, what is
+  expected - never new DSL syntax), takes out package and business names, hosts, paths and
+  credentials, and shows the whole draft. It posts with `gh issue create` only on the user's
+  explicit yes; without `gh` it prints the draft. The hooks suggest it once a session: after a
+  compile error in a file ElastiCORE generated, after the generator failed with an exception of
+  its own (not a model check that names the fix), and when a command changes a generated file
+  whose edit was refused - which they now also call out as working around the refusal.
+- **Contributor mode: a checkout of ElastiCORE itself** (`elasticore-project/elasticore-base` and a
+  `settings.gradle` that includes it). The samples and templates are generated and edited on purpose
+  there, so the user-project hooks stay off: no generated-file guard, no `-Pforce` guard, no DSL
+  build reminder, no notes after a build. Instead:
+  - an edit of `elasticore-history.md` is refused, with the `changes/<topic>.md` fragment instead -
+    not in a checkout without `changes/` (older than the fragments), not on a `version/*` branch,
+    and not with `ELASTICORE_ALLOW_HISTORY_EDITS=1`;
+  - an edit that leaves non-ASCII characters in `elasticore-base/src/main/java` gets a note with the
+    lines;
+  - at the end, a guide under `elasticore-guide/` changed in this session without its `ko/` twin (or
+    the other way round) sends the agent back once;
+  - a `git push` or `gh pr create` from a branch that changes `src/main` without a new `changes/*.md`,
+    or with Java changed since `formatCheck diffErrorprone` (or `prCheck`) last passed in the
+    session, is refused once, naming what is missing; the next try goes through.
+  - **The `contribute` skill**: reads the checkout's `CONTRIBUTING.md`, `changes/README.md` and
+    `BRANCHING.md` (it copies none of them) and, for an issue number, plans before it codes - where
+    the change goes, every JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd /
+    hexagonal combination it reaches (a combination left out keeps a warning), every path end to
+    end, the tests that fail without the change and a run-level test on the real output, the 2.x
+    checks, both guide languages, the fragment and the target branch. With `build` it then builds
+    by the checkout's rules, the local gates before every push.
+  - **The reviewer** reviews a diff in a checkout against those rules instead of a user project's.
+- The opencode installers copy the two new skills; the opencode modeler may load `report-issue`.
+
 ## 1.2.0
 
 For ElastiCORE 3.0.261119 and later, like 1.1.x; what it adds about `nestedRows: readers` and the

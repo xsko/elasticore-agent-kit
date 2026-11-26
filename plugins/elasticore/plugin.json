@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "elasticore",
+  "version": "1.3.0",
+  "description": "Work on ElastiCORE projects through their YAML DSL: skills that know which files the generator owns, draft a reproducible ElastiCORE issue and plan work on ElastiCORE itself, and hooks that stop hand edits to generated code and have the agent generate and compile before it finishes.",
+  "author": {
+    "name": "The ElastiCORE Authors",
+    "url": "https://github.com/xsko/ElastiCORE"
+  },
+  "homepage": "https://github.com/xsko/elasticore-agent-kit",
+  "repository": "https://github.com/xsko/elasticore-agent-kit",
+  "license": "Apache-2.0",
+  "keywords": ["elasticore", "spring-boot", "jpa", "mybatis", "yaml", "dsl", "code-generation"],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/codex-hooks.json",
+      "interface": {
+        "displayName": "ElastiCORE",
+        "shortDescription": "Keep an agent on the DSL side of an ElastiCORE project",
+        "developerName": "The ElastiCORE Authors",
+        "category": "Coding",
+        "websiteURL": "https://github.com/xsko/elasticore-agent-kit"
+      }
+    }
+  }
+}

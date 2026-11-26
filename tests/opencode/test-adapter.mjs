@@ -281,6 +281,21 @@ out = await after(plugin, s, "apply_patch", { patchText: "*** Begin Patch\n*** A
 check("an apply_patch that adds a DSL file gets the note", out.includes(NOTE + "You changed the ElastiCORE model"), out)
 await idle(plugin, s)
 
+// --- contributor mode: a checkout of ElastiCORE itself ------------------------------
+// The samples' generated files are edited on purpose there; the history is not.
+const checkout = join(work, "checkout")
+write(join(checkout, "settings.gradle"), "rootProject.name = 'elasticore'\ninclude('elasticore-project:elasticore-base')\n")
+write(join(checkout, "changes", "README.md"), "# Change fragments\n")
+const coHistory = join(checkout, "elasticore-project", "elasticore-base", "src", "main", "resources", "elasticore-guide", "elasticore-history.md")
+write(coHistory, "# History\n")
+const coManaged = join(checkout, "elasticore-project", "elasticore-template", "src", "main", "java", "ProductDTO.java")
+write(coManaged, "//ecd:-1375193215H20261020123214_V3.0\npublic class ProductDTO {}\n")
+s = session()
+e = await before(plugin, s, "edit", { filePath: coManaged, oldString: "{}", newString: "{ }" })
+check("a checkout: an edit of a sample's generated file goes through", e === null, e && e.message)
+e = await before(plugin, s, "write", { filePath: coHistory, content: "x" })
+check("a checkout: a write of the history throws, naming the fragment", e && /changes\/<topic>\.md/.test(e.message), e && e.message)
+
 // --- a broken hook never blocks the work --------------------------------------------
 const broken = join(work, "broken-hook.sh")
 write(broken, "#!/usr/bin/env bash\necho 'not json'\nexit 2\n")
@@ -464,6 +479,10 @@ check("2.x: a result without content keeps its output's text before the note", A
 s = session()
 e = await before2(s, "edit", { filePath: "", path: managed, oldString: "a", newString: "b" })
 check("2.x: an empty filePath does not hide the path", e && /from the DSL/.test(e.message), e && e.message)
+e = await before2(s, "edit", { path: coHistory, oldString: "a", newString: "b" })
+check("2.x: in a checkout, an edit of the history throws", e && /changes\/<topic>\.md/.test(e.message), e && e.message)
+e = await before2(s, "patch", { patchText: patch("Update", coManaged) })
+check("2.x: in a checkout, a patch of a sample's generated file goes through", e === null, e && e.message)
 
 threw = null
 try {
@@ -544,6 +563,8 @@ const files = [
   "commands/elasticore-change-report.md",
   "commands/elasticore-migrate.md",
   "skills/elasticore/references/migrate.md",
+  "skills/report-issue/SKILL.md",
+  "skills/contribute/SKILL.md",
 ]
 const missing = files.filter((f) => !existsSync(join(installed, f)))
 check("install.sh copies every file", missing.length === 0, "missing: " + missing.join(", "))

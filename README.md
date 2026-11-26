@@ -3,8 +3,8 @@
 A [Claude Code](https://code.claude.com) plugin for projects built with
 [ElastiCORE](https://github.com/xsko/ElastiCORE), which generates a Spring Boot application from a
 YAML model - entities, DTOs, repositories, services, REST controllers, validation and error
-handling - and regenerates it on every build. The same skill is packaged for
-[opencode](https://opencode.ai) and works in [Codex CLI](https://github.com/openai/codex).
+handling - and regenerates it on every build. The same skills and hooks are packaged for
+[opencode](https://opencode.ai) and [Codex CLI](https://github.com/openai/codex).
 
 Left to itself, an agent edits the generated Java. The next build overwrites the edit, or the file
 silently stops following the YAML, and nobody notices. With this plugin the agent changes the YAML,
@@ -47,9 +47,15 @@ the files the generator hands over.
   change belongs instead; a build with `-Pforce` - the Gradle property that makes ElastiCORE
   overwrite hand-edited files - is refused; after a model change the agent is told to generate and
   compile, and is not allowed to finish until a successful build has done both.
-- **Two agents and three commands:** a modeler that turns a requirement into a model change and
+- **Two agents and four commands:** a modeler that turns a requirement into a model change and
   reports it in business terms, a reviewer, and `/elasticore:generate`, `/elasticore:change-report`,
   `/elasticore:review` and `/elasticore:migrate`.
+- **When ElastiCORE itself falls short:** the `report-issue` skill reproduces the problem in a
+  minimal project, looks for the same issue, and drafts one for xsko/ElastiCORE with the private
+  details taken out. It posts only after you say yes.
+- **Contributor mode:** in a checkout of ElastiCORE itself the user-project hooks stay off, and
+  hooks for the checkout's own rules take over; the `contribute` skill plans the change for an
+  issue before any code.
 
 ## Requirements
 
@@ -77,10 +83,12 @@ In a session: `/plugin marketplace add xsko/elasticore-agent-kit`, then
 installs the same skill and hook script, an opencode plugin that runs them (opencode 1.x and 2.x),
 and the agents and commands in opencode's own form - see [opencode/README.md](opencode/README.md).
 
-**Codex CLI:** copy `plugins/elasticore/skills/elasticore` into your project as
-`.agents/skills/elasticore` (or into `~/.agents/skills/elasticore` for every project). Codex gets
-the skill - the fast path, the reference and the recipes; the hooks are Claude Code's and
-opencode's. That is how it ran in the comparison below.
+**Codex CLI:** clone this repository and run `codex/install.sh` (or `codex/install.ps1`), with
+`--project` for one project. It installs the skills, the modeler and the reviewer as Codex agents,
+and the hooks with a `hooks.json` that runs them; trust them in Codex's `/hooks`. Or take the skills
+and hooks as a plugin - `codex plugin marketplace add xsko/elasticore-agent-kit`, then
+`codex plugin add elasticore@elasticore-agent-kit` - see [codex/README.md](codex/README.md). (The
+comparison below ran Codex with the skill alone, kit 0.3.0.)
 
 ## Try it
 
@@ -155,6 +163,8 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | `/elasticore:change-report [range]` | Writes what a DSL change means for the business and what needs a decision. |
 | `/elasticore:review [range] [full]` | Runs the reviewer on uncommitted changes or a range. It only reads, unless you add `full` - then it also builds, which regenerates files. |
 | `/elasticore:migrate [check \| move]` | Moves a project 2.x generated (or `output = 'v2'`) to the 3.0 code: `elcoreMigrationCheck` first (it writes nothing), the DSL fixes it asks for, then - on `move` and your yes - the move, its compile errors matched to their causes, and the tests. |
+| Skill `report-issue` | For an ElastiCORE defect or gap - generated code that does not compile or is wrong while the DSL is right, a generator exception, a requirement the DSL cannot say, a guide the build contradicts. Reproduces it in a minimal project on your version and settings, searches the open and closed issues (a match gets a comment instead), fills the repository's issue template - a gap as a need, never as new DSL syntax - and removes package and business names, hosts, paths and credentials. Shows the whole draft; `gh issue create` only on your yes, otherwise the text to paste. The hooks suggest it once a session. |
+| Skill `contribute <issue> [plan \| build]` | In a checkout of ElastiCORE: reads its `CONTRIBUTING.md` and `changes/README.md`, then plans the change - where it goes, every JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd / hexagonal combination it reaches, the tests on the real output, the 2.x checks, both guide languages, the fragment, the branch. Builds only on `build` or your go-ahead. |
 
 ### The hooks
 
@@ -172,6 +182,8 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | Claude is about to finish while no successful build has generated and compiled its DSL change | Sent back once to build. A build in the background, cut short or filtered, or one that only generated, does not count |
 | A project with a TypeScript client ElastiCORE generated (`src/main/ts`) - and screens type-checked against it (a `package.json` with a `check` script, or a `tsconfig.json` that includes the client) - and the DSL changed | Also told to regenerate the client (`./gradlew elcore3ts`, or a build that sets `typescriptClient = true`) and then type-check the screens; at the end sent back once, naming the step still missing: the client not regenerated, the screens not type-checked since. A failed `tsc`, or one run before the client was regenerated, does not count. A project without a generated client: as before |
 | The last build compiled the change but printed DSL warnings | Sent back once with `built; N DSL warning(s) left: ...` - fix them, or tell you. A warning the DSL cannot fix (an ElastiCORE defect) can be accepted by a line in the project's `.elasticore/accepted-warnings.txt`, reviewed like code; a build whose every warning is accepted counts |
+| A build fails with a compile error in a file ElastiCORE generated, or the generator fails with an exception of its own (not a model check that names the fix) | Told to check the DSL first, and that the `report-issue` skill can draft an issue - once a session |
+| A shell command changes a generated file whose edit was refused | Told not to work around the refusal, and about `report-issue` if the DSL cannot say what is needed |
 
 The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
 command too long for Claude Code to pass on is read from the file it saves it to. A build whose
@@ -189,6 +201,22 @@ To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS
 ```json
 { "env": { "ELASTICORE_ALLOW_GENERATED_EDITS": "1" } }
 ```
+
+### Contributor mode
+
+In a checkout of ElastiCORE itself - `elasticore-project/elasticore-base` and a `settings.gradle`
+that includes it - the samples and templates are generated and edited on purpose, so none of the
+hooks above fire. These do instead:
+
+| When | What happens |
+|---|---|
+| An edit of `elasticore-history.md` | Refused, with the `changes/<topic>.md` fragment instead - not in a checkout without `changes/`, not on a `version/*` branch, not with `ELASTICORE_ALLOW_HISTORY_EDITS=1` |
+| An edit leaves non-ASCII characters in `elasticore-base/src/main/java` | Told the lines, and why (`SourceAsciiTest`, MS949 on Korean Windows) |
+| Finishing after a guide under `elasticore-guide/` changed without its `ko/` twin, or the other way round | Sent back once |
+| `git push` or `gh pr create` from a branch that changes `src/main` without a new `changes/*.md`, or with Java changed since `formatCheck diffErrorprone` (or `prCheck`) last passed in the session | Refused once, naming what is missing; the next try goes through |
+
+The `contribute` skill and the reviewer follow the checkout's `CONTRIBUTING.md`, which they read
+each time rather than carry a copy of.
 
 ## Keeping up with ElastiCORE
 
@@ -210,7 +238,9 @@ To let Claude edit generated files anyway, set `ELASTICORE_ALLOW_GENERATED_EDITS
 ## Develop
 
 ```bash
-bash tests/hooks/test-hooks.sh                     # the hook script, on the JSON Claude Code sends (HOOK_BASH=/bin/bash for another shell)
+bash tests/hooks/test-hooks.sh                     # the hook script, on the JSON Claude Code and Codex send (HOOK_BASH=/bin/bash for another shell)
+bash tests/codex/test-codex.sh                     # the Codex agents, manifest, hooks file and installer
+node tests/opencode/test-adapter.mjs               # the opencode plugin
 python3 tests/contract/check.py                    # JDK 17 and Gradle 8.14 or later on the PATH
 claude plugin validate ./plugins/elasticore --strict
 claude plugin validate . --strict

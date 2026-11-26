@@ -972,6 +972,180 @@ check "another session's DSL change does not hold this one" quiet
 run stop "$(stop_json false other)"
 check "it holds the session that made it" eval 'has "$out" "compileJava"'
 
+# --- Codex CLI: its payloads, in the shapes its hooks documentation gives -----------------
+# An edit is apply_patch, the patch text in tool_input.command; the hooks file passes "codex".
+run_codex() {  # run_codex <event> <json>
+    out="$(printf '%s' "$2" | "$shell" "$hook" "$1" codex 2>"$work/stderr")"
+    rc=$?
+    err="$(cat "$work/stderr")"
+}
+cx_patch() {  # cx_patch <event name> <session> <cwd> <patch body, JSON-escaped>
+    printf '{"session_id":"%s","turn_id":"t-1","transcript_path":null,"cwd":"%s","hook_event_name":"%s","model":"gpt-5.6-sol","permission_mode":"bypassPermissions","tool_name":"apply_patch","tool_use_id":"call_1","tool_input":{"command":"*** Begin Patch\\n%s\\n*** End Patch\\n"}%s}' \
+        "$2" "$3" "$1" "$4" "$( [ "$1" = PostToolUse ] && printf ',"tool_response":"Success. Updated the following files:"' )"
+}
+cx_merged="$work/cx-merged"
+mkdir -p "$cx_merged/src/main/java/com/acme/shop" "$cx_merged/src/main/resources/blueprint/shop/model" "$cx_merged/.elasticore"
+printf "plugins { id 'io.elasticore' version '3.0.261128' }\n" > "$cx_merged/build.gradle"
+printf 'package com.acme.shop;\n\npublic class ProductController {}\n' > "$cx_merged/src/main/java/com/acme/shop/ProductController.java"
+printf 'PK\003\004....src/main/java/com/acme/shop/ProductController.javapackage com.acme.shop;PK\001\002\n' > "$cx_merged/.elasticore/generated-base.zip"
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Update File: $managed\\n@@\\n-public class ProductDTO {}\\n+public class ProductDTO { int w; }")"
+check "codex: an apply_patch that changes a //ecd: file is refused" eval 'denied && has "$out" "ProductDTO.java from the DSL" && valid_json'
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Update File: src/main/java/com/acme/shop/ProductDTO.java\\n@@\\n-a\\n+b")"
+check "codex: by a path relative to the call's cwd too" denied
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Update File: src/main/java/com/acme/shop/ShopApplication.java\\n@@\\n-a\\n+b\\n*** Update File: src/main/java/com/acme/shop/ProductDTO.java\\n@@\\n-a\\n+b")"
+check "codex: a patch of two files, one generated, is refused for that one" eval 'denied && has "$out" "ProductDTO.java" && ! has "$out" "ShopApplication.java from"'
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Update File: src/main/java/com/acme/shop/ShopApplication.java\\n@@\\n-a\\n+b")"
+check "codex: a patch of a hand-written file goes through" quiet
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Add File: src/main/java/com/acme/shop/NewThing.java\\n+class NewThing {}")"
+check "codex: a patch that adds a new file goes through" quiet
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Delete File: src/main/java/com/acme/shop/ProductDTO.java")"
+check "codex: a patch that deletes a //ecd: file is refused" denied
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$cx_merged" "*** Update File: src/main/java/com/acme/shop/ProductController.java\\n@@\\n-a\\n+b")"
+check "codex: a patch that changes a merged generated file goes through" quiet
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$cx_merged" "*** Add File: src/main/java/com/acme/shop/ProductController.java\\n+class ProductController {}")"
+check "codex: a patch that adds a merged generated file anew is refused" eval 'denied && has "$out" "Write replaces all of it"'
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$cx_merged" "*** Update File: src/main/java/com/acme/shop/Other.java\\n*** Move to: src/main/java/com/acme/shop/ProductController.java\\n@@\\n-a\\n+b")"
+check "codex: a patch that moves another file onto it is refused" denied
+ELASTICORE_ALLOW_GENERATED_EDITS=1 run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Update File: src/main/java/com/acme/shop/ProductDTO.java\\n@@\\n-a\\n+b")"
+check "codex: ELASTICORE_ALLOW_GENERATED_EDITS=1 lets it through" quiet
+run_codex post-edit "$(cx_patch PostToolUse cx2 "$engine" "*** Update File: src/main/resources/blueprint/shop/model/entity.yml\\n@@\\n-a\\n+b")"
+check "codex: a patch of the DSL gets the note to build" eval 'noted && has "$out" "\"hookEventName\":\"PostToolUse\"" && has "$out" "compileJava" && valid_json'
+run_codex stop "$(printf '{"session_id":"cx2","turn_id":"t-2","cwd":"%s","hook_event_name":"Stop","model":"gpt-5.6-sol","stop_hook_active":false,"last_assistant_message":"Done."}' "$engine")"
+check "codex: the Stop with the DSL change not built answers decision block, the reminder as the reason" \
+    eval '[ "$rc" -eq 0 ] && has "$out" "\"decision\":\"block\"" && has "$out" "\"reason\":\"The ElastiCORE model changed" && ! has "$out" "additionalContext" && valid_json'
+run_codex stop "$(printf '{"session_id":"cx2","turn_id":"t-3","cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$engine")"
+check "codex: once" quiet
+run_codex post-edit "$(cx_patch PostToolUse cx3 "$engine" "*** Update File: src/main/resources/blueprint/shop/model/entity.yml\\n@@\\n-a\\n+b")"
+run_codex stop "$(printf '{"session_id":"cx3","turn_id":"t-2","cwd":"%s","hook_event_name":"Stop","stop_hook_active":true}' "$engine")"
+check "codex: stop_hook_active lets it stop" quiet
+run stop "$(printf '{"session_id":"cx3","turn_id":"t-4","cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$engine")"
+check "codex: a payload with turn_id is taken for Codex's without the argument too" eval 'has "$out" "\"decision\":\"block\""'
+
+# --- ElastiCORE itself falling short: the report-issue skill, suggested once a session ----
+src_win="$src"
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3\\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\\n> Task :compileJava FAILED\\n$src_win/ProductDTO.java:4: error: cannot find symbol\\n  symbol: class Weight\\nBUILD FAILED in 6s" issue1)"
+check "a compile error in a generated file suggests the report-issue skill" eval 'noted && has "$out" "files ElastiCORE generated" && has "$out" "report-issue" && has "$out" "Check the DSL first" && valid_json'
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :compileJava FAILED\\n$src_win/ProductDTO.java:4: error: cannot find symbol\\nBUILD FAILED in 6s" issue1)"
+check "once a session" eval '! has "$out" "report-issue"'
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :compileJava FAILED\\n$src_win/ShopApplication.java:3: error: ';' expected\\nBUILD FAILED in 6s" issue2)"
+check "a compile error in a hand-written file does not" eval '! has "$out" "report-issue"'
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3 FAILED\\nFAILURE: Build failed with an exception.\\n* What went wrong:\\nExecution failed for task ':elcore3'.\\n> java.lang.NullPointerException: Cannot invoke \\\"io.elasticore.base.model.entity.Field.getType()\\\" because \\\"f\\\" is null\\nBUILD FAILED in 3s" issue3)"
+check "a generator exception suggests it" eval 'noted && has "$out" "generator itself failed" && has "$out" "report-issue" && valid_json'
+run post-bash "$(failure_json "./gradlew compileJava" "Exit code 1\\n> Task :elcore3 FAILED\\n[elcore3] the model check failed (1) - fix these and build again:\\n  [elcore3] Dom.Entry: x\\nExecution failed for task ':elcore3'.\\n> org.gradle.api.GradleException: the model check failed\\nBUILD FAILED in 4s" issue4)"
+check "a model check that names the fix does not" eval 'noted && ! has "$out" "report-issue"'
+printf '//ecd:-77H20261020123214_V3.0\npackage com.acme.shop\n\nclass ProductKt\n' > "$src/ProductKt.kt"
+run post-bash "$(failure_json "./gradlew.bat compileKotlin" "Exit code 1\\ne: file:///${src_win#/}/ProductKt.kt:4:5 Unresolved reference: Weight\\nBUILD FAILED" issue5 PowerShell)"
+check "a kotlinc error line naming a generated file counts too" eval 'noted && has "$out" "report-issue"'
+# A refused edit, then the same file changed through the shell.
+run pre-edit "$(edit_json Edit "$managed" issue6)"
+check "(the edit is refused)" denied
+run post-bash "$(bash_json "sed -i 's/ProductDTO {}/ProductDTO { int weight; }/' src/main/java/com/acme/shop/ProductDTO.java" "" issue6)"
+check "changing the refused file through the shell is called out, with the report-issue skill" eval 'noted && has "$out" "Do not work around the refusal" && has "$out" "report-issue" && valid_json'
+run post-bash "$(bash_json "cat src/main/java/com/acme/shop/ProductDTO.java" "class ProductDTO {}" issue7)"
+check "reading a file whose edit was refused in another session says nothing" quiet
+run pre-edit "$(edit_json Edit "$managed" issue8)"
+run post-bash "$(bash_json "cat src/main/java/com/acme/shop/ProductDTO.java" "class ProductDTO {}" issue8)"
+check "reading the refused file says nothing" quiet
+
+# --- contributor mode: a checkout of ElastiCORE itself -----------------------------------
+# The samples are generated and edited on purpose there: no generated-file guard, no -Pforce
+# guard, no DSL reminder. Instead: no edit of the history, ASCII-only elasticore-base main
+# sources, both guide languages, and a fragment and the gates before a push.
+co="$work/checkout"
+guide_dir="$co/elasticore-project/elasticore-base/src/main/resources/elasticore-guide"
+base_java="$co/elasticore-project/elasticore-base/src/main/java/io/elasticore/base"
+sample="$co/elasticore-project/elasticore-template"
+mkdir -p "$guide_dir/ko" "$base_java" "$sample/src/main/java/com/acme/shop" "$sample/src/main/resources/blueprint/shop/model" "$co/changes"
+printf "rootProject.name = 'elasticore'\ninclude('elasticore-project:elasticore-base')\ninclude('elasticore-project:elasticore-template')\n" > "$co/settings.gradle"
+printf "plugins { id 'io.elasticore' }\nelasticore { output = 'v2' }\n" > "$sample/build.gradle"
+printf '# Change fragments\n' > "$co/changes/README.md"
+printf '# History\n' > "$guide_dir/elasticore-history.md"
+printf '# DSL guide\n' > "$guide_dir/elasticore-dsl-guide.md"
+printf '# DSL guide (ko)\n' > "$guide_dir/ko/elasticore-dsl-guide.md"
+printf 'package io.elasticore.base;\n\npublic class Plain {}\n' > "$base_java/Plain.java"
+printf 'package io.elasticore.base;\n\n// a -> b \342\206\222 c\npublic class Arrow {}\n' > "$base_java/Arrow.java"
+printf '//ecd:-1375193215H20261020123214_V3.0\npackage com.acme.shop;\n\npublic class ProductDTO {}\n' > "$sample/src/main/java/com/acme/shop/ProductDTO.java"
+printf 'entity:\n  Product:\n    meta: entity @access(read=all)\n    fields:\n      name: string(100)!\n' > "$sample/src/main/resources/blueprint/shop/model/entity.yml"
+co_cwd() {  # co_cwd <json> <cwd>  - the same JSON with the folder the call ran in
+    printf '%s' "$1" | sed 's#^{#{"cwd":"'"$2"'",#'
+}
+run pre-edit "$(edit_json Edit "$sample/src/main/java/com/acme/shop/ProductDTO.java" co1)"
+check "a checkout: a generated file of a sample may be edited" quiet
+run pre-edit "$(edit_json Write "$guide_dir/elasticore-history.md" co1)"
+check "a checkout: the history is refused, with the fragment instead" eval 'denied && has "$out" "changes/<topic>.md" && has "$out" "Change record" && valid_json'
+run pre-edit "$(edit_json Edit "$guide_dir/elasticore-dsl-guide.md" co1)"
+check "a checkout: a guide may be edited" quiet
+ELASTICORE_ALLOW_HISTORY_EDITS=1 run pre-edit "$(edit_json Edit "$guide_dir/elasticore-history.md" co1)"
+check "ELASTICORE_ALLOW_HISTORY_EDITS=1 lets the history through" quiet
+run pre-bash "$(co_cwd "$(bash_json "./gradlew :elasticore-project:elasticore-template:elcore -Pforce" "" co1)" "$co")"
+check "a checkout: -Pforce is not refused" quiet
+run post-edit "$(edit_json Edit "$sample/src/main/resources/blueprint/shop/model/entity.yml" co1)"
+check "a checkout: a sample's DSL edit gets no reminder" quiet
+run stop "$(stop_json false co1)"
+check "a checkout: and the Stop does not hold it" quiet
+check "a checkout: no DSL note is kept" [ ! -f "$CLAUDE_PLUGIN_DATA/dsl-changed-co1" ]
+run post-edit "$(edit_json Edit "$base_java/Arrow.java" co2)"
+check "a checkout: non-ASCII in elasticore-base main sources is called out, with its line" eval 'noted && has "$out" "not ASCII (line 3)" && has "$out" "SourceAsciiTest" && valid_json'
+run post-edit "$(edit_json Edit "$base_java/Plain.java" co2)"
+check "a checkout: an ASCII source says nothing" quiet
+run post-edit "$(edit_json Edit "$guide_dir/elasticore-dsl-guide.md" co3)"
+check "a checkout: a guide edit says nothing yet" quiet
+run stop "$(stop_json false co3)"
+check "a checkout: at the Stop, an English guide changed without its Korean twin" eval 'noted && has "$out" "elasticore-dsl-guide.md without ko/elasticore-dsl-guide.md" && valid_json'
+run stop "$(stop_json false co3)"
+check "a checkout: said once" quiet
+run post-edit "$(edit_json Edit "$guide_dir/ko/elasticore-dsl-guide.md" co4)"
+run stop "$(stop_json false co4)"
+check "a checkout: and the Korean one without the English" eval 'noted && has "$out" "ko/elasticore-dsl-guide.md without elasticore-dsl-guide.md"'
+run post-edit "$(edit_json Edit "$guide_dir/elasticore-dsl-guide.md" co5)"
+run post-edit "$(edit_json Edit "$guide_dir/ko/elasticore-dsl-guide.md" co5)"
+run stop "$(stop_json false co5)"
+check "a checkout: both languages changed - nothing to say" quiet
+run post-edit "$(edit_json Edit "$guide_dir/elasticore-history.md" co6)"
+run stop "$(stop_json false co6)"
+check "a checkout: the history has no twin" quiet
+
+# A push: the checkout is a git repository whose origin/main is its first commit.
+if command -v git >/dev/null 2>&1; then
+    g() { git -C "$co" -c user.name=t -c user.email=t@example.com "$@" >/dev/null 2>&1; }
+    g init -q && g add -A && g commit -q -m base && g update-ref refs/remotes/origin/main HEAD && g checkout -q -b feature/x
+    printf 'package io.elasticore.base;\n\npublic class Plain { int x; }\n' > "$base_java/Plain.java"
+    g commit -q -am change
+    push_json() { co_cwd "$(bash_json "$1" "" "$2" "" "" Bash | sed 's/"hook_event_name":"PostToolUse"/"hook_event_name":"PreToolUse"/')" "$co"; }
+    run pre-bash "$(push_json "git push -u origin feature/x" co7)"
+    check "a checkout: a push of a src/main change without a fragment or the gates is refused once" \
+        eval 'denied && has "$out" "no new changes/<topic>.md" && has "$out" "formatChanged" && has "$out" "diffErrorprone -PdiffBase=origin/main" && valid_json'
+    run pre-bash "$(push_json "git push -u origin feature/x" co7)"
+    check "a checkout: the second push goes through" quiet
+    run pre-bash "$(push_json "git commit -m \\\"push it\\\"" co8)"
+    check "a checkout: a commit message naming push is no push" quiet
+    printf '### Fixes\n\n#### x\n' > "$co/changes/plain-x.md"
+    run post-bash "$(co_cwd "$(bash_json "./gradlew formatCheck diffErrorprone -PdiffBase=origin/main --no-daemon" "> Task :formatCheck\\n> Task :diffErrorprone\\nBUILD SUCCESSFUL in 40s" co8)" "$co")"
+    run pre-bash "$(push_json "git push" co8)"
+    check "a checkout: with a fragment and the gates passed, the push goes through" quiet
+    run post-edit "$(edit_json Edit "$base_java/Plain.java" co8)"
+    run pre-bash "$(push_json "gh pr create --fill" co8)"
+    check "a checkout: code changed since the gates - gh pr create is refused once, naming only the gates" \
+        eval 'denied && has "$out" "formatChanged" && ! has "$out" "changes/<topic>.md"'
+    run post-bash "$(co_cwd "$(failure_json "./gradlew formatCheck diffErrorprone" "Exit code 1\\n> Task :formatCheck FAILED\\nBUILD FAILED" co9)" "$co")"
+    check "a checkout: failed gates are not noted" [ ! -f "$CLAUDE_PLUGIN_DATA/gates-co9" ]
+fi
+
+# A folder with elasticore-project/elasticore-base but a settings.gradle that does not include it: a user project.
+notco="$work/not-a-checkout"
+mkdir -p "$notco/elasticore-project/elasticore-base" "$notco/src/main/java"
+printf "rootProject.name = 'shop'\n" > "$notco/settings.gradle"
+cp "$managed" "$notco/src/main/java/ProductDTO.java"
+run pre-edit "$(edit_json Edit "$notco/src/main/java/ProductDTO.java" co10)"
+check "a settings.gradle that does not include elasticore-base is no checkout" denied
+# An older checkout, without changes/: the history is edited there.
+old="$work/old-checkout"
+mkdir -p "$old/elasticore-project/elasticore-base/src/main/resources/elasticore-guide"
+cp "$co/settings.gradle" "$old/settings.gradle"
+printf '# History\n' > "$old/elasticore-project/elasticore-base/src/main/resources/elasticore-guide/elasticore-history.md"
+run pre-edit "$(edit_json Edit "$old/elasticore-project/elasticore-base/src/main/resources/elasticore-guide/elasticore-history.md" co11)"
+check "a checkout without changes/ edits the history" quiet
+
 # --- unknown or empty input -------------------------------------------------------
 run unknown-event '{}'
 check "an unknown event does nothing" quiet
