@@ -1,0 +1,14 @@
+{
+  "name": "elasticore-agent-kit",
+  "version": "1.4.0",
+  "description": "ElastiCORE for pi: the kit's skills, and an extension that runs its hooks (pi install git:github.com/xsko/elasticore-agent-kit).",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/xsko/elasticore-agent-kit",
+  "keywords": ["pi-package", "elasticore"],
+  "pi": {
+    "extensions": ["./plugins/elasticore/pi/elasticore.js"],
+    "skills": ["./plugins/elasticore/skills/elasticore", "./plugins/elasticore/skills/report-issue", "./plugins/elasticore/skills/contribute"]
+  }
+}

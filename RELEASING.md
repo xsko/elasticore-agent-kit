@@ -1,9 +1,11 @@
 # Releasing the kit
 
-1. Raise `version` in `plugins/elasticore/.claude-plugin/plugin.json` and in
-   `plugins/elasticore/plugin.json` (Codex) - `claude plugin update` finds nothing new otherwise -
-   and write the version's section in [CHANGELOG.md](CHANGELOG.md), `## X.Y.Z`, for users: what
-   they get, and how to update in Claude Code, opencode and Codex.
+1. Raise `version` in `plugins/elasticore/.claude-plugin/plugin.json`, in
+   `plugins/elasticore/plugin.json` and `plugins/elasticore/.codex-plugin/plugin.json` (Codex), and
+   in the two `package.json` files (pi and omp: the root one and `plugins/elasticore/package.json`) -
+   `claude plugin update` finds nothing new otherwise, and the tests check that they agree - and
+   write the version's section in [CHANGELOG.md](CHANGELOG.md), `## X.Y.Z`, for users: what they get,
+   and how to update in Claude Code, opencode, Codex, pi and omp.
 2. Merge to `main` once CI passes.
 3. Tag the merge commit `vX.Y.Z` and push the tag. The
    [Release workflow](.github/workflows/release.yml) checks that the tag is the plugin's version,

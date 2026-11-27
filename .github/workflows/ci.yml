@@ -72,6 +72,24 @@ jobs:
       - name: Adapter tests
         run: node tests/opencode/test-adapter.mjs
 
+  pi:
+    name: pi and oh-my-pi extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '20'
+
+      # The extension against the real hook script, pi/install.sh, and the two package.json
+      # files against the plugin manifests
+      - name: Extension tests
+        run: node tests/pi/test-adapter.mjs
+
   manifests:
     name: Plugin and marketplace manifests
     runs-on: ubuntu-latest

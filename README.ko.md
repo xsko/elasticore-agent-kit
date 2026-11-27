@@ -2,8 +2,8 @@
 
 [ElastiCORE](https://github.com/xsko/ElastiCORE)로 만든 프로젝트를 위한 [Claude Code](https://code.claude.com) 플러그인입니다.
 ElastiCORE는 YAML 모델에서 Spring Boot 애플리케이션 - 엔티티, DTO, 리포지토리, 서비스, REST 컨트롤러, 검증, 오류 처리 - 을
-생성하고, 빌드할 때마다 다시 생성합니다. 같은 skill과 hook을 [opencode](https://opencode.ai)와
-[Codex CLI](https://github.com/openai/codex)용으로도 패키징했습니다.
+생성하고, 빌드할 때마다 다시 생성합니다. 같은 skill과 hook을 [opencode](https://opencode.ai),
+[Codex CLI](https://github.com/openai/codex), [pi](https://pi.dev), [oh-my-pi](https://omp.sh)용으로도 패키징했습니다.
 
 그냥 두면 에이전트는 생성된 Java를 고칩니다. 다음 빌드가 그 수정을 덮어쓰거나, 그 파일이 소리 없이 YAML을 따라가지 않게 되는데
 아무도 모르고 지나갑니다. 이 플러그인을 쓰면 에이전트는 YAML을 고치고, 다시 생성하고, 컴파일한 뒤 업무에 무엇이 바뀌었는지 알려 줍니다.
@@ -47,7 +47,7 @@ entity:
 
 ## 필요한 것
 
-- Claude Code - 또는 opencode나 Codex CLI, 설치 절 참고.
+- Claude Code - 또는 opencode, Codex CLI, pi, oh-my-pi, 설치 절 참고.
 - JDK 17 이상. 새 프로젝트를 만들려면 PATH에 Gradle 8.14 이상: 템플릿이 그것으로 Gradle wrapper를 만듭니다.
 - Windows에서는 Git for Windows. hook은 bash로 실행되고, Claude Code가 Git Bash로 그것을 실행합니다. 없으면 Claude Code가
   편집·명령마다 hook 오류를 표시하니 Git for Windows를 설치하거나 플러그인을 끄세요.
@@ -71,6 +71,16 @@ skill, Codex agent 형식의 modeler와 reviewer, 그리고 hook과 그것을 �
 신뢰(trust)하면 됩니다. skill과 hook은 플러그인으로도 받을 수 있습니다 - `codex plugin marketplace add xsko/elasticore-agent-kit` 다음
 `codex plugin add elasticore@elasticore-agent-kit`. 자세한 내용은 [codex/README.md](codex/README.md). (아래 비교의 Codex는
 skill만으로, kit 0.3.0으로 돌렸습니다.)
+
+**pi:** `pi install git:github.com/xsko/elasticore-agent-kit@v1.4.0`이 skill과 hook을 돌리는 extension을 설치합니다. 또는
+이 저장소를 받아 `pi/install.sh`(또는 `pi/install.ps1`)를 실행합니다. 한 프로젝트에만 쓰려면 `--project` - pi는 프로젝트의
+파일을 그 프로젝트를 신뢰(trust)한 뒤에만 읽으므로, 그다음 pi에서 프로젝트를 신뢰합니다. 자세한 내용은 [pi/README.md](pi/README.md).
+
+**oh-my-pi (omp):** 이 저장소를 받아 `pi/install.sh --omp`(또는 `pi/install.ps1 -Omp`)를 실행합니다. 한 프로젝트에만 쓰려면
+`--project`. skill, extension, 그리고 omp task agent 형식의 `elasticore-modeler`와 `elasticore-reviewer`가 omp 자체의 reviewer 옆에
+설치됩니다. omp 마켓플레이스로도 설치할 수 있지만(`omp plugin marketplace add xsko/elasticore-agent-kit` 다음
+`omp plugin install elasticore@elasticore-agent-kit`), 그러면 kit의 `reviewer`가 omp의 reviewer를 대신합니다. omp에는 Bun 1.4.4
+이상이 필요합니다. 자세한 내용은 [pi/README.md](pi/README.md).
 
 ## 써 보기
 
@@ -205,6 +215,7 @@ ElastiCORE 자체의 체크아웃 - `elasticore-project/elasticore-base`가 있�
 bash tests/hooks/test-hooks.sh                     # Claude Code와 Codex가 보내는 JSON으로 hook 스크립트 검사 (HOOK_BASH=/bin/bash로 셸 지정)
 bash tests/codex/test-codex.sh                     # Codex용 agent, manifest, hooks 파일, 설치 스크립트
 node tests/opencode/test-adapter.mjs               # opencode 플러그인
+node tests/pi/test-adapter.mjs                     # pi / oh-my-pi extension, pi/install.sh, package manifest
 python3 tests/frontmatter/check_frontmatter.py     # skill, agent, command의 front matter가 엄격한 YAML인지 (PyYAML)
 python3 tests/contract/check.py                    # PATH에 JDK 17, Gradle 8.14 이상
 claude plugin validate ./plugins/elasticore --strict
