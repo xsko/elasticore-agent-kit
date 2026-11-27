@@ -4,7 +4,8 @@ A [Claude Code](https://code.claude.com) plugin for projects built with
 [ElastiCORE](https://github.com/xsko/ElastiCORE), which generates a Spring Boot application from a
 YAML model - entities, DTOs, repositories, services, REST controllers, validation and error
 handling - and regenerates it on every build. The same skills and hooks are packaged for
-[opencode](https://opencode.ai) and [Codex CLI](https://github.com/openai/codex).
+[opencode](https://opencode.ai), [Codex CLI](https://github.com/openai/codex), [pi](https://pi.dev)
+and [oh-my-pi](https://omp.sh).
 
 Left to itself, an agent edits the generated Java. The next build overwrites the edit, or the file
 silently stops following the YAML, and nobody notices. With this plugin the agent changes the YAML,
@@ -59,7 +60,7 @@ the files the generator hands over.
 
 ## Requirements
 
-- Claude Code - or opencode or Codex CLI, see Install.
+- Claude Code - or opencode, Codex CLI, pi or oh-my-pi, see Install.
 - JDK 17 or later. For a new project, Gradle 8.14 or later on the PATH: the template creates the
   Gradle wrapper with it.
 - On Windows, Git for Windows. The hooks run in bash, and Claude Code runs them with Git Bash;
@@ -89,6 +90,18 @@ and the hooks with a `hooks.json` that runs them; trust them in Codex's `/hooks`
 and hooks as a plugin - `codex plugin marketplace add xsko/elasticore-agent-kit`, then
 `codex plugin add elasticore@elasticore-agent-kit` - see [codex/README.md](codex/README.md). (The
 comparison below ran Codex with the skill alone, kit 0.3.0.)
+
+**pi:** `pi install git:github.com/xsko/elasticore-agent-kit@v1.4.0` installs the skills and an
+extension that runs the hooks; or clone this repository and run `pi/install.sh` (or
+`pi/install.ps1`), with `--project` for one project - then trust the project in pi, which loads a
+project's own files only once you do. See [pi/README.md](pi/README.md).
+
+**oh-my-pi (omp):** clone this repository and run `pi/install.sh --omp` (or `pi/install.ps1 -Omp`),
+with `--project` for one project. It installs the skills, the extension, and the modeler and the
+reviewer as omp task agents `elasticore-modeler` and `elasticore-reviewer`, next to omp's own
+reviewer. omp's marketplace installs the plugin too (`omp plugin marketplace add
+xsko/elasticore-agent-kit`, then `omp plugin install elasticore@elasticore-agent-kit`), but then the
+kit's `reviewer` replaces omp's. omp needs Bun 1.4.4 or later - see [pi/README.md](pi/README.md).
 
 ## Try it
 
@@ -244,6 +257,7 @@ each time rather than carry a copy of.
 bash tests/hooks/test-hooks.sh                     # the hook script, on the JSON Claude Code and Codex send (HOOK_BASH=/bin/bash for another shell)
 bash tests/codex/test-codex.sh                     # the Codex agents, manifest, hooks file and installer
 node tests/opencode/test-adapter.mjs               # the opencode plugin
+node tests/pi/test-adapter.mjs                     # the pi / oh-my-pi extension, pi/install.sh and the package manifests
 python3 tests/frontmatter/check_frontmatter.py     # every skill's, agent's and command's front matter is strict YAML (PyYAML)
 python3 tests/contract/check.py                    # JDK 17 and Gradle 8.14 or later on the PATH
 claude plugin validate ./plugins/elasticore --strict

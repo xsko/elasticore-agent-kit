@@ -4,6 +4,47 @@ The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins w
 raise it with every release, or `claude plugin update` finds nothing new. Each version's section
 here becomes the notes of its GitHub release when its tag is pushed ([RELEASING.md](RELEASING.md)).
 
+## 1.4.0
+
+For ElastiCORE 3.0.261119 and later, like 1.3.0. What you get: the kit in two more coding agents,
+[pi](https://pi.dev) and [oh-my-pi](https://omp.sh) (omp). Nothing changes in Claude Code, opencode
+or Codex CLI.
+
+**Update.** Claude Code: `claude plugin marketplace update elasticore-agent-kit`, then
+`claude plugin update elasticore@elasticore-agent-kit`, and a new session. opencode and Codex CLI:
+`git pull` in your clone of this repository and run the installer again, as for 1.3.0 (or, for the
+Codex plugin, `codex plugin marketplace upgrade`). pi and omp: new in this version, below.
+
+- **pi gets the skills and the hooks.** `pi install git:github.com/xsko/elasticore-agent-kit@v1.4.0`
+  installs the skills `elasticore`, `report-issue` and `contribute` and an extension that runs the
+  kit's hook script on pi's tool calls; or `pi/install.sh` (`pi/install.ps1` on Windows) copies them,
+  for you or with `--project` for one project. An `edit` or `write` of a generated file is blocked
+  with where the change belongs, `-Pforce` is blocked, a DSL edit gets the note to build, and a run
+  that is about to end with a DSL change no build has compiled is sent back once - the same hook
+  script as in Claude Code, opencode and Codex, with the 1.3.0 checks: the `gh issue create` stop, the
+  contributor mode in an ElastiCORE checkout, the `report-issue` suggestion. pi loads a project's own
+  files only once you trust the project: after a project install, say yes when pi asks, or run
+  `/trust`. pi has no subagents, so the modeler and the reviewer are not there
+  ([pi/README.md](pi/README.md)).
+- **oh-my-pi gets the skills, the hooks and the agents.** `pi/install.sh --omp` (`install.ps1 -Omp`)
+  installs the same extension and skills, and the modeler and the reviewer as omp task agents
+  `elasticore-modeler` and `elasticore-reviewer` - beside omp's own reviewer, which an agent called
+  `reviewer` would replace. omp's marketplace (`omp plugin marketplace add xsko/elasticore-agent-kit`,
+  then `omp plugin install elasticore@elasticore-agent-kit`) installs the plugin too, with every skill,
+  but its agents under their Claude Code names, so the kit's reviewer then stands in for omp's. A DSL
+  change a subagent made sends the main session back at its end, as in Claude Code. omp needs Bun
+  1.4.4 or later.
+- **What differs from Claude Code.** In omp's `hashline`, `apply_patch`, `patch` and `magic` edit
+  modes the hook cannot see the replaced text, so adding a preserved block to a `//ecd:` file is
+  refused there (`replace` mode lets it through, as Claude Code does); a delete of a generated file
+  goes through in every mode, as it is how one is restored. omp cuts a long command output in the
+  middle, so a warning in the middle of a very long Gradle log can be missed; a build whose output
+  goes to a file is read from the file.
+- Checked live with pi 1.6.1 and omp 19.2.1 on Windows, with a local model, installed with the
+  project installer and as a pi package or from omp's marketplace: the edit of a `//ecd:` file was
+  refused, the DSL edit got the note, the end of the run was sent back once. The extension's tests
+  (`tests/pi/test-adapter.mjs`, in CI) drive it with the payloads both hosts sent.
+
 ## 1.3.0
 
 For ElastiCORE 3.0.261119 and later, like 1.2.0. What you get: the kit's hooks and agents in Codex

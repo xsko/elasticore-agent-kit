@@ -1,0 +1,15 @@
+{
+  "name": "elasticore-agent-kit",
+  "version": "1.4.0",
+  "description": "ElastiCORE for pi and oh-my-pi: the kit's skills, and an extension that runs its hooks.",
+  "private": true,
+  "license": "Apache-2.0",
+  "keywords": ["pi-package", "elasticore"],
+  "omp": {
+    "extensions": ["./pi/elasticore.js"]
+  },
+  "pi": {
+    "extensions": ["./pi/elasticore.js"],
+    "skills": ["./skills/elasticore", "./skills/report-issue", "./skills/contribute"]
+  }
+}
