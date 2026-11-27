@@ -56,6 +56,54 @@ The agents are not part of a Codex plugin: add them with `bash codex/install.sh 
 the plugin, or from the installer - or they run twice. `codex plugin marketplace upgrade` and the
 same `codex plugin add` update it.
 
+## Update
+
+Codex does not update the kit on its own. Update it the way you installed it, then start a new
+Codex session and trust the hooks again in `/hooks` if Codex asks (it does when the hook script
+changed).
+
+**Installed as a plugin:**
+
+```bash
+codex plugin marketplace upgrade elasticore-agent-kit   # fetch the newest kit
+codex plugin add elasticore@elasticore-agent-kit        # install that version
+codex plugin list                                       # the VERSION column shows what you have
+```
+
+A marketplace added with `--ref` stays on that ref: `upgrade` does not move it to a newer tag.
+To change the version, remove the marketplace and add it again with the new ref (or none), then add
+the plugin - the old version's cache is removed:
+
+```bash
+codex plugin marketplace remove elasticore-agent-kit
+codex plugin marketplace add xsko/elasticore-agent-kit           # or --ref vX.Y.Z
+codex plugin add elasticore@elasticore-agent-kit
+```
+
+If you installed the agents with `--agents-only`, update them as below too.
+
+**Installed with the installer:** update your clone and run the installer again with the same
+options (`--project`, `--no-hooks`, `--agents-only`):
+
+```bash
+cd elasticore-agent-kit          # your clone of this repository
+git pull                         # or git checkout vX.Y.Z for one version
+git describe --tags              # the version you are about to install
+bash codex/install.sh                                         # macOS, Linux, Git Bash
+powershell -ExecutionPolicy Bypass -File codex\install.ps1    # Windows PowerShell
+```
+
+It overwrites the skills, the agents and the hook script and deletes nothing. It writes
+`hooks.json` only when there is none: an existing one - the kit's from an earlier install, or yours -
+stays as it is, and the installer prints the hooks it would add, to compare with yours. On Windows
+use `install.ps1` or Git Bash itself: a `bash` from MSYS2 or WSL has a home of its own and installs
+there.
+
+Checked with Codex CLI 0.172.0, each in a fresh `CODEX_HOME`: the plugin from GitHub, then
+`marketplace upgrade` and `plugin add` (1.4.0); the marketplace added with `--ref v1.3.0` (plugin
+1.3.0), removed and added again without a ref (plugin 1.4.0, the 1.3.0 cache gone); and
+`install.ps1 -Project` from v1.4.0 over a project.
+
 ## What you get
 
 | Part | What it does |
