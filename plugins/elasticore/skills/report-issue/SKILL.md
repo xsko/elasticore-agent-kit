@@ -38,8 +38,10 @@ and says yes first.
 
 ## 2. Look for the same issue
 
-Search the open **and closed** issues of xsko/ElastiCORE for the annotation, the error text and the
-generated class: `gh issue list -R xsko/ElastiCORE --state all --search "<words>" --limit 20`
+Search the open **and closed** issues of xsko/ElastiCORE with words from the minimal reproduction
+only - ElastiCORE's own words (the annotation, the `[elcore3]` message, the generated file's kind)
+and the minimal model's names, never the project's package, entity or host names, which a search
+sends to GitHub: `gh issue list -R xsko/ElastiCORE --state all --search "<words>" --limit 20`
 (or the issues page in a browser). Read the ones that look close. If one describes the same
 problem, do not draft a new issue: draft a comment for that one instead - what the reproduction
 adds (another version, mode or architecture it happens in, a smaller model) - and treat it as below.
@@ -85,7 +87,10 @@ Before you show the draft, go through it line by line and take out or replace:
 ## 5. Show it, and post only on yes
 
 Show the user the whole draft: the title, the body, the labels the template sets, and whether it is
-a new issue or a comment on an existing one (with its number). Ask: "Post this to xsko/ElastiCORE?"
+a new issue or a comment on an existing one (with its number). End your answer with the question
+itself, as its last line - in every agent, also when you run without anyone to answer:
+"Post this to xsko/ElastiCORE?" (for a comment: "Post this comment on #<number>?"). The kit's hook
+stops the first `gh` post to xsko/ElastiCORE in a session to ask for the same yes.
 
 - Only on an explicit yes, post it with the user's GitHub CLI:
   `gh issue create -R xsko/ElastiCORE --title "<title>" --body-file <file> --label <label>`

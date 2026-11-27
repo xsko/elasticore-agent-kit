@@ -22,7 +22,8 @@ in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
   `apply_patch` that changes a generated file is refused with where the change belongs, `-Pforce` is
   refused, a DSL change gets the note to build, and a turn that ends with a DSL change no build has
   compiled is sent back once - the same hook script as in Claude Code and opencode, reading Codex's
-  own payloads (each file of a patch; a Stop answered with `decision: "block"`). The modeler and
+  own payloads (each file of a patch - a patch that deletes a generated file goes through, which is
+  how one is restored; a Stop answered with `decision: "block"`). The modeler and
   the reviewer come as Codex agents (`.codex/agents/elasticore-*.toml`). The installer puts the
   skills in `.agents/skills/`, the agents and hooks in `.codex/` (with `--project` for one project),
   and leaves a `hooks.json` of yours as it is, printing what to add. Checked live with Codex CLI
@@ -37,7 +38,10 @@ in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
   open and closed issues of xsko/ElastiCORE (a match gets a comment instead of a new issue), fills
   the repository's issue template - a gap as a need, never as new DSL syntax - and takes out
   package and business names, hosts, paths and credentials. It shows you the whole draft and posts
-  with `gh issue create` only when you say yes; without `gh` you get the text to paste. The hooks
+  with `gh issue create` only when you say yes; without `gh` you get the text to paste. The hook
+  backs that up: the first `gh issue create` or `comment` (or a `gh api` write to its issues) aimed
+  at xsko/ElastiCORE in a session is refused once, with "show the user the whole draft and get
+  their explicit yes first"; the next try goes through. The hooks
   suggest it once a session: after a compile error in a generated file, after a generator
   exception, and when a shell command changes a generated file whose edit was refused - which they
   also call out as working around the refusal.
@@ -48,9 +52,11 @@ in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
   `changes/<topic>.md` fragment (not in a checkout without `changes/`, not on a `version/*` branch,
   not with `ELASTICORE_ALLOW_HISTORY_EDITS=1`); non-ASCII in `elasticore-base/src/main/java` gets a
   note with the lines; a guide changed without its `ko/` twin sends the agent back once; and a
-  `git push` or `gh pr create` without a fragment for a `src/main` change, or with Java changed
-  since `formatCheck diffErrorprone` (or `prCheck`) passed, is refused once, naming what is
-  missing. The new `contribute` skill (`contribute <issue> [plan | build]`) reads the checkout's
+  `git push` or `gh pr create` without a committed fragment for a committed `src/main` change, or
+  with Java changed since `formatCheck diffErrorprone` (or `prCheck`) passed, is refused once,
+  naming what is missing (a fragment written but not committed is named as such; a `version/*`
+  branch needs none; a branch that tracks `release/*` is measured against it, others against
+  `origin/main`). A user project inside a checkout keeps the user-project guards. The new `contribute` skill (`contribute <issue> [plan | build]`) reads the checkout's
   `CONTRIBUTING.md` and `changes/README.md` and plans before it codes: where the change goes, every
   JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd / hexagonal combination it
   reaches, the tests on the real output, the 2.x checks, both guide languages, the fragment, the
@@ -60,8 +66,9 @@ in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
   without a word (pi did). The description is now a folded scalar, and a test parses the front
   matter of every skill, agent and command with PyYAML.
 - **Every version is a GitHub release.** Pushing a tag `vX.Y.Z` now publishes the release with this
-  file's section of that version ([RELEASING.md](RELEASING.md)); 1.1.0, 1.1.1 and 1.2.0 were added
-  afterwards.
+  file's section of that version ([RELEASING.md](RELEASING.md)). The releases of 1.1.0, 1.1.1 and
+  1.2.0 were made by hand afterwards; the 1.1.1 section, missing here until now, is the text of its
+  release.
 
 ## 1.2.0
 
@@ -176,6 +183,35 @@ fixes and one new check; the skill gets three pages.
   Flyway, ElastiCORE 3.0.261127): the 67 generated contract tests passed on H2 as generated and on
   the embedded PostgreSQL 18.7 with the factory - one context, one database; without `equals` /
   `hashCode`, three contexts and three databases. SKILL.md section 3 points to it.
+
+The opencode plugin works on opencode 2.x. opencode 2.x runs no 1.x plugin, and the kit's plugin
+was one: on 2.x it did not load (`failed to load plugin ... Plugin must export a default
+definition`), so the refusal of hand edits to generated files, the refusal of `-Pforce`, the notes
+and the reminder at the end were all off, with nothing to show it but that log line. Run the
+installer again to update.
+
+- **One plugin file for both lines.** `opencode/plugins/elasticore.js` keeps its 1.x plugin (the
+  named export `ElastiCore`, now also the default export's `server`) and adds the 2.x entry, the
+  default export's `id` and `setup`, on the same hook script: a refusal is thrown from the tool's
+  `execute.before`, the note is added to the result in `execute.after`, and the reminder is admitted
+  in `experimental.idle`, just before the session goes idle. It knows the tools of both: 2.x names
+  them `edit`, `write`, `patch` and `shell` and puts the file in `path`, 1.x `edit`, `write`,
+  `apply_patch` and `bash` with `filePath`; and 2.x's line `[... full output saved to <path>]` for a
+  long output it cut. opencode 1.19 calls `setup` as well, with no tool hooks; it then registers
+  nothing.
+- **Installers:** unchanged - both versions load a plugin file from `plugins/` in
+  `~/.config/opencode/` and in a project's `.opencode/`.
+- **The reminder in `opencode run`.** On 2.x the session takes the reminder up and goes on, in
+  `opencode run` too; on 1.x it still reaches only a session that keeps running (TUI, `opencode
+  serve`).
+- Seen live with opencode 1.19.4 and 2.4.1 (opencode/README.md has what): an edit or write of a
+  `//ecd:` file and `./gradlew ... -Pforce` are refused with the kit's reason, an edit of the DSL
+  gets the note; on 2.4.1 the plugin loads without a warning and the reminder came once.
+- **Tests:** `tests/opencode/test-adapter.mjs` drives the 2.x entry with the events 2.4.1 sends
+  (refusals, notes, the reminder once, long outputs, a broken hook, the 1.19 context) beside the 1.x
+  tests: 80 of 80.
+
+## 1.1.1
 
 The opencode plugin works on opencode 2.x. opencode 2.x runs no 1.x plugin, and the kit's plugin
 was one: on 2.x it did not load (`failed to load plugin ... Plugin must export a default

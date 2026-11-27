@@ -19,8 +19,12 @@ bash codex/install.sh             # for you: ~/.agents/skills/, ~/.codex/ (or $C
 bash codex/install.sh --project   # for the project in the current folder: .agents/skills/, .codex/
 ```
 
-On Windows, run it from Git Bash, or `powershell -ExecutionPolicy Bypass -File codex\install.ps1`
-(`-Project`, `-NoHooks`), which runs the same script with Git Bash. It copies:
+On Windows, run `powershell -ExecutionPolicy Bypass -File codex\install.ps1` (`-Project`,
+`-NoHooks`, `-AgentsOnly`), or the script from Git Bash. `--no-hooks` installs the skills and the
+agents; `--agents-only` the agents alone - next to the plugin, which brings the skills and hooks.
+The hooks need Git for Windows: install.ps1 looks for its Git Bash (`bin\bash.exe`) in Program
+Files, `%LOCALAPPDATA%\Programs\Git`, Scoop's `git\current` and next to `git.exe` on the PATH, and
+the hooks call the one it found. It copies:
 
 | From this repository | To |
 |---|---|
@@ -44,8 +48,11 @@ codex plugin add elasticore@elasticore-agent-kit
 
 The plugin brings the skills and the hooks (`plugins/elasticore/hooks/codex-hooks.json`, named in
 the plugin's `.codex-plugin/plugin.json`); trust them in `/hooks` as above. Checked: both
-`codex plugin marketplace add` from a local clone and from GitHub (`--ref` a branch) install it. The agents are not part of a Codex
-plugin: add them with `bash codex/install.sh --no-hooks`. Install the hooks one way only - from
+`codex plugin marketplace add` from a local clone and from GitHub (`--ref` a branch) install it.
+On Windows its hooks look for Git Bash in the same places as install.ps1; with none found, each
+hook fails with "no Git Bash found ... its Codex hooks are off", which Codex shows as a hook error.
+The agents are not part of a Codex plugin: add them with `bash codex/install.sh --agents-only`
+(`-AgentsOnly`). Install the hooks one way only - from
 the plugin, or from the installer - or they run twice. `codex plugin marketplace upgrade` and the
 same `codex plugin add` update it.
 
@@ -63,7 +70,8 @@ same `codex plugin add` update it.
 
 - An edit is the `apply_patch` tool, the patch in `tool_input.command`, with paths relative to
   the call's `cwd`. The hook checks each file the patch names: `*** Add File:` and `*** Move to:`
-  give a file a whole new content, like a Write; `*** Update File:` and `*** Delete File:` edit it.
+  give a file a whole new content, like a Write; `*** Update File:` edits it; `*** Delete File:`
+  goes through - deleting a generated file and generating again is how one is restored.
 - A shell call is `Bash`, the command in `tool_input.command` as the model wrote it (Codex runs it
   through PowerShell on Windows; the hook sees the command itself).
 - The end of a turn is `Stop`: the hook answers `{"decision": "block", "reason": "..."}`, which
@@ -74,10 +82,11 @@ same `codex plugin add` update it.
   a command whose output looks successful but that exited non-zero cannot be told apart. (An
   `apply_patch` response starts `Exit code: N`, which the hook reads.)
 - On Windows Codex runs a hook's command with PowerShell. The plugin's hooks therefore have a
-  `commandWindows` that calls Git Bash by its full path (`& "$env:ProgramFiles\Git\bin\bash.exe"
-  "$env:PLUGIN_ROOT/hooks/..."`); the installer writes the same with the paths it found. A plain
-  `bash "..."` there may start WSL's bash, and a quoted path followed by arguments is a PowerShell
-  syntax error.
+  `commandWindows` that looks for Git Bash's launcher (`bin\bash.exe`) and calls it with `&` and
+  `$env:PLUGIN_ROOT/hooks/...`; the installer writes `& '<Git Bash>' '<hook script>'` with the paths
+  it found. A plain `bash "..."` there may start WSL's bash, and a quoted path followed by arguments
+  is a PowerShell syntax error. The hook script puts `/usr/bin` first on its PATH itself, so that
+  Git's `usr\bin\bash.exe`, started with only `Git\cmd` on the Windows PATH, still finds its tools.
 - The plugin's hooks file is named in `.codex-plugin/plugin.json`. The plugin's root `plugin.json`
   must not be a portable manifest (`$schema`): with one, Codex 0.172 runs none of the plugin's
   hooks, and without `.codex-plugin` it runs `hooks/hooks.json`, which is Claude Code's.

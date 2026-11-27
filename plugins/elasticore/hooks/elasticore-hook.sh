@@ -28,6 +28,10 @@
 # lets an edit of a checkout's elasticore-history.md through.
 
 set -u
+# The POSIX tools first: Git for Windows' usr/bin/bash.exe, started directly with only Git\cmd
+# on the Windows PATH (what Codex's PowerShell may do), finds no cat, sed or awk otherwise -
+# and every hook would let everything through without a word.
+PATH="/usr/bin:/bin:$PATH"
 # Bytes, not characters: in a UTF-8 locale the BSD tools on macOS refuse or
 # miscount bytes that are not valid UTF-8 - a BOM taken apart, a file in
 # another encoding, a multibyte character cut by head -c.
@@ -89,13 +93,12 @@ merge_base() {
 # The project that keeps a merge base: the nearest folder above the file that
 # has one. The 3.0 code is written without //ecd: lines and merged against it.
 merge_root() {
-    dir="$(dirname -- "$1")"
+    case "$1" in */*) dir="${1%/*}" ;; *) return 1 ;; esac
     i=0
+    # Up a folder with ${dir%/*}, not dirname: no process per level.
     while [ -n "$dir" ] && [ "$i" -lt 40 ]; do
         merge_base "$dir" > /dev/null && { printf '%s' "$dir"; return 0; }
-        parent="$(dirname -- "$dir")"
-        [ "$parent" = "$dir" ] && break
-        dir="$parent"
+        case "$dir" in */*) dir="${dir%/*}" ;; *) break ;; esac
         i=$((i + 1))
     done
     return 1
@@ -627,9 +630,16 @@ forces() {
 #   guides-<session>       the guides edited, "en <name>" or "ko <name>" a line
 #   gates-<session>        formatCheck and diffErrorprone passed since the code last changed
 #   push-noted-<session>   what a push still lacked, once said
+#   post-noted-<session>   a post to xsko/ElastiCORE was stopped once to ask the user
+# The notes that only say something was said once are removed at a Stop when older
+# than two days.
+# The folder alone, without a process: what a cheap early exit can look into.
+state_folder() {
+    base="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/elasticore-agent-kit-${UID:-$(id -u 2>/dev/null || echo user)}}"
+    state_dir="${base//\\//}"
+}
 state() {
-    base="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/elasticore-agent-kit-$(id -u 2>/dev/null || echo user)}"
-    state_dir="$(printf '%s' "$base" | tr '\\' '/')"
+    state_folder
     session="$(json_string session_id | tr -cd 'A-Za-z0-9_-')"
     marker="$state_dir/dsl-changed-${session:-default}"
     warned="$state_dir/dsl-warned-${session:-default}"
@@ -642,6 +652,25 @@ state() {
     guides="$state_dir/guides-${session:-default}"
     gates="$state_dir/gates-${session:-default}"
     pushed="$state_dir/push-noted-${session:-default}"
+    post_noted="$state_dir/post-noted-${session:-default}"
+}
+
+# Whether the folder holds a note whose name starts with $1, without a process.
+any_note() {
+    for f in "$state_dir/$1"*; do
+        [ -e "$f" ] && return 0
+        break
+    done
+    return 1
+}
+
+# A post to xsko/ElastiCORE: gh issue create or comment naming the repository, or a
+# gh api call that writes to its issues (-f, -F, --input, -X POST/PATCH) - not one
+# that reads them. A post to a public repository cannot be taken back.
+WRITES='(-f|-F|--field|--raw-field|--input|-X[[:space:]]*(POST|PATCH)|--method[[:space:]]+(POST|PATCH))'
+posts_issue() {
+    commands "$1" | grep -Ei 'xsko/elasticore([^-A-Za-z0-9]|$)' | grep -Ei '^([^[:space:]]*[/\\])?gh(\.exe)?[[:space:]]' \
+        | grep -Eqi "[[:space:]]issue[[:space:]]+(create|comment|new)([[:space:]]|\$)|[[:space:]]api[[:space:]](.*[[:space:]])?[^[:space:]]*/issues.*[[:space:]]$WRITES|[[:space:]]api[[:space:]].*[[:space:]]$WRITES.*/issues"
 }
 
 note() {
@@ -876,15 +905,17 @@ COMPILING='compileJava|compileKotlin|classes|build|assemble|bootRun|test|check|j
 
 # The files a patch adds, changes, deletes or moves to: "<tool> TAB <file>" a line.
 # A file the patch adds, or moves another onto, gets all of its content from the
-# patch - a Write; one it changes or deletes is a Patch, never the one-block Edit
-# the guard lets through. A relative path is taken from the folder the call ran in.
+# patch - a Write; one it changes is a Patch, never the one-block Edit the guard lets
+# through; one it deletes is a Delete - deleting a generated file and generating again
+# is how one is restored, as the hook's own notes say. A relative path is taken from
+# the folder the call ran in.
 patch_files() {
     cwd="$(json_path cwd)"
     decoded "$1" | awk '
         { sub(/\r$/, "") }
         match($0, /^\*\*\* (Add File|Update File|Delete File|Move to): /) {
             verb = substr($0, 5, RLENGTH - 6); f = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", f)
-            if (f != "") print ((verb == "Add File" || verb == "Move to") ? "Write" : "Patch") "\t" f
+            if (f != "") print ((verb == "Add File" || verb == "Move to") ? "Write" : (verb == "Delete File" ? "Delete" : "Patch")) "\t" f
         }' | while IFS="$tab" read -r t f; do
         f="$(printf '%s' "$f" | tr '\\' '/')"
         case "$f" in
@@ -922,20 +953,24 @@ stop_answer() {
 # that a hook can see are checked instead.
 
 # The root of an ElastiCORE checkout at or above a folder: elasticore-project/
-# elasticore-base, and a settings.gradle that includes it.
+# elasticore-base, and a settings.gradle that includes it. The walk stops at the
+# first other Gradle build on the way up - a user project inside a checkout (its
+# tmp/, say) stays a user project - except a build of the checkout's own under
+# elasticore-project/ (the Gradle plugin is an included build).
 checkout_root() {
     dir="$1"
     i=0
     while [ -n "$dir" ] && [ "$i" -lt 40 ]; do
-        if [ -d "$dir/elasticore-project/elasticore-base" ]; then
-            for s in "$dir/settings.gradle" "$dir/settings.gradle.kts"; do
-                [ -f "$s" ] && grep -q -F -e 'elasticore-project:elasticore-base' -- "$s" 2>/dev/null \
-                    && { printf '%s' "$dir"; return 0; }
-            done
-        fi
-        parent="$(dirname -- "$dir")"
-        [ "$parent" = "$dir" ] && break
-        dir="$parent"
+        for s in "$dir/settings.gradle" "$dir/settings.gradle.kts"; do
+            [ -f "$s" ] || continue
+            if [ -d "$dir/elasticore-project/elasticore-base" ] \
+                && grep -q -F -e 'elasticore-project:elasticore-base' -- "$s" 2>/dev/null; then
+                printf '%s' "$dir"
+                return 0
+            fi
+            case "$dir" in */elasticore-project/*) ;; *) return 1 ;; esac
+        done
+        case "$dir" in */*) dir="${dir%/*}" ;; *) break ;; esac
         i=$((i + 1))
     done
     return 1
@@ -998,16 +1033,31 @@ PUSH='^([^[:space:]]*[/\\])?git(\.exe)?([[:space:]]+(-C|-c)[[:space:]]+[^[:space
 # and Error Prone gates on the changed lines since the code last changed in this session.
 push_missing() {
     root="$1"
-    git -C "$root" rev-parse --verify -q origin/main > /dev/null 2>&1 || return 0
-    changed="$( { git -C "$root" diff --name-only origin/main...HEAD; git -C "$root" status --porcelain | cut -c4-; } 2>/dev/null | sort -u)"
+    branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)"
+    # A release branch assembles the fragments into the history: no fragment rule (change-record.sh).
+    case "$branch" in version/*) return 0 ;; esac
+    # What the branch is compared with: the line it tracks when that is main or a release line
+    # (a 3.0 fix branches from release/3.0), else origin/main.
+    base="$(git -C "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"
+    case "$base" in origin/main | origin/release/*) ;; *) base=origin/main ;; esac
+    git -C "$root" rev-parse --verify -q "$base" > /dev/null 2>&1 || return 0
+    # Only what is committed is pushed: uncommitted files neither count nor are missed.
+    changed="$(git -C "$root" diff --name-only "$base"...HEAD 2>/dev/null)"
     if printf '%s\n' "$changed" | grep -E '^elasticore-project/[^/]+/src/main/' | grep -qvxF "$HISTORY"; then
-        fragments="$( { git -C "$root" diff --name-only --diff-filter=A origin/main...HEAD -- changes; \
-            git -C "$root" status --porcelain -- changes | grep -E '^(\?\?|A)' | cut -c4-; } 2>/dev/null \
+        fragments="$(git -C "$root" diff --name-only --diff-filter=A "$base"...HEAD -- changes 2>/dev/null \
             | grep -E '^changes/[^/]+\.md$' | grep -vxF 'changes/README.md')"
-        [ -n "$fragments" ] || printf '%s' "no new changes/<topic>.md on this branch, and it changes what ElastiCORE ships (src/main) - the CI job Change record fails it (changes/README.md has the form); "
+        if [ -z "$fragments" ]; then
+            loose="$(git -C "$root" status --porcelain -- changes 2>/dev/null | cut -c4- \
+                | grep -E '^changes/[^/]+\.md$' | grep -vxF 'changes/README.md' | head -n 3 | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')"
+            if [ -n "$loose" ]; then
+                printf '%s' "$loose is not committed - the branch changes what ElastiCORE ships (src/main) and pushes no fragment, which the CI job Change record fails: commit it; "
+            else
+                printf '%s' "no new changes/<topic>.md on this branch against $base, and it changes what ElastiCORE ships (src/main) - the CI job Change record fails it (changes/README.md has the form); "
+            fi
+        fi
     fi
     if printf '%s\n' "$changed" | grep -Eq '\.java$' && [ ! -f "$gates" ]; then
-        printf '%s' "the gates on the changed lines have not passed since the code last changed in this session - run ./gradlew formatChanged (commit what it changes), then ./gradlew formatCheck diffErrorprone -PdiffBase=origin/main --no-daemon (or ./gradlew prCheck), which CI runs as Format and static analysis of the change; "
+        printf '%s' "the gates on the changed lines have not passed since the code last changed in this session - run ./gradlew formatChanged (commit what it changes), then ./gradlew formatCheck diffErrorprone -PdiffBase=$base --no-daemon (or ./gradlew prCheck), which CI runs as Format and static analysis of the change; "
     fi
 }
 
@@ -1050,31 +1100,42 @@ command_failed() {
 
 # A command that changes a file whose edit was refused in this session: the
 # refusal worked around through the shell.
+# Only the files the command writes count: a redirection's or tee's target, Set-Content,
+# Add-Content, Out-File, what sed -i or perl -i edits, the destination of cp, mv,
+# Copy-Item or Move-Item. Reading it, grepping for it, or restoring it with git does not.
 works_around() {
     [ -f "$refused" ] || return 1
-    cmd="$(decoded "$1")"
-    printf '%s\n' "$cmd" | grep -Eq 'sed[[:space:]]+(-[a-zA-Z]*i|--in-place)|perl[[:space:]]+-[a-z]*i|>|Set-Content|Add-Content|Out-File|WriteAll|Copy-Item|Move-Item|(^|[[:space:];|&])(cp|mv|tee|python[0-9]*|node|ruby|patch|git[[:space:]]+(apply|checkout|restore))[[:space:]]' || return 1
-    while IFS= read -r name; do
-        [ -n "$name" ] && case "$cmd" in *"$name"*) return 0 ;; esac
-    done < "$refused"
-    return 1
+    {
+        redirects "$1" | awk -F '\t' '$1 == "F" { print $3 }'
+        commands "$1" | awk '{
+            n = split($0, w, /[ \t]+/); c = w[1]; sub(/^.*[\/\\]/, "", c); c = tolower(c); sub(/\.exe$/, "", c)
+            if (c == "sed" || c == "perl") {
+                inplace = 0
+                for (k = 2; k <= n; k++) if (w[k] ~ /^-[a-zA-Z]*i/ || w[k] == "--in-place") inplace = 1
+                if (inplace) for (k = 2; k <= n; k++) if (substr(w[k], 1, 1) != "-") print w[k]
+            } else if (c == "cp" || c == "mv" || c == "copy-item" || c == "move-item" || c == "copy" || c == "move") print w[n]
+        }'
+    } | tr '\\' '/' | while IFS= read -r target; do
+        name="${target##*/}"
+        [ -n "$name" ] && grep -q -x -F -e "$name" -- "$refused" 2>/dev/null && { echo yes; break; }
+    done | grep -q yes
 }
 
 # --- one edited file ---------------------------------------------------------------
 
 # The refusal of an edit of one file, printed, or nothing. $tool: Edit, Write,
-# MultiEdit, or Patch (a change or delete in a patch).
+# MultiEdit, Patch (a change in a patch) or Delete (a delete in a patch).
 refusal_for() {
     path="$1"
-    if root="$(checkout_root "$(dirname -- "$path")")"; then
-        contributor_refusal "$path" "$root"
-        return 0
-    fi
-    [ "${ELASTICORE_ALLOW_GENERATED_EDITS:-}" = 1 ] && return 0
     case "$path" in
+        */elasticore-history.md) root="$(checkout_root "${path%/*}")" && contributor_refusal "$path" "$root"; return 0 ;;
         *.java | *.kt | *.ts | *.tsx | *.proto | *.xml | *.properties | *.yml | *.yaml | *.graphqls | */src/main/resources/blueprint/*) ;;
         *) return 0 ;;
     esac
+    checkout_root "${path%/*}" > /dev/null && return 0
+    [ "${ELASTICORE_ALLOW_GENERATED_EDITS:-}" = 1 ] && return 0
+    # Deleting a generated file is how it is restored: the next generation writes it anew.
+    [ "$tool" = Delete ] && return 0
     case "$(classify "$path")" in
     managed)
         adds_block && return 0
@@ -1107,7 +1168,7 @@ refusal_for() {
 note_for() {
     path="$1"
     [ -n "$path" ] || return 0
-    if root="$(checkout_root "$(dirname -- "$path")")"; then
+    if root="$(checkout_root "${path%/*}")"; then
         contributor_note "$path" "$root"
         return 0
     fi
@@ -1179,7 +1240,7 @@ pre-edit)
         answer="$(refusal_for "$path")"
         if [ -n "$answer" ]; then
             printf '%s\n' "$answer"
-            note_line "$refused" "$(basename -- "$path")"
+            note_line "$refused" "${path##*/}"
             break
         fi
     done <<EOF
@@ -1206,22 +1267,40 @@ pre-bash)
             fi
             ;;
     esac
+    # The cheap test first: only a push, a pull request, a post to an issue or -Pforce
+    # is looked at further.
+    case "$input" in *push* | *pr*create* | *force* | *issue*) ;; *) exit 0 ;; esac
+    command="$(json_string command)"
+    # A post to xsko/ElastiCORE (the report-issue skill): stopped once a session, so that
+    # the user sees the draft and says yes first.
+    case "$input" in
+        *issue*)
+            if posts_issue "$command"; then
+                state
+                if [ ! -f "$post_noted" ]; then
+                    note "$post_noted"
+                    deny "This posts to xsko/ElastiCORE, a public repository, and a post cannot be taken back. Show the user the whole draft first - the title, the body and the labels, or the whole comment and the issue it goes to - and get their explicit yes to this very draft; a yes to something else, or no answer, is no yes. With their yes, run the command again (this is asked once a session); without it, give them the text to post themselves."
+                    exit 0
+                fi
+            fi
+            ;;
+    esac
     # An ElastiCORE checkout: no -Pforce guard; before a push, what CONTRIBUTING.md asks
     # for and the branch lacks - said once, by refusing that one push.
-    if root="$(checkout_root "$(json_path cwd)")"; then
-        case "$input" in *push* | *pr*create*) ;; *) exit 0 ;; esac
-        commands "$(json_string command)" | grep -Eq "$PUSH" || exit 0
+    root=""
+    case "$input" in *push* | *pr*create* | *force*) root="$(checkout_root "$(json_path cwd)")" ;; esac
+    if [ -n "$root" ]; then
+        commands "$command" | grep -Eq "$PUSH" || exit 0
         state
         missing="$(push_missing "$root")"
         [ -n "$missing" ] || exit 0
         [ -f "$pushed" ] && [ "$(cat -- "$pushed" 2>/dev/null)" = "$missing" ] && exit 0
         mkdir -p -- "$state_dir" 2>/dev/null && printf '%s' "$missing" > "$pushed"
-        deny "Before this push, by the checkout's CONTRIBUTING.md: ${missing}and rebase on the latest origin/main if the branch is behind it. Do what is missing, then push again; if it is done already (outside this session), push again - this is said once."
+        deny "Before this push, by the checkout's CONTRIBUTING.md: ${missing}and rebase on the latest base branch if the branch is behind it. Do what is missing, then push again; if it is done already (outside this session), push again - this is said once."
         exit 0
     fi
     [ "${ELASTICORE_ALLOW_FORCE:-}" = 1 ] && exit 0
     case "$input" in *force*) ;; *) exit 0 ;; esac
-    command="$(json_string command)"
     forces "$command" || exit 0
     deny "-Pforce makes the ElastiCORE generator overwrite hand edits in generated files, and those edits are lost. Ask the user first. If they agree, they can run the command themselves, or set ELASTICORE_ALLOW_FORCE=1."
     exit 0
@@ -1244,29 +1323,39 @@ EOF
     ;;
 
 post-bash)
+    case "$input" in *gradle* | *tsc* | *check*) build=1 ;; *) build=0 ;; esac
     # An ElastiCORE checkout: only whether the gates on the changed lines passed.
-    if root="$(checkout_root "$(json_path cwd)")"; then
-        case "$input" in *gradle*) ;; *) exit 0 ;; esac
+    root=""
+    case "$input" in *gradle*) root="$(checkout_root "$(json_path cwd)")" ;; esac
+    if [ -n "$root" ]; then
         command="$(json_string command)"
         state
+        # The whole output: Claude Code saves a long one to a file.
+        gate_out="$input"
+        saved="$(printf '%s' "$input" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
+        [ -n "$saved" ] && [ -f "$saved" ] && gate_out="$(plain_text < "$saved" 2>/dev/null)"
         if { runs_gradle "$command" 'prCheck' || { runs_gradle "$command" 'formatCheck' && runs_gradle "$command" 'diffErrorprone'; }; } \
             && [ "$(json_string hook_event_name)" != PostToolUseFailure ] && ! command_failed \
-            && printf '%s' "$input" | grep -q -F -e 'BUILD SUCCESSFUL' && ! printf '%s' "$input" | grep -q -F -e 'BUILD FAILED'; then
+            && printf '%s' "$gate_out" | grep -q -F -e 'BUILD SUCCESSFUL' && ! printf '%s' "$gate_out" | grep -q -F -e 'BUILD FAILED'; then
             note "$gates"
         fi
         exit 0
     fi
-    # A generated file whose edit was refused, changed through the shell instead.
-    state
+    # A generated file whose edit was refused, changed through the shell instead - looked
+    # for only when a refusal was noted at all.
     around=""
-    if [ ! -f "$issue_noted" ] && works_around "$(json_string command)"; then
-        note "$issue_noted"
-        around="This command changes a generated file whose edit was refused in this session. Do not work around the refusal: undo it, and make the change in the DSL or in a file you own. If the DSL cannot say what the requirement needs, tell the user - this may be a gap in ElastiCORE: the report-issue skill can draft a reproducible issue for them to post, only with their yes. "
+    state_folder
+    if any_note refused-; then
+        state
+        if [ -f "$refused" ] && [ ! -f "$issue_noted" ] && works_around "$(json_string command)"; then
+            note "$issue_noted"
+            around="This command changes a generated file whose edit was refused in this session. Do not work around the refusal: undo it, and make the change in the DSL or in a file you own. If the DSL cannot say what the requirement needs, tell the user - this may be a gap in ElastiCORE: the report-issue skill can draft a reproducible issue for them to post, only with their yes. "
+        fi
     fi
-    case "$input" in
-        *gradle* | *tsc* | *check*) ;;
-        *) [ -n "$around" ] && context PostToolUse "$around"; exit 0 ;;
-    esac
+    if [ "$build" = 0 ]; then
+        [ -n "$around" ] && context PostToolUse "$around"
+        exit 0
+    fi
     # Returned before the build ran, or stopped partway: proves nothing.
     json_true run_in_background && exit 0
     json_true interrupted && exit 0
@@ -1477,6 +1566,11 @@ $from_file"
 stop)
     json_true stop_hook_active && exit 0
     state
+    # The once-said notes of sessions two days old and older; only files of these names.
+    if [ -d "$state_dir" ] && any_note ''; then
+        find "$state_dir" -maxdepth 1 -type f \( -name 'refused-*' -o -name 'issue-noted-*' -o -name 'guides-*' \
+            -o -name 'gates-*' -o -name 'push-noted-*' -o -name 'post-noted-*' \) -mtime +1 -exec rm -f -- {} + 2>/dev/null
+    fi
     # An ElastiCORE checkout: a guide changed in one language only. Said once.
     alone="$(guides_alone)"
     if [ -n "$alone" ]; then

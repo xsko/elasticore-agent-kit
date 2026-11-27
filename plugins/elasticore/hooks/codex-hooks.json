@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/hooks/elasticore-hook.sh\" pre-edit codex",
-            "commandWindows": "& \"$env:ProgramFiles\\Git\\bin\\bash.exe\" \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" pre-edit codex",
+            "commandWindows": "$b=@(\"$env:ProgramFiles\\Git\\bin\\bash.exe\",\"${env:ProgramFiles(x86)}\\Git\\bin\\bash.exe\",\"$env:LOCALAPPDATA\\Programs\\Git\\bin\\bash.exe\",\"$env:USERPROFILE\\scoop\\apps\\git\\current\\bin\\bash.exe\")+@(Get-Command git.exe -ErrorAction SilentlyContinue|ForEach-Object{$d=Split-Path (Split-Path $_.Source);Join-Path $d 'bin\\bash.exe';Join-Path (Split-Path $d) 'bin\\bash.exe'})|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1;if($b){& $b \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" pre-edit codex}else{[Console]::Error.WriteLine('ElastiCORE agent kit: no Git Bash found (Program Files, LOCALAPPDATA\\Programs, scoop, next to git.exe) - its Codex hooks are off. Install Git for Windows.');exit 1}",
             "timeout": 30
           }
         ]
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/hooks/elasticore-hook.sh\" pre-bash codex",
-            "commandWindows": "& \"$env:ProgramFiles\\Git\\bin\\bash.exe\" \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" pre-bash codex",
+            "commandWindows": "$b=@(\"$env:ProgramFiles\\Git\\bin\\bash.exe\",\"${env:ProgramFiles(x86)}\\Git\\bin\\bash.exe\",\"$env:LOCALAPPDATA\\Programs\\Git\\bin\\bash.exe\",\"$env:USERPROFILE\\scoop\\apps\\git\\current\\bin\\bash.exe\")+@(Get-Command git.exe -ErrorAction SilentlyContinue|ForEach-Object{$d=Split-Path (Split-Path $_.Source);Join-Path $d 'bin\\bash.exe';Join-Path (Split-Path $d) 'bin\\bash.exe'})|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1;if($b){& $b \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" pre-bash codex}else{[Console]::Error.WriteLine('ElastiCORE agent kit: no Git Bash found (Program Files, LOCALAPPDATA\\Programs, scoop, next to git.exe) - its Codex hooks are off. Install Git for Windows.');exit 1}",
             "timeout": 30
           }
         ]
@@ -31,7 +31,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/hooks/elasticore-hook.sh\" post-edit codex",
-            "commandWindows": "& \"$env:ProgramFiles\\Git\\bin\\bash.exe\" \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" post-edit codex",
+            "commandWindows": "$b=@(\"$env:ProgramFiles\\Git\\bin\\bash.exe\",\"${env:ProgramFiles(x86)}\\Git\\bin\\bash.exe\",\"$env:LOCALAPPDATA\\Programs\\Git\\bin\\bash.exe\",\"$env:USERPROFILE\\scoop\\apps\\git\\current\\bin\\bash.exe\")+@(Get-Command git.exe -ErrorAction SilentlyContinue|ForEach-Object{$d=Split-Path (Split-Path $_.Source);Join-Path $d 'bin\\bash.exe';Join-Path (Split-Path $d) 'bin\\bash.exe'})|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1;if($b){& $b \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" post-edit codex}else{[Console]::Error.WriteLine('ElastiCORE agent kit: no Git Bash found (Program Files, LOCALAPPDATA\\Programs, scoop, next to git.exe) - its Codex hooks are off. Install Git for Windows.');exit 1}",
             "timeout": 30
           }
         ]
@@ -42,7 +42,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/hooks/elasticore-hook.sh\" post-bash codex",
-            "commandWindows": "& \"$env:ProgramFiles\\Git\\bin\\bash.exe\" \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" post-bash codex",
+            "commandWindows": "$b=@(\"$env:ProgramFiles\\Git\\bin\\bash.exe\",\"${env:ProgramFiles(x86)}\\Git\\bin\\bash.exe\",\"$env:LOCALAPPDATA\\Programs\\Git\\bin\\bash.exe\",\"$env:USERPROFILE\\scoop\\apps\\git\\current\\bin\\bash.exe\")+@(Get-Command git.exe -ErrorAction SilentlyContinue|ForEach-Object{$d=Split-Path (Split-Path $_.Source);Join-Path $d 'bin\\bash.exe';Join-Path (Split-Path $d) 'bin\\bash.exe'})|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1;if($b){& $b \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" post-bash codex}else{[Console]::Error.WriteLine('ElastiCORE agent kit: no Git Bash found (Program Files, LOCALAPPDATA\\Programs, scoop, next to git.exe) - its Codex hooks are off. Install Git for Windows.');exit 1}",
             "timeout": 30
           }
         ]
@@ -54,7 +54,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/hooks/elasticore-hook.sh\" stop codex",
-            "commandWindows": "& \"$env:ProgramFiles\\Git\\bin\\bash.exe\" \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" stop codex",
+            "commandWindows": "$b=@(\"$env:ProgramFiles\\Git\\bin\\bash.exe\",\"${env:ProgramFiles(x86)}\\Git\\bin\\bash.exe\",\"$env:LOCALAPPDATA\\Programs\\Git\\bin\\bash.exe\",\"$env:USERPROFILE\\scoop\\apps\\git\\current\\bin\\bash.exe\")+@(Get-Command git.exe -ErrorAction SilentlyContinue|ForEach-Object{$d=Split-Path (Split-Path $_.Source);Join-Path $d 'bin\\bash.exe';Join-Path (Split-Path $d) 'bin\\bash.exe'})|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1;if($b){& $b \"$env:PLUGIN_ROOT/hooks/elasticore-hook.sh\" stop codex}else{[Console]::Error.WriteLine('ElastiCORE agent kit: no Git Bash found (Program Files, LOCALAPPDATA\\Programs, scoop, next to git.exe) - its Codex hooks are off. Install Git for Windows.');exit 1}",
             "timeout": 30
           }
         ]

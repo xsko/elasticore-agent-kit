@@ -999,7 +999,9 @@ check "codex: a patch of a hand-written file goes through" quiet
 run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Add File: src/main/java/com/acme/shop/NewThing.java\\n+class NewThing {}")"
 check "codex: a patch that adds a new file goes through" quiet
 run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Delete File: src/main/java/com/acme/shop/ProductDTO.java")"
-check "codex: a patch that deletes a //ecd: file is refused" denied
+check "codex: a patch that deletes a //ecd: file goes through - deleting and generating again restores it" quiet
+run_codex pre-edit "$(cx_patch PreToolUse cx1 "$engine" "*** Delete File: src/main/resources/blueprint/schema.yml")"
+check "codex: so does one that deletes a file regenerated on every generation" quiet
 run_codex pre-edit "$(cx_patch PreToolUse cx1 "$cx_merged" "*** Update File: src/main/java/com/acme/shop/ProductController.java\\n@@\\n-a\\n+b")"
 check "codex: a patch that changes a merged generated file goes through" quiet
 run_codex pre-edit "$(cx_patch PreToolUse cx1 "$cx_merged" "*** Add File: src/main/java/com/acme/shop/ProductController.java\\n+class ProductController {}")"
@@ -1063,6 +1065,37 @@ check "reading a file whose edit was refused in another session says nothing" qu
 run pre-edit "$(edit_json Edit "$managed" issue8)"
 run post-bash "$(bash_json "cat src/main/java/com/acme/shop/ProductDTO.java" "class ProductDTO {}" issue8)"
 check "reading the refused file says nothing" quiet
+# Only a write to the refused file counts: not a grep of it into another file, not its restore.
+run pre-edit "$(edit_json Edit "$managed" issue9)"
+run post-bash "$(bash_json "grep -n ProductDTO.java src > hits.txt" "" issue9)"
+check "a grep naming the refused file, written to another file, is no workaround" quiet
+run post-bash "$(bash_json "git checkout -- src/main/java/com/acme/shop/ProductDTO.java" "" issue9)"
+check "restoring the refused file with git is no workaround" quiet
+run post-bash "$(bash_json "echo x > src/main/java/com/acme/shop/ProductDTO.java" "" issue9)"
+check "a redirection into the refused file is" eval 'noted && has "$out" "Do not work around the refusal"'
+run pre-edit "$(edit_json Edit "$managed" issue10)"
+run post-bash "$(bash_json "Copy-Item C:/tmp/Other.java -Destination src/main/java/com/acme/shop/ProductDTO.java" "" issue10 "" "" PowerShell)"
+check "so is a copy onto it" eval 'noted && has "$out" "Do not work around the refusal"'
+
+# --- a post to xsko/ElastiCORE: asked once a session, so the user sees the draft first ----
+pre_cmd() {  # pre_cmd <command, JSON-escaped> <session>
+    printf '{"session_id":"%s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"}}' "$2" "$1"
+}
+run pre-bash "$(pre_cmd "gh issue create -R xsko/ElastiCORE --title \\\"x\\\" --body-file draft.md --label bug" post1)"
+check "gh issue create on xsko/ElastiCORE is refused once, asking for the user's yes to the draft" \
+    eval 'denied && has "$out" "explicit yes" && has "$out" "whole draft" && valid_json'
+run pre-bash "$(pre_cmd "gh issue create -R xsko/ElastiCORE --title \\\"x\\\" --body-file draft.md --label bug" post1)"
+check "the next try goes through" quiet
+run pre-bash "$(pre_cmd "gh issue comment 359 --repo xsko/ElastiCORE --body-file c.md" post2)"
+check "gh issue comment is asked about too" denied
+run pre-bash "$(pre_cmd "gh api repos/xsko/ElastiCORE/issues -f title=x -f body=y" post3)"
+check "and gh api writing to its issues" denied
+run pre-bash "$(pre_cmd "gh api repos/xsko/ElastiCORE/issues?state=all" post4)"
+check "gh api reading its issues is not" quiet
+run pre-bash "$(pre_cmd "gh issue list -R xsko/ElastiCORE --state all --search \\\"@repository mybatis\\\"" post4)"
+check "nor gh issue list" quiet
+run pre-bash "$(pre_cmd "gh issue create -R xsko/elasticore-agent-kit --title x --body y" post5)"
+check "nor a post to another repository" quiet
 
 # --- contributor mode: a checkout of ElastiCORE itself -----------------------------------
 # The samples are generated and edited on purpose there: no generated-file guard, no -Pforce
@@ -1139,14 +1172,53 @@ if command -v git >/dev/null 2>&1; then
     printf '### Fixes\n\n#### x\n' > "$co/changes/plain-x.md"
     run post-bash "$(co_cwd "$(bash_json "./gradlew formatCheck diffErrorprone -PdiffBase=origin/main --no-daemon" "> Task :formatCheck\\n> Task :diffErrorprone\\nBUILD SUCCESSFUL in 40s" co8)" "$co")"
     run pre-bash "$(push_json "git push" co8)"
-    check "a checkout: with a fragment and the gates passed, the push goes through" quiet
+    check "a checkout: a fragment written but not committed is named as not committed" \
+        eval 'denied && has "$out" "changes/plain-x.md is not committed" && ! has "$out" "formatChanged"'
+    g add changes/plain-x.md && g commit -q -m fragment
+    run post-bash "$(co_cwd "$(bash_json "./gradlew prCheck" "BUILD SUCCESSFUL in 90s" co8b)" "$co")"
+    run pre-bash "$(push_json "git push" co8b)"
+    check "a checkout: with the fragment committed and the gates passed, the push goes through" quiet
+    # Uncommitted work is not pushed: it neither needs a fragment nor the gates.
+    printf 'package io.elasticore.base;\n\npublic class Loose {}\n' > "$base_java/Loose.java"
+    run post-bash "$(co_cwd "$(bash_json "./gradlew prCheck" "BUILD SUCCESSFUL in 90s" co8c)" "$co")"
+    run pre-bash "$(push_json "git push" co8c)"
+    check "a checkout: an uncommitted, untracked source file causes no refusal" quiet
     run post-edit "$(edit_json Edit "$base_java/Plain.java" co8)"
     run pre-bash "$(push_json "gh pr create --fill" co8)"
     check "a checkout: code changed since the gates - gh pr create is refused once, naming only the gates" \
         eval 'denied && has "$out" "formatChanged" && ! has "$out" "changes/<topic>.md"'
     run post-bash "$(co_cwd "$(failure_json "./gradlew formatCheck diffErrorprone" "Exit code 1\\n> Task :formatCheck FAILED\\nBUILD FAILED" co9)" "$co")"
     check "a checkout: failed gates are not noted" [ ! -f "$CLAUDE_PLUGIN_DATA/gates-co9" ]
+    # A long output Claude Code saved to a file: the gates' BUILD SUCCESSFUL is read there.
+    printf '> Task :formatCheck\n> Task :diffErrorprone\nBUILD SUCCESSFUL in 90s\n' > "$work/gates-output.txt"
+    gsaved="$work/gates-output.txt"
+    if command -v cygpath >/dev/null 2>&1; then gsaved="$(cygpath -w "$gsaved" | sed 's#\\#\\\\#g')"; fi
+    run post-bash "$(co_cwd "$(bash_json "./gradlew formatCheck diffErrorprone" "> Task :formatCheck\\n...the first 30000 characters" co12 "" ",\"persistedOutputPath\":\"$gsaved\"")" "$co")"
+    check "a checkout: gates that passed in a long output saved to a file are noted" [ -f "$CLAUDE_PLUGIN_DATA/gates-co12" ]
+    # A release branch: the fragment rule does not apply (change-record.sh).
+    g checkout -q -b version/3.0.261201 && printf 'package io.elasticore.base;\n\npublic class Rel {}\n' > "$base_java/Rel.java" && g add -A && g commit -q -m rel
+    run pre-bash "$(push_json "git push -u origin version/3.0.261201" co13)"
+    check "a checkout: a version/* branch is not refused for the fragment" eval '! has "$out" "changes/"'
+    # A branch that tracks release/3.0 is compared with release/3.0, not with main.
+    g remote add origin https://example.invalid/elasticore.git
+    g checkout -q feature/x && g update-ref refs/remotes/origin/release/3.0 HEAD && g checkout -q -b fix/y && g branch -q --set-upstream-to=origin/release/3.0
+    printf 'package io.elasticore.base;\n\npublic class Fix {}\n' > "$base_java/Fix.java" && g add "$base_java/Fix.java" && g commit -q -m fix
+    run pre-bash "$(push_json "git push" co14)"
+    check "a checkout: a branch tracking origin/release/3.0 is measured against it" \
+        eval 'denied && has "$out" "against origin/release/3.0" && has "$out" "-PdiffBase=origin/release/3.0"'
 fi
+# A user project inside a checkout (its tmp/, say) has a build of its own: it stays guarded.
+inner="$co/tmp/app"
+mkdir -p "$inner/src/main/java"
+printf "rootProject.name = 'app'\n" > "$inner/settings.gradle"
+cp "$managed" "$inner/src/main/java/ProductDTO.java"
+run pre-edit "$(edit_json Write "$inner/src/main/java/ProductDTO.java" co15)"
+check "a user project inside a checkout keeps the generated-file guard" denied
+mkdir -p "$co/elasticore-project/elasticore-gradle-plugin/src/test/resources"
+printf "rootProject.name = 'elasticore-gradle-plugin'\n" > "$co/elasticore-project/elasticore-gradle-plugin/settings.gradle"
+cp "$managed" "$co/elasticore-project/elasticore-gradle-plugin/src/test/resources/ProductDTO.java"
+run pre-edit "$(edit_json Write "$co/elasticore-project/elasticore-gradle-plugin/src/test/resources/ProductDTO.java" co15)"
+check "but the checkout's own included build (the Gradle plugin) is part of the checkout" quiet
 
 # A folder with elasticore-project/elasticore-base but a settings.gradle that does not include it: a user project.
 notco="$work/not-a-checkout"

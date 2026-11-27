@@ -42,6 +42,12 @@ jobs:
         shell: bash
         run: bash tests/codex/test-codex.sh
 
+      # The plugin's Windows hook command, run by Windows PowerShell as Codex runs it
+      - name: Codex hook command on Windows
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/codex/test-commandwindows.ps1
+
       # macOS's own /bin/bash is 3.2; the bash on the PATH may be a newer one.
       # Runs even when the step above failed, so both results are known.
       - name: Hook tests with /bin/bash

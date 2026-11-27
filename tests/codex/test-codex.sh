@@ -55,8 +55,8 @@ ver() { sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$1"; }
 check "plugin.json, .codex-plugin/plugin.json and .claude-plugin/plugin.json have the same version" \
     eval '[ "$(ver "$plugin/plugin.json")" = "$(ver "$plugin/.claude-plugin/plugin.json")" ] && [ "$(ver "$plugin/.codex-plugin/plugin.json")" = "$(ver "$plugin/.claude-plugin/plugin.json")" ]'
 for event in pre-edit pre-bash post-edit post-bash stop; do
-    check "codex-hooks.json has a PowerShell commandWindows for $event, with Git Bash and \$env:PLUGIN_ROOT" \
-        grep -q "\"commandWindows\": \"& .*Git.*bash.exe.*env:PLUGIN_ROOT/hooks/elasticore-hook.sh.* $event codex\"" "$plugin/hooks/codex-hooks.json"
+    check "codex-hooks.json has a PowerShell commandWindows for $event: Git Bash looked for, \$env:PLUGIN_ROOT, a word when none is found" \
+        grep -q "\"commandWindows\": \".*LOCALAPPDATA.*scoop.*git.exe.*env:PLUGIN_ROOT/hooks/elasticore-hook.sh.* $event codex}else{.*no Git Bash found" "$plugin/hooks/codex-hooks.json"
 done
 for event in pre-edit pre-bash post-edit post-bash stop; do
     check "codex-hooks.json runs the hook script's $event with the codex argument" \
@@ -97,8 +97,43 @@ mkdir -p "$home"
 out="$(HOME="$home" USERPROFILE="$home" CODEX_HOME= bash "$repo/codex/install.sh" --no-hooks 2>&1)"; rc=$?
 check "install.sh --no-hooks installs skills and agents for the user" \
     eval '[ "$rc" -eq 0 ] && [ -f "$home/.agents/skills/elasticore/SKILL.md" ] && [ -f "$home/.codex/agents/elasticore-reviewer.toml" ] && [ ! -f "$home/.codex/hooks.json" ]'
+home2="$work/home2"
+mkdir -p "$home2"
+out="$(HOME="$home2" USERPROFILE="$home2" CODEX_HOME= bash "$repo/codex/install.sh" --agents-only 2>&1)"; rc=$?
+check "install.sh --agents-only installs the agents alone" \
+    eval '[ "$rc" -eq 0 ] && [ -f "$home2/.codex/agents/elasticore-modeler.toml" ] && [ ! -d "$home2/.agents/skills" ] && [ ! -f "$home2/.codex/hooks.json" ]'
 out="$(bash "$repo/codex/install.sh" --unknown 2>&1)"; rc=$?
 check "install.sh refuses an unknown option" [ "$rc" -eq 2 ]
+
+# --- Windows: the bash the hooks run with ------------------------------------------
+if command -v cygpath >/dev/null 2>&1; then
+    # The hooks.json above is the user's now; write a fresh one.
+    proj2="$work/project-win"
+    mkdir -p "$proj2"
+    (cd "$proj2" && bash "$repo/codex/install.sh" --project >/dev/null 2>&1)
+    line="$(grep -o '"commandWindows": "[^,]*' "$proj2/.codex/hooks.json" | head -n 1)"
+    check "the installer's commandWindows calls Git's launcher bin/bash.exe, not usr/bin/bash.exe" \
+        eval 'case "$line" in *"/usr/bin/bash.exe"* | *//bin/*) false ;; *"/bin/bash.exe"*) true ;; *) false ;; esac'
+    check "with the paths in single quotes" eval 'case "$line" in *"& '"'"'"*) true ;; *) false ;; esac'
+    # A folder whose name holds a $ and a backtick: kept as it is, in single quotes.
+    odd="$work/pro\$j\`x"
+    mkdir -p "$odd"
+    (cd "$odd" && bash "$repo/codex/install.sh" --project >/dev/null 2>&1)
+    oddline="$(grep -o '"commandWindows": "[^,]*' "$odd/.codex/hooks.json" | head -n 1)"
+    check "a \$ or a backtick in the path stays as it is, in single quotes" \
+        eval 'case "$oddline" in *"pro\$j\`x/.codex/elasticore-kit/elasticore-hook.sh'"'"'"*) true ;; *) false ;; esac'
+    # Git's usr/bin/bash.exe started with only Git\cmd on the Windows PATH, as PowerShell may:
+    # the hook script puts its tools on the PATH itself.
+    usr_bash="$(cygpath -m /)"
+    usr_bash="${usr_bash%/}/usr/bin/bash.exe"
+    if [ -f "$usr_bash" ]; then
+        printf '//ecd:-1H20261127080000_V3.0\npackage a;\n\npublic class A {}\n' > "$proj2/A.java"
+        payload='{"session_id":"w","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"'"$(cygpath -m "$proj2/A.java")"'","old_string":"a","new_string":"b"}}'
+        out="$(printf '%s' "$payload" | PATH="/c/Windows/System32:/c/Windows:$(cygpath -u "$(cygpath -m /)")/cmd" "$usr_bash" "$repo/plugins/elasticore/hooks/elasticore-hook.sh" pre-edit 2>&1)"
+        check "the hook works under usr/bin/bash.exe with only System32, Windows and Git\\cmd on the PATH" \
+            eval 'case "$out" in *"\"permissionDecision\":\"deny\""*) true ;; *) false ;; esac'
+    fi
+fi
 
 printf '%d passed, %d failed (fixtures in %s)\n' "$passed" "$failed" "$work"
 [ "$failed" -eq 0 ]

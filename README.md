@@ -186,6 +186,7 @@ every caveat are in [benchmarks/library](benchmarks/library/README.md).
 | The last build compiled the change but printed DSL warnings | Sent back once with `built; N DSL warning(s) left: ...` - fix them, or tell you. A warning the DSL cannot fix (an ElastiCORE defect) can be accepted by a line in the project's `.elasticore/accepted-warnings.txt`, reviewed like code; a build whose every warning is accepted counts |
 | A build fails with a compile error in a file ElastiCORE generated, or the generator fails with an exception of its own (not a model check that names the fix) | Told to check the DSL first, and that the `report-issue` skill can draft an issue - once a session |
 | A shell command changes a generated file whose edit was refused | Told not to work around the refusal, and about `report-issue` if the DSL cannot say what is needed |
+| `gh issue create` or `comment`, or a `gh api` write to its issues, aimed at xsko/ElastiCORE | Refused once a session: show the user the whole draft and get their explicit yes first. The next try goes through |
 
 The hooks see the edit tools and Gradle runs through Bash or PowerShell. The output of a successful
 command too long for Claude Code to pass on is read from the file it saves it to. A build whose
@@ -215,7 +216,7 @@ hooks above fire. These do instead:
 | An edit of `elasticore-history.md` | Refused, with the `changes/<topic>.md` fragment instead - not in a checkout without `changes/`, not on a `version/*` branch, not with `ELASTICORE_ALLOW_HISTORY_EDITS=1` |
 | An edit leaves non-ASCII characters in `elasticore-base/src/main/java` | Told the lines, and why (`SourceAsciiTest`, MS949 on Korean Windows) |
 | Finishing after a guide under `elasticore-guide/` changed without its `ko/` twin, or the other way round | Sent back once |
-| `git push` or `gh pr create` from a branch that changes `src/main` without a new `changes/*.md`, or with Java changed since `formatCheck diffErrorprone` (or `prCheck`) last passed in the session | Refused once, naming what is missing; the next try goes through |
+| `git push` or `gh pr create` from a branch whose commits change `src/main` without a committed new `changes/*.md`, or with Java changed since `formatCheck diffErrorprone` (or `prCheck`) last passed in the session | Refused once, naming what is missing (a fragment not committed yet is named); the next try goes through. Not on a `version/*` branch; a branch tracking `release/*` is compared with it |
 
 The `contribute` skill and the reviewer follow the checkout's `CONTRIBUTING.md`, which they read
 each time rather than carry a copy of.
