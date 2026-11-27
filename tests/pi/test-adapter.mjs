@@ -212,7 +212,7 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
 }
 // DIAGNOSTIC (temporary): the same case as b181ec3 ran it - the log written right after
 // pre-bash, not re-dated - with what the hook got and saw. Asserts nothing.
-{
+for (let round = 0; round < 25; round++) {
   const { statSync, readdirSync } = await import("node:fs")
   const { userInfo } = await import("node:os")
   const s = session("pi")
@@ -227,13 +227,10 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
   const noteText = existsSync(note) ? readFileSync(note, "utf8") : "(no start note)"
   write(join(logs, "diag.log"), built)
   const logStat = statSync(join(logs, "diag.log"), { bigint: true })
-  console.log("DIAG platform=" + process.platform + " tmpdir=" + tmpdir() + " data=" + data + " cwd=" + project)
-  console.log("DIAG start note: " + note + " exists=" + !!noteStat + " text=" + JSON.stringify(noteText))
-  console.log("DIAG note mtimeNs=" + (noteStat ? noteStat.mtimeNs : "-") + " log mtimeNs=" + logStat.mtimeNs + " log newer=" + (noteStat ? logStat.mtimeNs > noteStat.mtimeNs : "-"))
+  if (round === 0) console.log("DIAG platform=" + process.platform + " tmpdir=" + tmpdir() + " data=" + data + " cwd=" + project + " note=" + note + " exists=" + !!noteStat + " text=" + JSON.stringify(noteText))
   const r = await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "diag-1" })
-  console.log("DIAG post-bash note: " + JSON.stringify(r) + " state after: " + readdirSync(data).filter((f) => f.includes(s)).join(","))
   const st = await settle(pi)
-  console.log("DIAG settle: " + (st ? "sent back - the log was not read" : "quiet - the log was read"))
+  console.log("DIAG round " + round + ": note mtimeNs=" + (noteStat ? noteStat.mtimeNs : "-") + " log mtimeNs=" + logStat.mtimeNs + " gap=" + (noteStat ? logStat.mtimeNs - noteStat.mtimeNs : "-") + "ns log newer=" + (noteStat ? logStat.mtimeNs > noteStat.mtimeNs : "-") + " post-bash=" + JSON.stringify(r) + " settle=" + (st ? "SENT BACK (log not read)" : "quiet (log read)"))
 }
 {
   // The other side: a log no newer than the call's start - left by an earlier build - proves nothing.
