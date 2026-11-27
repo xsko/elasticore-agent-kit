@@ -203,6 +203,7 @@ ElastiCORE 자체의 체크아웃 - `elasticore-project/elasticore-base`가 있�
 bash tests/hooks/test-hooks.sh                     # Claude Code와 Codex가 보내는 JSON으로 hook 스크립트 검사 (HOOK_BASH=/bin/bash로 셸 지정)
 bash tests/codex/test-codex.sh                     # Codex용 agent, manifest, hooks 파일, 설치 스크립트
 node tests/opencode/test-adapter.mjs               # opencode 플러그인
+python3 tests/frontmatter/check_frontmatter.py     # skill, agent, command의 front matter가 엄격한 YAML인지 (PyYAML)
 python3 tests/contract/check.py                    # PATH에 JDK 17, Gradle 8.14 이상
 claude plugin validate ./plugins/elasticore --strict
 claude plugin validate . --strict

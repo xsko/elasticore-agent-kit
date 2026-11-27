@@ -58,6 +58,11 @@ of its own.
     by the checkout's rules, the local gates before every push.
   - **The reviewer** reviews a diff in a checkout against those rules instead of a user project's.
 - The opencode installers copy the two new skills; the opencode modeler may load `report-issue`.
+- **The `elasticore` skill's front matter is valid YAML.** Its `description` held `an //ecd: line`,
+  and the second `: ` makes the line invalid YAML; Claude Code reads it anyway, but a loader that
+  parses strictly drops the whole skill without a word (pi did). The description is now a folded
+  scalar (`>-`), and `tests/frontmatter/check_frontmatter.py` (CI) parses the front matter of every
+  skill, agent and command with PyYAML.
 
 ## 1.2.0
 

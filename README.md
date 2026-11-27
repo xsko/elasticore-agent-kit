@@ -241,6 +241,7 @@ each time rather than carry a copy of.
 bash tests/hooks/test-hooks.sh                     # the hook script, on the JSON Claude Code and Codex send (HOOK_BASH=/bin/bash for another shell)
 bash tests/codex/test-codex.sh                     # the Codex agents, manifest, hooks file and installer
 node tests/opencode/test-adapter.mjs               # the opencode plugin
+python3 tests/frontmatter/check_frontmatter.py     # every skill's, agent's and command's front matter is strict YAML (PyYAML)
 python3 tests/contract/check.py                    # JDK 17 and Gradle 8.14 or later on the PATH
 claude plugin validate ./plugins/elasticore --strict
 claude plugin validate . --strict

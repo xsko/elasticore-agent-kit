@@ -84,6 +84,14 @@ jobs:
           claude plugin validate ./plugins/elasticore --strict
           claude plugin validate . --strict
 
+      # Claude Code reads front matter leniently; pi (and maybe others) drop a skill whose
+      # front matter strict YAML refuses.
+      - name: Front matter is strict YAML
+        if: always()
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 tests/frontmatter/check_frontmatter.py
+
   contract:
     name: ElastiCORE behaviour the kit relies on
     runs-on: ubuntu-latest

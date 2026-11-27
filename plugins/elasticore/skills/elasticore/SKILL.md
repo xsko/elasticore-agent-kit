@@ -1,6 +1,7 @@
 ---
 name: elasticore
-description: Work in a Spring Boot project that ElastiCORE generates from a YAML DSL in src/main/resources/blueprint, or start a new one. Use when the build applies the io.elasticore Gradle plugin, when files start with an //ecd: line, or when the user asks for an application built "with ElastiCORE" or mentions ElastiCORE, the blueprint DSL, entities, DTOs, enums or ports written in YAML, @access, @owner, states, @compute, @genid, or the elcore / elcore3 tasks.
+description: >-
+  Work in a Spring Boot project that ElastiCORE generates from a YAML DSL in src/main/resources/blueprint, or start a new one. Use when the build applies the io.elasticore Gradle plugin, when files start with an //ecd: line, or when the user asks for an application built "with ElastiCORE" or mentions ElastiCORE, the blueprint DSL, entities, DTOs, enums or ports written in YAML, @access, @owner, states, @compute, @genid, or the elcore / elcore3 tasks.
 user-invocable: false
 ---
 
