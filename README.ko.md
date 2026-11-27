@@ -94,7 +94,8 @@ claude plugin update elasticore@elasticore-agent-kit
 ```
 
 그다음 Claude Code 세션을 새로 시작하거나, 열려 있는 세션에서 `/reload-plugins`를 실행합니다.
-설치된 버전은 `claude plugin list`로 보고, 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+설치된 버전은 `claude plugin list`로 보고, 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. 버전마다 같은 내용의
+[릴리스](https://github.com/xsko/elasticore-agent-kit/releases)가 있습니다([RELEASING.md](RELEASING.md)).
 
 세션 안에서는 `/plugin` → **Installed** 탭 → `elasticore` → **Update now**. 자동으로 받으려면 `/plugin` → **Marketplaces** 탭 →
 `elasticore-agent-kit` → **Enable auto-update**. 그러면 세션을 시작할 때 업데이트되고, 다음 세션부터 새 버전이 적용됩니다.

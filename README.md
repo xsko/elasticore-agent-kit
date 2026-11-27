@@ -116,7 +116,9 @@ claude plugin update elasticore@elasticore-agent-kit
 ```
 
 Then start a new Claude Code session, or run `/reload-plugins` in one that is open.
-`claude plugin list` shows the version you have; [CHANGELOG.md](CHANGELOG.md) says what changed.
+`claude plugin list` shows the version you have; [CHANGELOG.md](CHANGELOG.md) says what changed,
+and every version is a [release](https://github.com/xsko/elasticore-agent-kit/releases) with the
+same notes ([RELEASING.md](RELEASING.md)).
 
 In a session: `/plugin`, the **Installed** tab, `elasticore`, **Update now**. To have it updated
 automatically: `/plugin`, the **Marketplaces** tab, `elasticore-agent-kit`, **Enable auto-update** -

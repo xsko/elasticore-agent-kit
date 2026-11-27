@@ -1,68 +1,65 @@
 # Changelog
 
 The plugin's `version` in `plugins/elasticore/.claude-plugin/plugin.json` pins what users get:
-raise it with every release, or `claude plugin update` finds nothing new.
+raise it with every release, or `claude plugin update` finds nothing new. Each version's section
+here becomes the notes of its GitHub release when its tag is pushed ([RELEASING.md](RELEASING.md)).
 
 ## 1.3.0
 
-For ElastiCORE 3.0.261119 and later, like 1.2.0. Codex CLI gets the hooks and the agents, a user
-can have an ElastiCORE defect drafted as an issue, and a checkout of ElastiCORE itself gets hooks
-of its own.
+For ElastiCORE 3.0.261119 and later, like 1.2.0. What you get: the kit's hooks and agents in Codex
+CLI, a skill that turns an ElastiCORE defect into a reproducible issue, and a mode for working on
+ElastiCORE itself.
 
-- **Codex CLI: hooks, agents, an installer.** `codex/install.sh` (`install.ps1` on Windows) copies
-  the skills into `.agents/skills/` (or `~/.agents/skills/`), the modeler and the reviewer as
-  `.codex/agents/elasticore-*.toml`, and the hook script with a `hooks.json` that runs it - see
-  [codex/README.md](codex/README.md). The hook script reads Codex's own payloads: an `apply_patch`
-  call is checked file by file from its patch text (`*** Add File:` and `*** Move to:` as a whole
-  new content, `*** Update File:` and `*** Delete File:` as an edit), relative paths from the
-  call's folder; a Stop is answered with `decision: "block"` and the reminder as `reason`, once
-  (`stop_hook_active`); Codex has no `PostToolUseFailure`, so a failed command is told by its exit
-  code in `tool_response`. The plugin also installs into Codex from this repository as a
-  marketplace (`.agents/plugins/marketplace.json`; the plugin's root `plugin.json` names
-  `hooks/codex-hooks.json`, which passes `codex` to the hook script). Checked with Codex CLI
-  0.172.0: the plugin's install from a local marketplace, the installer; not yet seen live: the
-  hooks in a Codex session.
-- **report-issue: an ElastiCORE defect as a reproducible issue.** A new skill, for Claude Code,
-  opencode and Codex, for when ElastiCORE itself falls short - generated code that does not compile
-  or is wrong while the DSL is right, a generator exception, a requirement the DSL cannot say, a
-  guide that says what the build does not do. It reproduces the problem in a minimal project on
-  the same ElastiCORE version and settings first, searches the open and closed issues of
-  xsko/ElastiCORE (and drafts a comment on a match instead), fills the repository's own issue
-  template (a gap as a need: what the guide says, the workaround and what it costs, what is
-  expected - never new DSL syntax), takes out package and business names, hosts, paths and
-  credentials, and shows the whole draft. It posts with `gh issue create` only on the user's
-  explicit yes; without `gh` it prints the draft. The hooks suggest it once a session: after a
-  compile error in a file ElastiCORE generated, after the generator failed with an exception of
-  its own (not a model check that names the fix), and when a command changes a generated file
-  whose edit was refused - which they now also call out as working around the refusal.
-- **Contributor mode: a checkout of ElastiCORE itself** (`elasticore-project/elasticore-base` and a
-  `settings.gradle` that includes it). The samples and templates are generated and edited on purpose
-  there, so the user-project hooks stay off: no generated-file guard, no `-Pforce` guard, no DSL
-  build reminder, no notes after a build. Instead:
-  - an edit of `elasticore-history.md` is refused, with the `changes/<topic>.md` fragment instead -
-    not in a checkout without `changes/` (older than the fragments), not on a `version/*` branch,
-    and not with `ELASTICORE_ALLOW_HISTORY_EDITS=1`;
-  - an edit that leaves non-ASCII characters in `elasticore-base/src/main/java` gets a note with the
-    lines;
-  - at the end, a guide under `elasticore-guide/` changed in this session without its `ko/` twin (or
-    the other way round) sends the agent back once;
-  - a `git push` or `gh pr create` from a branch that changes `src/main` without a new `changes/*.md`,
-    or with Java changed since `formatCheck diffErrorprone` (or `prCheck`) last passed in the
-    session, is refused once, naming what is missing; the next try goes through.
-  - **The `contribute` skill**: reads the checkout's `CONTRIBUTING.md`, `changes/README.md` and
-    `BRANCHING.md` (it copies none of them) and, for an issue number, plans before it codes - where
-    the change goes, every JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd /
-    hexagonal combination it reaches (a combination left out keeps a warning), every path end to
-    end, the tests that fail without the change and a run-level test on the real output, the 2.x
-    checks, both guide languages, the fragment and the target branch. With `build` it then builds
-    by the checkout's rules, the local gates before every push.
-  - **The reviewer** reviews a diff in a checkout against those rules instead of a user project's.
-- The opencode installers copy the two new skills; the opencode modeler may load `report-issue`.
-- **The `elasticore` skill's front matter is valid YAML.** Its `description` held `an //ecd: line`,
-  and the second `: ` makes the line invalid YAML; Claude Code reads it anyway, but a loader that
-  parses strictly drops the whole skill without a word (pi did). The description is now a folded
-  scalar (`>-`), and `tests/frontmatter/check_frontmatter.py` (CI) parses the front matter of every
-  skill, agent and command with PyYAML.
+**Update.** Claude Code: `claude plugin marketplace update elasticore-agent-kit`, then
+`claude plugin update elasticore@elasticore-agent-kit`, and a new session. opencode: `git pull` in
+your clone of this repository and run `opencode/install.sh` (or `install.ps1`) again. Codex CLI: new
+in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
+`codex plugin marketplace add xsko/elasticore-agent-kit` and
+`codex plugin add elasticore@elasticore-agent-kit`; then trust the hooks in `/hooks`
+([codex/README.md](codex/README.md)).
+
+- **Codex CLI gets the hooks and the agents.** Until now Codex had only the skill. Now an
+  `apply_patch` that changes a generated file is refused with where the change belongs, `-Pforce` is
+  refused, a DSL change gets the note to build, and a turn that ends with a DSL change no build has
+  compiled is sent back once - the same hook script as in Claude Code and opencode, reading Codex's
+  own payloads (each file of a patch; a Stop answered with `decision: "block"`). The modeler and
+  the reviewer come as Codex agents (`.codex/agents/elasticore-*.toml`). The installer puts the
+  skills in `.agents/skills/`, the agents and hooks in `.codex/` (with `--project` for one project),
+  and leaves a `hooks.json` of yours as it is, printing what to add. Checked with Codex CLI 0.172.0:
+  the installer, and the plugin installed from this repository as a marketplace; the hooks in a
+  live Codex session were not seen yet.
+- **report-issue: when ElastiCORE itself falls short.** Generated code that does not compile or is
+  wrong while the DSL is right, a generator exception, a requirement the DSL cannot say, a guide
+  the build contradicts: ask for the `report-issue` skill (Claude Code, opencode, Codex). It
+  reproduces the problem in a minimal project on your ElastiCORE version and settings, searches the
+  open and closed issues of xsko/ElastiCORE (a match gets a comment instead of a new issue), fills
+  the repository's issue template - a gap as a need, never as new DSL syntax - and takes out
+  package and business names, hosts, paths and credentials. It shows you the whole draft and posts
+  with `gh issue create` only when you say yes; without `gh` you get the text to paste. The hooks
+  suggest it once a session: after a compile error in a generated file, after a generator
+  exception, and when a shell command changes a generated file whose edit was refused - which they
+  also call out as working around the refusal.
+- **Contributor mode, for work on ElastiCORE itself.** In a checkout of ElastiCORE
+  (`elasticore-project/elasticore-base` and a `settings.gradle` that includes it) the user-project
+  hooks no longer get in the way of editing the samples and templates. Instead the hooks check the
+  checkout's own rules: an edit of `elasticore-history.md` is refused in favour of a
+  `changes/<topic>.md` fragment (not in a checkout without `changes/`, not on a `version/*` branch,
+  not with `ELASTICORE_ALLOW_HISTORY_EDITS=1`); non-ASCII in `elasticore-base/src/main/java` gets a
+  note with the lines; a guide changed without its `ko/` twin sends the agent back once; and a
+  `git push` or `gh pr create` without a fragment for a `src/main` change, or with Java changed
+  since `formatCheck diffErrorprone` (or `prCheck`) passed, is refused once, naming what is
+  missing. The new `contribute` skill (`contribute <issue> [plan | build]`) reads the checkout's
+  `CONTRIBUTING.md` and `changes/README.md` and plans before it codes: where the change goes, every
+  JPA / MyBatis / MongoDB x Java / Kotlin / TypeScript x layered / ddd / hexagonal combination it
+  reaches, the tests on the real output, the 2.x checks, both guide languages, the fragment, the
+  branch. The reviewer reviews a checkout's diff by those rules.
+- **The `elasticore` skill loads in strict loaders.** Its front matter held `an //ecd: line`,
+  which strict YAML refuses; Claude Code read it anyway, but a strict loader dropped the skill
+  without a word (pi did). The description is now a folded scalar, and a test parses the front
+  matter of every skill, agent and command with PyYAML.
+- **Every version is a GitHub release.** Pushing a tag `vX.Y.Z` now publishes the release with this
+  file's section of that version ([RELEASING.md](RELEASING.md)); 1.1.0, 1.1.1 and 1.2.0 were added
+  afterwards.
 
 ## 1.2.0
 
