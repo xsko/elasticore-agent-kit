@@ -202,35 +202,15 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
   const command = "./gradlew compileJava > build/logs/build.log 2>&1"
   await pi.emit("tool_call", { toolName: "bash", toolCallId: "redir-1", input: { command } })
   write(join(logs, "build.log"), built)
-  // The hook reads a log only when it is newer than its note of the call's start. A real
-  // build writes it seconds later; here it is written at once, and Linux may stamp both
-  // files from the same clock tick: date the log after the start, as the opencode test does.
+  // The hook reads a log only when it is newer ([ -nt ]) than its note of the call's start.
+  // A real build writes it seconds later; here it is written about 0.1-1 ms after the note,
+  // and Linux stamps files from a coarse clock that moves in 1 ms ticks: in CI (ubuntu)
+  // 18 of 25 such logs had the note's very mtime and were rightly not read. Date the log
+  // after the start, as a build would and as the opencode test does.
   const later = new Date(Date.now() + 3600 * 1000)
   utimesSync(join(logs, "build.log"), later, later)
   await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "redir-1" })
   check("pi: a build whose output went to a file (> f, relative to the session's folder) is read from the file", (await settle(pi)) === undefined)
-}
-// DIAGNOSTIC (temporary): the same case as b181ec3 ran it - the log written right after
-// pre-bash, not re-dated - with what the hook got and saw. Asserts nothing.
-for (let round = 0; round < 25; round++) {
-  const { statSync, readdirSync } = await import("node:fs")
-  const { userInfo } = await import("node:os")
-  const s = session("pi")
-  const pi = await host("pi", s)
-  const logs = join(project, "build", "logs")
-  const data = join(tmpdir(), "elasticore-agent-kit-pi-" + userInfo().username.replace(/[^A-Za-z0-9_-]/g, ""))
-  await pi.emit("tool_result", edited(modelRel, "a", "b"))
-  const command = "./gradlew compileJava > build/logs/diag.log 2>&1"
-  await pi.emit("tool_call", { toolName: "bash", toolCallId: "diag-1", input: { command } })
-  const note = join(data, "started-" + s + "-diag-1")
-  const noteStat = existsSync(note) ? statSync(note, { bigint: true }) : null
-  const noteText = existsSync(note) ? readFileSync(note, "utf8") : "(no start note)"
-  write(join(logs, "diag.log"), built)
-  const logStat = statSync(join(logs, "diag.log"), { bigint: true })
-  if (round === 0) console.log("DIAG platform=" + process.platform + " tmpdir=" + tmpdir() + " data=" + data + " cwd=" + project + " note=" + note + " exists=" + !!noteStat + " text=" + JSON.stringify(noteText))
-  const r = await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "diag-1" })
-  const st = await settle(pi)
-  console.log("DIAG round " + round + ": note mtimeNs=" + (noteStat ? noteStat.mtimeNs : "-") + " log mtimeNs=" + logStat.mtimeNs + " gap=" + (noteStat ? logStat.mtimeNs - noteStat.mtimeNs : "-") + "ns log newer=" + (noteStat ? logStat.mtimeNs > noteStat.mtimeNs : "-") + " post-bash=" + JSON.stringify(r) + " settle=" + (st ? "SENT BACK (log not read)" : "quiet (log read)"))
 }
 {
   // The other side: a log no newer than the call's start - left by an earlier build - proves nothing.
