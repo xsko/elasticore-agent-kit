@@ -1039,10 +1039,13 @@ generator_failed() {
 }
 
 # Whether a command failed that Codex reports as PostToolUse - it has no
-# PostToolUseFailure: the exit code in its tool_response.
+# PostToolUseFailure. Codex 0.172 sends a failed shell command's PostToolUse with
+# tool_response as the plain output, no exit code (seen live); an "Exit code: N"
+# header, which its apply_patch response has, is read when there is one. A build
+# that failed still says BUILD FAILED, which is what the checks below go by.
 command_failed() {
     [ "$agent" = codex ] || return 1
-    printf '%s' "$input" | grep -Eq '"exit_code"[[:space:]]*:[[:space:]]*-?[1-9]'
+    printf '%s' "$input" | grep -Eq '"tool_response"[[:space:]]*:[[:space:]]*"Exit code: -?[1-9]|"exit_code"[[:space:]]*:[[:space:]]*-?[1-9]'
 }
 
 # A command that changes a file whose edit was refused in this session: the

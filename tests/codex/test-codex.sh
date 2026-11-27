@@ -43,9 +43,21 @@ done
 # --- the plugin: its manifest and the Codex hooks file -----------------------------
 plugin="$repo/plugins/elasticore"
 check "the plugin has a portable plugin.json at its root" [ -f "$plugin/plugin.json" ]
-check "plugin.json names the Codex hooks file" grep -q '"hooks": "./hooks/codex-hooks.json"' "$plugin/plugin.json"
-check "plugin.json and .claude-plugin/plugin.json have the same version" \
-    [ "$(sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$plugin/plugin.json")" = "$(sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$plugin/.claude-plugin/plugin.json")" ]
+# Codex CLI 0.172, seen live with probe plugins: it takes a plugin's hooks file from
+# .codex-plugin/plugin.json when the root plugin.json is not a portable manifest. A root
+# plugin.json with "$schema" (portable) runs no plugin hook at all, not even one named in
+# extensions.com.openai.hooks; without .codex-plugin it runs hooks/hooks.json - Claude Code's,
+# whose commands do not run in Codex's PowerShell on Windows.
+check ".codex-plugin/plugin.json names the Codex hooks file" grep -q '"hooks": "./hooks/codex-hooks.json"' "$plugin/.codex-plugin/plugin.json"
+check "the root plugin.json is not a portable manifest (\$schema), which runs no plugin hook" eval '! grep -q "\\\$schema" "$plugin/plugin.json"'
+check "nor names extensions.com.openai" eval '! grep -q "com.openai" "$plugin/plugin.json"'
+ver() { sed -nE 's/.*"version": "([^"]+)".*/\1/p' "$1"; }
+check "plugin.json, .codex-plugin/plugin.json and .claude-plugin/plugin.json have the same version" \
+    eval '[ "$(ver "$plugin/plugin.json")" = "$(ver "$plugin/.claude-plugin/plugin.json")" ] && [ "$(ver "$plugin/.codex-plugin/plugin.json")" = "$(ver "$plugin/.claude-plugin/plugin.json")" ]'
+for event in pre-edit pre-bash post-edit post-bash stop; do
+    check "codex-hooks.json has a PowerShell commandWindows for $event, with Git Bash and \$env:PLUGIN_ROOT" \
+        grep -q "\"commandWindows\": \"& .*Git.*bash.exe.*env:PLUGIN_ROOT/hooks/elasticore-hook.sh.* $event codex\"" "$plugin/hooks/codex-hooks.json"
+done
 for event in pre-edit pre-bash post-edit post-bash stop; do
     check "codex-hooks.json runs the hook script's $event with the codex argument" \
         grep -q "elasticore-hook.sh[^ ]* $event codex" "$plugin/hooks/codex-hooks.json"

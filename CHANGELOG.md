@@ -25,9 +25,11 @@ in this version - `codex/install.sh` (or `install.ps1`), or the plugin with
   own payloads (each file of a patch; a Stop answered with `decision: "block"`). The modeler and
   the reviewer come as Codex agents (`.codex/agents/elasticore-*.toml`). The installer puts the
   skills in `.agents/skills/`, the agents and hooks in `.codex/` (with `--project` for one project),
-  and leaves a `hooks.json` of yours as it is, printing what to add. Checked with Codex CLI 0.172.0:
-  the installer, and the plugin installed from this repository as a marketplace; the hooks in a
-  live Codex session were not seen yet.
+  and leaves a `hooks.json` of yours as it is, printing what to add. Checked live with Codex CLI
+  0.172.0 on Windows, with the plugin installed: the patch of a generated file was refused, the DSL
+  edit got the note, the end of the turn was sent back once. Codex runs hooks with PowerShell on
+  Windows, so they call Git Bash by its full path (`commandWindows`); a failed shell command comes
+  without an exit code, so a failed build is told by Gradle's own `BUILD FAILED`.
 - **report-issue: when ElastiCORE itself falls short.** Generated code that does not compile or is
   wrong while the DSL is right, a generator exception, a requirement the DSL cannot say, a guide
   the build contradicts: ask for the `report-issue` skill (Claude Code, opencode, Codex). It

@@ -77,20 +77,25 @@ done
 script="$codex/elasticore-kit/elasticore-hook.sh"
 copy "$kit/hooks/elasticore-hook.sh" "$script"
 
-# The command Codex runs for each hook. On Windows: Git Bash by its full path - the
-# bash on the PATH there may be WSL's, which cannot read a Windows path.
+# The command Codex runs for each hook. On Windows Codex runs it with PowerShell (seen
+# with Codex 0.172), so commandWindows calls Git Bash by its full path with & - the bash
+# on the PATH there may be WSL's, which cannot read a Windows path.
 if command -v cygpath >/dev/null 2>&1; then
     bash_exe="$(cygpath -m "$(command -v bash)")"
     target="$(cygpath -m "$script")"
-    run="\\\"$bash_exe\\\" \\\"$target\\\""
+    run="bash \\\"$target\\\""
+    run_win="& \\\"$bash_exe\\\" \\\"$target\\\""
 else
     run="bash \\\"$script\\\""
+    run_win=""
 fi
 entry() {  # entry <matcher or empty> <event argument>
+    windows=""
+    [ -n "$run_win" ] && windows="$(printf ', "commandWindows": "%s %s codex"' "$run_win" "$2")"
     if [ -n "$1" ]; then
-        printf '      { "matcher": "%s", "hooks": [ { "type": "command", "command": "%s %s codex", "timeout": 30 } ] }' "$1" "$run" "$2"
+        printf '      { "matcher": "%s", "hooks": [ { "type": "command", "command": "%s %s codex"%s, "timeout": 30 } ] }' "$1" "$run" "$2" "$windows"
     else
-        printf '      { "hooks": [ { "type": "command", "command": "%s %s codex", "timeout": 30 } ] }' "$run" "$2"
+        printf '      { "hooks": [ { "type": "command", "command": "%s %s codex"%s, "timeout": 30 } ] }' "$run" "$2" "$windows"
     fi
 }
 json="$(cat <<EOF

@@ -972,7 +972,7 @@ check "another session's DSL change does not hold this one" quiet
 run stop "$(stop_json false other)"
 check "it holds the session that made it" eval 'has "$out" "compileJava"'
 
-# --- Codex CLI: its payloads, in the shapes its hooks documentation gives -----------------
+# --- Codex CLI: its payloads, as captured from codex exec 0.172.0 on Windows ---------------
 # An edit is apply_patch, the patch text in tool_input.command; the hooks file passes "codex".
 run_codex() {  # run_codex <event> <json>
     out="$(printf '%s' "$2" | "$shell" "$hook" "$1" codex 2>"$work/stderr")"
@@ -981,7 +981,7 @@ run_codex() {  # run_codex <event> <json>
 }
 cx_patch() {  # cx_patch <event name> <session> <cwd> <patch body, JSON-escaped>
     printf '{"session_id":"%s","turn_id":"t-1","transcript_path":null,"cwd":"%s","hook_event_name":"%s","model":"gpt-5.6-sol","permission_mode":"bypassPermissions","tool_name":"apply_patch","tool_use_id":"call_1","tool_input":{"command":"*** Begin Patch\\n%s\\n*** End Patch\\n"}%s}' \
-        "$2" "$3" "$1" "$4" "$( [ "$1" = PostToolUse ] && printf ',"tool_response":"Success. Updated the following files:"' )"
+        "$2" "$3" "$1" "$4" "$( [ "$1" = PostToolUse ] && printf ',"tool_response":"Exit code: 0\\nWall time: 0 seconds\\nOutput:\\nSuccess. Updated the following files:\\nM a\\n"' )"
 }
 cx_merged="$work/cx-merged"
 mkdir -p "$cx_merged/src/main/java/com/acme/shop" "$cx_merged/src/main/resources/blueprint/shop/model" "$cx_merged/.elasticore"
@@ -1020,6 +1020,23 @@ run_codex stop "$(printf '{"session_id":"cx3","turn_id":"t-2","cwd":"%s","hook_e
 check "codex: stop_hook_active lets it stop" quiet
 run stop "$(printf '{"session_id":"cx3","turn_id":"t-4","cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$engine")"
 check "codex: a payload with turn_id is taken for Codex's without the argument too" eval 'has "$out" "\"decision\":\"block\""'
+# A shell call's PostToolUse, as Codex 0.172 sends it (captured): tool_response is the output
+# as one string, with no exit code - for a command that failed too.
+cx_bash() {  # cx_bash <session> <command> <tool_response, JSON-escaped>
+    printf '{"session_id":"%s","turn_id":"t-1","transcript_path":"C:\\\\Users\\\\u\\\\.codex\\\\sessions\\\\r.jsonl","cwd":"%s","hook_event_name":"PostToolUse","model":"gpt-5.6-sol","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"%s"},"tool_response":"%s","tool_use_id":"exec-1"}' \
+        "$1" "$engine" "$2" "$3"
+}
+cx_marker="$CLAUDE_PLUGIN_DATA/dsl-changed-cx4"
+run_codex post-edit "$(cx_patch PostToolUse cx4 "$engine" "*** Update File: src/main/resources/blueprint/shop/model/entity.yml\\n@@\\n-a\\n+b")"
+run_codex post-bash "$(cx_bash cx4 ".\\\\gradlew.bat compileJava" "> Task :elcore3\\r\\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\r\\n> Task :compileJava FAILED\\r\\nBUILD FAILED in 6s\\r\\n")"
+check "codex: a failed build (plain output, no exit code) keeps the change open" [ -f "$cx_marker" ]
+run_codex post-bash "$(cx_bash cx4 ".\\\\gradlew.bat compileJava" "> Task :elcore3\\r\\n[elcore3] DSL validation warnings:\\r\\n  [shop] Product.weight: unresolved type\\r\\n\\r\\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\r\\n> Task :compileJava\\r\\nBUILD SUCCESSFUL in 9s\\r\\n")"
+check "codex: DSL warnings in the plain output are passed on" eval 'noted && has "$out" "listed DSL validation warnings" && valid_json'
+run_codex post-bash "$(cx_bash cx4 ".\\\\gradlew.bat compileJava" "> Task :elcore3\\r\\n=== elcore3: 1 written / 41 unchanged / 14 skipped / 0 failed ===\\r\\n> Task :compileJava\\r\\nBUILD SUCCESSFUL in 9s\\r\\n")"
+check "codex: a clean build in the plain output ends the change" eval 'quiet && [ ! -f "$cx_marker" ]'
+run_codex post-edit "$(cx_patch PostToolUse cx5 "$engine" "*** Update File: src/main/resources/blueprint/shop/model/entity.yml\\n@@\\n-a\\n+b")"
+run_codex post-bash "$(cx_bash cx5 "./gradlew compileJava" "Exit code: 1\\nWall time: 9 seconds\\nOutput:\\n=== elcore3: 1 written / 0 unchanged / 0 skipped / 0 failed ===\\nBUILD SUCCESSFUL")"
+check "codex: an Exit code: 1 header counts as a failed command" [ -f "$CLAUDE_PLUGIN_DATA/dsl-changed-cx5" ]
 
 # --- ElastiCORE itself falling short: the report-issue skill, suggested once a session ----
 src_win="$src"

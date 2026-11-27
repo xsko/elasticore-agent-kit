@@ -4,10 +4,11 @@ The kit's skills, hooks and agents for [Codex CLI](https://github.com/openai/cod
 the hook script are the ones the Claude Code plugin uses; the hook script reads Codex's own payloads
 when its hooks file passes it `codex`.
 
-Checked with Codex CLI 0.172.0: the plugin installs from this repository as a marketplace
-(`.agents/plugins/marketplace.json`), and `codex/install.sh` installs into a project and a home
-folder. **Not yet seen in a live Codex session in this version:** the hooks' answers reaching the
-model - the payload shapes the hook script reads are those of Codex's hooks documentation.
+Checked with Codex CLI 0.172.0 on Windows, in live `codex exec` sessions with the plugin installed:
+an `apply_patch` of a `//ecd:` file was refused and Codex said so, the DSL edit got the note to
+build, and the end of the turn sent Codex back once; in a checkout of ElastiCORE the same patch of
+a sample's generated file went through. The payloads the hook script reads were captured from
+those sessions and are cases of `tests/hooks/test-hooks.sh`.
 
 ## Install
 
@@ -42,7 +43,8 @@ codex plugin add elasticore@elasticore-agent-kit
 ```
 
 The plugin brings the skills and the hooks (`plugins/elasticore/hooks/codex-hooks.json`, named in
-the plugin's `plugin.json`); trust them in `/hooks` as above. The agents are not part of a Codex
+the plugin's `.codex-plugin/plugin.json`); trust them in `/hooks` as above. Checked: both
+`codex plugin marketplace add` from a local clone and from GitHub (`--ref` a branch) install it. The agents are not part of a Codex
 plugin: add them with `bash codex/install.sh --no-hooks`. Install the hooks one way only - from
 the plugin, or from the installer - or they run twice. `codex plugin marketplace upgrade` and the
 same `codex plugin add` update it.
@@ -59,16 +61,26 @@ same `codex plugin add` update it.
 
 ## How the hooks see Codex
 
-- An edit is the `apply_patch` tool, the patch in `tool_input.command`. The hook checks each file
-  the patch names: `*** Add File:` and `*** Move to:` give a file a whole new content, like a
-  Write; `*** Update File:` and `*** Delete File:` edit it. A relative path is taken from the
-  call's `cwd`.
-- A shell call is `Bash`, the command in `tool_input.command`.
+- An edit is the `apply_patch` tool, the patch in `tool_input.command`, with paths relative to
+  the call's `cwd`. The hook checks each file the patch names: `*** Add File:` and `*** Move to:`
+  give a file a whole new content, like a Write; `*** Update File:` and `*** Delete File:` edit it.
+- A shell call is `Bash`, the command in `tool_input.command` as the model wrote it (Codex runs it
+  through PowerShell on Windows; the hook sees the command itself).
 - The end of a turn is `Stop`: the hook answers `{"decision": "block", "reason": "..."}`, which
   Codex takes as the next prompt, and only when `stop_hook_active` is false - so it asks once.
-- Codex has no `PostToolUseFailure`. The hook script takes a command for failed when Codex's
-  `tool_response` carries a non-zero `exit_code`; whether Codex sends PostToolUse for a command
-  that failed, and in that shape, has not been seen live yet.
+- Codex has no `PostToolUseFailure`: a shell command that failed comes as PostToolUse too, and its
+  `tool_response` is the output as one string, with no exit code. So the hook tells a failed build
+  by what Gradle printed (`BUILD FAILED`, no `BUILD SUCCESSFUL`), as it does for a successful one;
+  a command whose output looks successful but that exited non-zero cannot be told apart. (An
+  `apply_patch` response starts `Exit code: N`, which the hook reads.)
+- On Windows Codex runs a hook's command with PowerShell. The plugin's hooks therefore have a
+  `commandWindows` that calls Git Bash by its full path (`& "$env:ProgramFiles\Git\bin\bash.exe"
+  "$env:PLUGIN_ROOT/hooks/..."`); the installer writes the same with the paths it found. A plain
+  `bash "..."` there may start WSL's bash, and a quoted path followed by arguments is a PowerShell
+  syntax error.
+- The plugin's hooks file is named in `.codex-plugin/plugin.json`. The plugin's root `plugin.json`
+  must not be a portable manifest (`$schema`): with one, Codex 0.172 runs none of the plugin's
+  hooks, and without `.codex-plugin` it runs `hooks/hooks.json`, which is Claude Code's.
 
 To let Codex edit generated files or use `-Pforce` anyway, start it with
 `ELASTICORE_ALLOW_GENERATED_EDITS=1` or `ELASTICORE_ALLOW_FORCE=1` in its environment.
