@@ -34,12 +34,21 @@ Codex plugin, `codex plugin marketplace upgrade`). pi and omp: new in this versi
   but its agents under their Claude Code names, so the kit's reviewer then stands in for omp's. A DSL
   change a subagent made sends the main session back at its end, as in Claude Code. omp needs Bun
   1.4.4 or later.
-- **What differs from Claude Code.** In omp's `hashline`, `apply_patch`, `patch` and `magic` edit
-  modes the hook cannot see the replaced text, so adding a preserved block to a `//ecd:` file is
-  refused there (`replace` mode lets it through, as Claude Code does); a delete of a generated file
-  goes through in every mode, as it is how one is restored. omp cuts a long command output in the
-  middle, so a warning in the middle of a very long Gradle log can be missed; a build whose output
-  goes to a file is read from the file.
+- **Every way pi and omp edit a file is checked.** pi's and omp's `edit` and `write`, each of omp's
+  edit modes (`replace`, `hashline`, `apply_patch`, `sloppy`, `patch`, `magic`), an `apply_patch` run
+  as a shell command, and omp's `ast_edit`: a rewrite that would change a generated file is refused,
+  and so is the `resolve` that would apply its preview. A path is read as the host reads it - `@src/...`,
+  a `file://` URL, `~/...`, `/c/...` or `/mnt/c/...` on Windows. When the hooks cannot run - no hook
+  script, a bash that does not run it - the extension says so once instead of letting everything
+  through without a word.
+- **What differs from Claude Code.** In omp's edit modes other than `replace`, and with `ast_edit`,
+  the hook cannot see the replaced text, so adding a preserved block to a `//ecd:` file is refused
+  there (`replace` mode lets it through, as Claude Code does); a delete of a generated file goes
+  through in every mode, as it is how one is restored. omp cuts a long command output in the middle,
+  so a warning in the middle of a very long Gradle log can be missed; a build whose output goes to a
+  file is read from the file. If omp's Claude sources are turned on and the kit is installed in
+  Claude Code too, omp also takes Claude Code's `reviewer`, which replaces omp's own
+  ([pi/README.md](pi/README.md)).
 - Checked live with pi 1.6.1 and omp 19.2.1 on Windows, with a local model, installed with the
   project installer and as a pi package or from omp's marketplace: the edit of a `//ecd:` file was
   refused, the DSL edit got the note, the end of the run was sent back once. The extension's tests

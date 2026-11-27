@@ -8,8 +8,8 @@
 // usage: node tests/pi/test-adapter.mjs      Node 18 or later, no packages
 // The fixtures go to a fresh directory under the system temp directory, left for inspection.
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -62,10 +62,11 @@ let loads = 0
 async function host(kind, session, options = {}) {
   const handlers = {}
   const api = { on: (name, fn) => (handlers[name] ||= []).push(fn), sendMessage() {} }
-  if (kind === "omp") api.logger = {}
+  // omp's ExtensionAPI carries its schema libraries and logger; pi's none of them.
+  if (kind === "omp") Object.assign(api, { arktype: {}, zod: {}, logger: {} })
   const mod = await import(pathToFileURL(options.file || adapter).href + "?" + kind + ++loads)
   mod.default(api)
-  const ctx = (agent, cwd) => ({ cwd: cwd || options.cwd || project, sessionManager: { getSessionId: () => (agent && agent.id) || session }, agent })
+  const ctx = (agent, cwd) => ({ cwd: cwd || options.cwd || project, sessionManager: { getSessionId: () => (agent && agent.id) || session }, agent, ui: options.ui })
   const main = kind === "omp" ? { kind: "main", id: "Main" } : undefined
   const emit = async (name, event, agent, cwd) => {
     let result
@@ -74,7 +75,7 @@ async function host(kind, session, options = {}) {
     for (const fn of handlers[name] || []) result = (await fn({ type: name, ...event }, c)) ?? result
     return result
   }
-  return { emit, handlers }
+  return { emit, handlers, mod }
 }
 let sessions = 0
 const session = (kind) => kind + "-test-" + process.pid + "-" + ++sessions
@@ -95,7 +96,8 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
 {
   const s = session("pi")
   const pi = await host("pi", s)
-  check("pi: the extension registers tool_call, tool_result, agent_before_settle and session_stop", ["tool_call", "tool_result", "agent_before_settle", "session_stop"].every((n) => pi.handlers[n]), Object.keys(pi.handlers))
+  check("pi: the extension registers tool_call, tool_result, agent_before_settle and session_start", ["tool_call", "tool_result", "agent_before_settle", "session_start"].every((n) => pi.handlers[n]), Object.keys(pi.handlers))
+  check("pi: and not omp's session_stop, so that a stop is never sent back twice", !pi.handlers.session_stop, Object.keys(pi.handlers))
 
   let r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "c1", input: { path: managedRel, edits: [{ oldText: "public class ProductDTO {\n}", newText: "public class ProductDTO {\n    int age;\n}" }] } })
   check("pi: an edit of a //ecd: file is blocked with the hook's reason", r && r.block === true && /^\[ElastiCORE agent kit\] ElastiCORE generates .*ProductDTO\.java from the DSL/.test(r.reason), show(r))
@@ -296,18 +298,200 @@ gitReady = gitReady && git("add", "-A").status === 0 && git("commit", "-q", "-m"
   check("omp: a subagent's DSL edit makes the main session's stop continue", r && r.continue === true, show(r))
 }
 
+// --- paths as the hosts read them ---------------------------------------------------
+// pi and omp drop a leading "@" and a stray ":", read file:// URLs, expand "~", and
+// on Windows take /c/, /mnt/c/ and /cygdrive/c/ for C:\.
+{
+  const pi = await host("pi", session("pi"))
+  const ins = [{ oldText: "public class ProductDTO {\n}", newText: "public class ProductDTO {\n    int age;\n}" }]
+  const spellings = [
+    ["@ before a relative path", "@" + managedRel],
+    ["@ before an absolute path", "@" + managed],
+    ["a file:// URL", pathToFileURL(managed).href],
+    ["a stray : before an absolute path", ":" + managed],
+  ]
+  if (process.platform === "win32") {
+    const drive = managed[0].toLowerCase()
+    const rest = managed.slice(2).replace(/\\/g, "/")
+    spellings.push(["/mnt/<drive>/", "/mnt/" + drive + rest], ["/cygdrive/<drive>/", "/cygdrive/" + drive + rest], ["/<drive>/", "/" + drive + rest])
+  }
+  for (const [name, path] of spellings) {
+    const r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "p", input: { path, edits: ins } })
+    check("paths: an edit of a //ecd: file by " + name + " is blocked", r && r.block === true, path + " -> " + show(r))
+  }
+  let r = await pi.emit("tool_call", { toolName: "write", toolCallId: "p", input: { path: "@" + managedRel, content: "x" } })
+  check("paths: a write by @path is blocked", r && r.block === true, show(r))
+  const { absolute } = pi.mod
+  check("paths: ~/ is the home folder", absolute("~/a/b.java", project) === join(homedir(), "a", "b.java"), absolute("~/a/b.java", project))
+  check("paths: ~ alone is the home folder", absolute("~", project) === homedir())
+  if (process.platform === "win32") check("paths: ~\\ is the home folder on Windows", absolute("~\\a\\b.java", project) === join(homedir(), "a", "b.java"))
+  write(join(project, "@literal.txt"), "x")
+  check("paths: a literal @name that exists is kept, as omp keeps it", absolute("@literal.txt", project) === join(project, "@literal.txt"), absolute("@literal.txt", project))
+  const omp = await host("omp", session("omp"))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "p", input: { path: "@" + managedRel, old_string: ins[0].oldText, new_string: ins[0].newText } })
+  check("paths: an omp replace-mode edit by @path is blocked", r && r.block === true, show(r))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "p", input: { input: "[@" + managedRel + "#52DE]\nPUT 3*:\n+x" } })
+  check("paths: an omp hashline section by @path is blocked", r && r.block === true, show(r))
+}
+
+// --- omp: the other edit forms ------------------------------------------------------
+{
+  const omp = await host("omp", session("omp"))
+  let r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s1", input: { input: "*** Begin Patch\n*** Edit File: " + managedRel + "\n*** Replace Block: public class ProductDTO {\npublic class ProductDTO {\n    int age;\n}\n*** End Patch" } })
+  check("omp sloppy mode: *** Edit File: of a //ecd: file is blocked", r && r.block === true, show(r))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s2", input: { input: "*** Begin Patch\n*** Update File: " + managedRel + " all\n*** Find\nint\n*** Replace\nlong\n*** End Patch" } })
+  check("omp sloppy mode: *** Update File: P all of a //ecd: file is blocked", r && r.block === true, show(r))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s3", input: { input: "*** Begin Patch\n*** Edit File: " + ownRel + "\n*** Replace Block: public class ShopApplication {}\npublic class ShopApplication { }\n*** End Patch" } })
+  check("omp sloppy mode: an edit of a hand-written file goes through", r === undefined, show(r))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s4", input: { _input: "*** Begin Patch\n*** Update File: " + managedRel + "\n@@\n-a\n+b\n*** End Patch" } })
+  check("omp: a patch forwarded as _input is read too", r && r.block === true, show(r))
+  const hashDir = join(project, "src", "main", "java", "com", "acme", "shop", "a#b")
+  write(join(hashDir, "TagDTO.java"), "//ecd:-1375193215H20261020123214_V3.0\npublic class TagDTO {\n}\n")
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s5", input: { input: "[src/main/java/com/acme/shop/a#b/TagDTO.java#A1B2]\nPUT 2*:\n+public class TagDTO { int x; }" } })
+  check("omp hashline: a path with # in it is kept whole", r && r.block === true, show(r))
+  r = await omp.emit("tool_call", { toolName: "edit", toolCallId: "s6", input: { input: "# " + managedRel + "\n[note]\n- Add a field age." } })
+  check("omp magic mode: a [word] line does not hide the # P header", r && r.block === true, show(r))
+
+  // apply_patch run through omp's bash tool, as Codex-trained models do.
+  r = await omp.emit("tool_call", { toolName: "bash", toolCallId: "s7", input: { command: "apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: " + managedRel + "\n@@\n-}\n+  int age;\n}\n*** End Patch\nEOF" } })
+  check("omp bash: apply_patch <<'EOF' of a //ecd: file is blocked", r && r.block === true && /from the DSL/.test(r.reason), show(r))
+  r = await omp.emit("tool_call", { toolName: "bash", toolCallId: "s8", input: { command: "apply_patch '*** Begin Patch\n*** Update File: " + managedRel + "\n@@\n-}\n+}\n*** End Patch'" } })
+  check("omp bash: apply_patch '<patch>' of a //ecd: file is blocked", r && r.block === true, show(r))
+  const addModel = "apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: src/main/resources/blueprint/shop/model/order.yml\n+entity: {}\n*** End Patch\nEOF"
+  r = await omp.emit("tool_call", { toolName: "bash", toolCallId: "s9", input: { command: addModel } })
+  check("omp bash: apply_patch that adds a DSL file goes through", r === undefined, show(r))
+  r = await omp.emit("tool_result", { toolName: "bash", toolCallId: "s9", input: { command: addModel }, content: [{ type: "text", text: "Success." }], details: {}, isError: false })
+  check("omp bash: and gets the note to build", r && /You changed the ElastiCORE model/.test(r.additionalContext), show(r))
+}
+
+// --- omp: ast_edit previews, resolve applies ------------------------------------------
+{
+  const s = session("omp")
+  const omp = await host("omp", s)
+  const ops = [{ pat: "int $X", out: "long $X" }]
+  let r = await omp.emit("tool_call", { toolName: "ast_edit", toolCallId: "a1", input: { ops, paths: [managedRel] } })
+  check("omp ast_edit: naming a //ecd: file is blocked", r && r.block === true && /from the DSL/.test(r.reason), show(r))
+  r = await omp.emit("tool_call", { toolName: "ast_edit", toolCallId: "a2", input: { ops, paths: [ownRel] } })
+  check("omp ast_edit: naming a hand-written file goes through", r === undefined, show(r))
+  r = await omp.emit("tool_call", { toolName: "ast_edit", toolCallId: "a3", input: { ops, paths: ["src/main/java"] } })
+  check("omp ast_edit: a folder goes through to its preview", r === undefined, show(r))
+  const preview = (files) => ({ toolName: "ast_edit", toolCallId: "a3", input: { ops, paths: ["src/main/java"] }, content: [{ type: "text", text: "Staged as a proposal - files NOT modified yet.\n" + files.map((f) => "[" + f + "#ABCD]\n-4:int x\n+4:long x").join("\n") }], details: { applied: false, cwd: project, files }, isError: false })
+  r = await omp.emit("tool_result", preview([managedRel, ownRel]))
+  check("omp ast_edit: a preview that changes a //ecd: file says resolve will be refused", r && /resolve will be refused/.test(r.additionalContext), show(r))
+  r = await omp.emit("tool_call", { toolName: "resolve", toolCallId: "a4", input: { action: "apply", reason: "go" } })
+  check("omp ast_edit: resolve of that preview is blocked", r && r.block === true && /from the DSL/.test(r.reason), show(r))
+  r = await omp.emit("tool_call", { toolName: "bash", toolCallId: "a5", input: { command: "resolve 'apply the rename'" } })
+  check("omp ast_edit: and resolve run as a bash command too", r && r.block === true, show(r))
+  r = await omp.emit("tool_call", { toolName: "bash", toolCallId: "a6", input: { command: "reject 'it is generated'" } })
+  check("omp ast_edit: reject goes through", r === undefined, show(r))
+  await omp.emit("tool_result", { toolName: "bash", toolCallId: "a6", input: { command: "reject 'it is generated'" }, content: [{ type: "text", text: "Discarded." }], details: {}, isError: false })
+  r = await omp.emit("tool_call", { toolName: "resolve", toolCallId: "a7", input: { action: "apply", reason: "go" } })
+  check("omp ast_edit: after the reject, resolve is no longer blocked", r === undefined, show(r))
+  // A preview of the model applied by resolve: its files get their notes.
+  r = await omp.emit("tool_result", { ...preview([modelRel]), details: { applied: false, cwd: project, files: [modelRel] } })
+  check("omp ast_edit: a preview of hand-written files and the model adds nothing", r === undefined, show(r))
+  r = await omp.emit("tool_call", { toolName: "resolve", toolCallId: "a8", input: { action: "apply", reason: "go" } })
+  check("omp ast_edit: its resolve goes through", r === undefined, show(r))
+  r = await omp.emit("tool_result", { toolName: "resolve", toolCallId: "a8", input: { action: "apply", reason: "go" }, content: [{ type: "text", text: "Applied." }], details: { action: "apply" }, isError: false })
+  check("omp ast_edit: an applied rewrite of the model gets the note to build", r && /You changed the ElastiCORE model/.test(r.additionalContext), show(r))
+  // Previews stack, resolve takes the newest.
+  await omp.emit("tool_result", preview([managedRel]))
+  await omp.emit("tool_result", preview([ownRel]))
+  r = await omp.emit("tool_call", { toolName: "resolve", toolCallId: "a9", input: { action: "apply", reason: "go" } })
+  check("omp ast_edit: resolve of the newest preview, which is allowed, goes through", r === undefined, show(r))
+  await omp.emit("tool_result", { toolName: "resolve", toolCallId: "a9", input: {}, content: [], details: {}, isError: false })
+  r = await omp.emit("tool_call", { toolName: "resolve", toolCallId: "a10", input: { action: "apply", reason: "go" } })
+  check("omp ast_edit: then the refused one under it is blocked", r && r.block === true, show(r))
+  const pi = await host("pi", session("pi"))
+  r = await pi.emit("tool_call", { toolName: "bash", toolCallId: "a11", input: { command: "resolve example.com" } })
+  check("pi: a command called resolve is only a command", r === undefined, show(r))
+}
+
+// --- pi: several replacements are one MultiEdit ---------------------------------------
+{
+  const pi = await host("pi", session("pi"))
+  const many = Array.from({ length: 8 }, (_, i) => ({ oldText: "x" + i, newText: "y" + i }))
+  let t = Date.now()
+  let r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "m1", input: { path: ownRel, edits: many } })
+  const ms = Date.now() - t
+  check("pi: an edit with 8 replacements of a hand-written file goes through", r === undefined, show(r))
+  check("pi: and runs the hook once, not 8 times (" + ms + " ms)", ms < 8000, ms)
+  r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "m2", input: { path: managedRel, edits: many } })
+  check("pi: an edit with 8 replacements of a //ecd: file is blocked", r && r.block === true, show(r))
+  r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "m3", input: { path: mergedFile, edits: many.slice(0, 2) } })
+  check("pi: an edit with 2 replacements of a merged generated file goes through", r === undefined, show(r))
+}
+
+// --- pi: a run that ended in an error is not sent back --------------------------------
+{
+  for (const outcome of ["error", "aborted"]) {
+    const pi = await host("pi", session("pi"))
+    await pi.emit("tool_result", edited(modelRel, "a", "b"))
+    const r = await pi.emit("agent_before_settle", { outcome, entries: [], continue: false })
+    check("pi: settling with outcome " + outcome + " is not sent back", r === undefined, show(r))
+  }
+}
+
+// --- omp bash: its own cwd, and async --------------------------------------------------
+{
+  const omp = await host("omp", session("omp"), { cwd: work })
+  await omp.emit("tool_result", { toolName: "edit", toolCallId: "c0", input: { path: join(project, modelRel), old_string: "a", new_string: "b" }, content: [], isError: false })
+  const command = "./gradlew compileJava > build/logs/cwd.log 2>&1"
+  await omp.emit("tool_call", { toolName: "bash", toolCallId: "cwd-1", input: { command, cwd: project } })
+  write(join(project, "build", "logs", "cwd.log"), built)
+  const later = new Date(Date.now() + 3600 * 1000)
+  utimesSync(join(project, "build", "logs", "cwd.log"), later, later)
+  await omp.emit("tool_result", { toolName: "bash", toolCallId: "cwd-1", input: { command, cwd: project }, content: [{ type: "text", text: "" }], details: { exitCode: 0 }, isError: false })
+  let r = await omp.emit("session_stop", { stop_hook_active: false })
+  check("omp bash: a redirected build in the call's own cwd is read from there", r === undefined, show(r))
+  await omp.emit("tool_result", { toolName: "edit", toolCallId: "c1", input: { path: join(project, modelRel), old_string: "b", new_string: "c" }, content: [], isError: false })
+  await omp.emit("tool_result", { toolName: "bash", toolCallId: "c2", input: { command: "./gradlew compileJava", async: true, cwd: project }, content: [{ type: "text", text: built }], details: {}, isError: false })
+  r = await omp.emit("session_stop", { stop_hook_active: false })
+  check("omp bash: an async build, which comes back before it ran, does not count", r && r.continue === true, show(r))
+}
+
 // --- a broken hook never blocks the work --------------------------------------------
 {
   const broken = join(work, "broken-hook.sh")
   write(broken, "#!/usr/bin/env bash\necho 'not json'\nexit 2\n")
-  for (const [name, path] of [["a missing hook script", join(work, "no-such-hook.sh")], ["a hook script that answers garbage", broken]]) {
+  const silent = join(work, "silent-hook.sh")
+  write(silent, "#!/usr/bin/env bash\necho 'boom' >&2\nexit 3\n")
+  for (const [name, path, says] of [
+    ["a missing hook script", join(work, "no-such-hook.sh"), /was not found/],
+    ["a hook script that answers garbage", broken, /not JSON/],
+    ["a hook script that fails without a word", silent, /exit code 3.*boom/],
+  ]) {
     process.env.ELASTICORE_KIT_HOOK = path
-    const pi = await host("pi", session("pi"))
+    const notices = []
+    const pi = await host("pi", session("pi"), { ui: { notify: (text, level) => notices.push([text, level]) } })
+    await pi.emit("session_start", { reason: "startup" })
+    check(name + ": the session's start says the hooks are off, in the host's UI", notices.length === 1 && says.test(notices[0][0]) && /refusals and notes are off/.test(notices[0][0]) && notices[0][1] === "warning", show(notices))
     let r = await pi.emit("tool_call", { toolName: "edit", toolCallId: "x1", input: { path: managedRel, edits: [{ oldText: "a", newText: "b" }] } })
     check(name + ": an edit of a //ecd: file goes through", r === undefined, show(r))
     r = await pi.emit("tool_result", edited(modelRel, "a", "b"))
     check(name + ": no note", r === undefined, show(r))
     check(name + ": no continuation", (await settle(pi)) === undefined)
+    check(name + ": said once, not on every call", notices.length === 1, show(notices))
+  }
+  {
+    process.env.ELASTICORE_KIT_HOOK = join(work, "no-such-hook.sh")
+    const pi = await host("pi", session("pi"))
+    const errors = []
+    const original = console.error
+    console.error = (...args) => errors.push(args.join(" "))
+    try {
+      await pi.emit("tool_call", { toolName: "edit", toolCallId: "x2", input: { path: managedRel, edits: [{ oldText: "a", newText: "b" }] } })
+    } finally {
+      console.error = original
+    }
+    check("a host without a UI: the warning goes to stderr", errors.length === 1 && /was not found/.test(errors[0]), show(errors))
+  }
+  {
+    delete process.env.ELASTICORE_KIT_HOOK
+    const notices = []
+    const pi = await host("pi", session("pi"), { ui: { notify: (text) => notices.push(text) } })
+    await pi.emit("session_start", { reason: "startup" })
+    check("a hook script that works: the session's start says nothing", notices.length === 0, show(notices))
   }
   delete process.env.ELASTICORE_KIT_HOOK
   const pi = await host("pi", session("pi"))
