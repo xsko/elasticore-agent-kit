@@ -210,6 +210,31 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
   await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "redir-1" })
   check("pi: a build whose output went to a file (> f, relative to the session's folder) is read from the file", (await settle(pi)) === undefined)
 }
+// DIAGNOSTIC (temporary): the same case as b181ec3 ran it - the log written right after
+// pre-bash, not re-dated - with what the hook got and saw. Asserts nothing.
+{
+  const { statSync, readdirSync } = await import("node:fs")
+  const { userInfo } = await import("node:os")
+  const s = session("pi")
+  const pi = await host("pi", s)
+  const logs = join(project, "build", "logs")
+  const data = join(tmpdir(), "elasticore-agent-kit-pi-" + userInfo().username.replace(/[^A-Za-z0-9_-]/g, ""))
+  await pi.emit("tool_result", edited(modelRel, "a", "b"))
+  const command = "./gradlew compileJava > build/logs/diag.log 2>&1"
+  await pi.emit("tool_call", { toolName: "bash", toolCallId: "diag-1", input: { command } })
+  const note = join(data, "started-" + s + "-diag-1")
+  const noteStat = existsSync(note) ? statSync(note, { bigint: true }) : null
+  const noteText = existsSync(note) ? readFileSync(note, "utf8") : "(no start note)"
+  write(join(logs, "diag.log"), built)
+  const logStat = statSync(join(logs, "diag.log"), { bigint: true })
+  console.log("DIAG platform=" + process.platform + " tmpdir=" + tmpdir() + " data=" + data + " cwd=" + project)
+  console.log("DIAG start note: " + note + " exists=" + !!noteStat + " text=" + JSON.stringify(noteText))
+  console.log("DIAG note mtimeNs=" + (noteStat ? noteStat.mtimeNs : "-") + " log mtimeNs=" + logStat.mtimeNs + " log newer=" + (noteStat ? logStat.mtimeNs > noteStat.mtimeNs : "-"))
+  const r = await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "diag-1" })
+  console.log("DIAG post-bash note: " + JSON.stringify(r) + " state after: " + readdirSync(data).filter((f) => f.includes(s)).join(","))
+  const st = await settle(pi)
+  console.log("DIAG settle: " + (st ? "sent back - the log was not read" : "quiet - the log was read"))
+}
 {
   // The other side: a log no newer than the call's start - left by an earlier build - proves nothing.
   const pi = await host("pi", session("pi"))
@@ -342,7 +367,13 @@ gitReady = gitReady && git("add", "-A").status === 0 && git("commit", "-q", "-m"
   const { absolute } = pi.mod
   check("paths: ~/ is the home folder", absolute("~/a/b.java", project) === join(homedir(), "a", "b.java"), absolute("~/a/b.java", project))
   check("paths: ~ alone is the home folder", absolute("~", project) === homedir())
-  if (process.platform === "win32") check("paths: ~\\ is the home folder on Windows", absolute("~\\a\\b.java", project) === join(homedir(), "a", "b.java"))
+  if (process.platform === "win32") {
+    check("paths: ~\\ is the home folder on Windows", absolute("~\\a\\b.java", project) === join(homedir(), "a", "b.java"))
+  } else {
+    // Elsewhere these are real paths: the Windows drive mappings must leave them alone.
+    for (const p of ["/mnt/c/src/A.java", "/cygdrive/c/src/A.java", "/c/src/A.java"]) check("paths: " + p + " stays " + p + " off Windows", absolute(p, project) === p, absolute(p, project))
+    check("paths: ~\\ is a name, not the home folder, off Windows", absolute("~\\a", project) === join(project, "~\\a"), absolute("~\\a", project))
+  }
   write(join(project, "@literal.txt"), "x")
   check("paths: a literal @name that exists is kept, as omp keeps it", absolute("@literal.txt", project) === join(project, "@literal.txt"), absolute("@literal.txt", project))
   const omp = await host("omp", session("omp"))
@@ -551,6 +582,8 @@ const skillFiles = ["skills/elasticore/SKILL.md", "skills/elasticore/references/
   if (process.platform === "win32") {
     const recorded = existsSync(join(agentDir, "extensions/elasticore/bash-path")) ? readFileSync(join(agentDir, "extensions/elasticore/bash-path"), "utf8").trim() : ""
     check("on Windows, install.sh records Git's launcher bin\\bash.exe, not usr\\bin\\bash.exe", /\\bin\\bash\.exe$/i.test(recorded) && !/\\usr\\bin\\/i.test(recorded) && existsSync(recorded), recorded)
+  } else {
+    check("off Windows, install.sh records no bash-path: the extension runs the bash on the PATH", !existsSync(join(agentDir, "extensions/elasticore/bash-path")))
   }
   const pi = await host("pi", session("pi"), { file: join(agentDir, "extensions", "elasticore", "index.js") })
   const blocked = await pi.emit("tool_call", { toolName: "edit", toolCallId: "i1", input: { path: managedRel, edits: [{ oldText: "a", newText: "b" }] } })
