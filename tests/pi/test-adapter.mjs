@@ -202,8 +202,26 @@ const lastText = (result) => result && Array.isArray(result.content) ? result.co
   const command = "./gradlew compileJava > build/logs/build.log 2>&1"
   await pi.emit("tool_call", { toolName: "bash", toolCallId: "redir-1", input: { command } })
   write(join(logs, "build.log"), built)
+  // The hook reads a log only when it is newer than its note of the call's start. A real
+  // build writes it seconds later; here it is written at once, and Linux may stamp both
+  // files from the same clock tick: date the log after the start, as the opencode test does.
+  const later = new Date(Date.now() + 3600 * 1000)
+  utimesSync(join(logs, "build.log"), later, later)
   await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "redir-1" })
   check("pi: a build whose output went to a file (> f, relative to the session's folder) is read from the file", (await settle(pi)) === undefined)
+}
+{
+  // The other side: a log no newer than the call's start - left by an earlier build - proves nothing.
+  const pi = await host("pi", session("pi"))
+  const logs = join(project, "build", "logs")
+  write(join(logs, "stale.log"), built)
+  const earlier = new Date(Date.now() - 3600 * 1000)
+  utimesSync(join(logs, "stale.log"), earlier, earlier)
+  await pi.emit("tool_result", edited(modelRel, "a", "b"))
+  const command = "./gradlew compileJava > build/logs/stale.log 2>&1"
+  await pi.emit("tool_call", { toolName: "bash", toolCallId: "redir-2", input: { command } })
+  await pi.emit("tool_result", { ...shell(command, "", 0), toolCallId: "redir-2" })
+  check("pi: a log the command did not write since it started is not read", (await settle(pi)) !== undefined)
 }
 
 // --- contributor mode: a checkout of ElastiCORE itself ------------------------------
