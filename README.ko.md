@@ -96,19 +96,41 @@ PC의 다른 프로젝트를 읽지 않습니다.
 
 ## 업데이트
 
-Claude Code는 이런 마켓플레이스의 플러그인을 저절로 업데이트하지 않습니다. 최신 버전은 이렇게 받습니다.
+어느 도구도 kit을 저절로 업데이트하지 않습니다. 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있고, 버전마다 같은 내용의
+[릴리스](https://github.com/xsko/elasticore-agent-kit/releases)가 있습니다([RELEASING.md](RELEASING.md)). 업데이트한 뒤에는
+세션을 새로 시작합니다. 열려 있던 세션은 이전 버전을 그대로 씁니다.
+
+| 도구 | 설치한 방법 | 업데이트 | 설치된 버전 확인 |
+|---|---|---|---|
+| Claude Code | 마켓플레이스 | `claude plugin marketplace update elasticore-agent-kit` 다음 `claude plugin update elasticore@elasticore-agent-kit` | `claude plugin list` |
+| opencode | `opencode/install.sh` / `.ps1` | 받아 둔 저장소에서 `git pull` 후 같은 설치 스크립트를 다시 실행 | 그 저장소에서 `git describe --tags` |
+| Codex CLI | 플러그인 | `codex plugin marketplace upgrade elasticore-agent-kit` 다음 `codex plugin add elasticore@elasticore-agent-kit` | `codex plugin list` |
+| Codex CLI | `codex/install.sh` / `.ps1` | 받아 둔 저장소에서 `git pull` 후 같은 설치 스크립트를 다시 실행 | 그 저장소에서 `git describe --tags` |
+| pi | `pi install git:...@vX.Y.Z` | `pi install git:github.com/xsko/elasticore-agent-kit@<새 태그>` | `pi list` |
+| pi, omp | `pi/install.sh` / `.ps1` | 받아 둔 저장소에서 `git pull` 후 같은 설치 스크립트를 다시 실행 | 그 저장소에서 `git describe --tags` |
+
+**Claude Code.** 세션 안에서는 `/plugin` → **Installed** 탭 → `elasticore` → **Update now**, 그다음 `/reload-plugins` 또는 새 세션.
+자동으로 받으려면 `/plugin` → **Marketplaces** 탭 → `elasticore-agent-kit` → **Enable auto-update**. 그러면 세션을 시작할 때
+업데이트되고, 다음 세션부터 새 버전이 적용됩니다. `Marketplace 'elasticore-agent-kit' not found`가 나오면 그 Claude Code(다른 PC,
+WSL, 다른 `CLAUDE_CONFIG_DIR`)에는 마켓플레이스가 추가된 적이 없는 것입니다. 거기서 먼저 설치의 두 명령을 실행합니다.
+
+**설치 스크립트**(opencode, Codex, pi, omp)는 파일을 복사합니다. 최신으로 받은 저장소에서 같은 스크립트를 같은 옵션(`--project`,
+`--omp` 등)으로 다시 실행합니다.
 
 ```bash
-claude plugin marketplace update elasticore-agent-kit
-claude plugin update elasticore@elasticore-agent-kit
+git clone https://github.com/xsko/elasticore-agent-kit.git   # 처음 한 번
+cd elasticore-agent-kit
+git pull                                                      # 업데이트할 때마다. 특정 버전은 git checkout vX.Y.Z
+bash opencode/install.sh                                      # 또는 codex/, pi/ - 설치했던 대로
 ```
 
-그다음 Claude Code 세션을 새로 시작하거나, 열려 있는 세션에서 `/reload-plugins`를 실행합니다.
-설치된 버전은 `claude plugin list`로 보고, 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. 버전마다 같은 내용의
-[릴리스](https://github.com/xsko/elasticore-agent-kit/releases)가 있습니다([RELEASING.md](RELEASING.md)).
+스크립트는 자기 파일을 덮어쓰고 아무것도 지우지 않습니다. 새 버전에서 없어진 파일은 직접 지울 때까지 남습니다. 첫 줄에 설치할
+폴더가 나옵니다(`Installing ... into <폴더>`). Windows에서는 `.ps1`을 쓰거나 `.sh`를 Git Bash에서 실행합니다. MSYS2나 WSL의
+`bash`는 홈 폴더가 따로라서, 파일이 도구가 읽는 곳이 아닌 그쪽에 설치됩니다. Codex는 hook 스크립트가 바뀌면 `/hooks`에서 다시
+신뢰를 묻습니다. Codex 설치 스크립트는 이미 있는 `hooks.json`을 그대로 둡니다.
 
-세션 안에서는 `/plugin` → **Installed** 탭 → `elasticore` → **Update now**. 자동으로 받으려면 `/plugin` → **Marketplaces** 탭 →
-`elasticore-agent-kit` → **Enable auto-update**. 그러면 세션을 시작할 때 업데이트되고, 다음 세션부터 새 버전이 적용됩니다.
+도구별 자세한 내용: [opencode/README.md](opencode/README.md#update), [codex/README.md](codex/README.md#update),
+[pi/README.md](pi/README.md).
 
 ## 측정: 같은 과제를 kit 없이, kit과 함께
 

@@ -45,6 +45,32 @@ The hook script runs in bash. On Windows the plugin uses Git Bash from `Program 
 which may be WSL's, which cannot run it. Without a bash that works, the refusals and notes are
 off; opencode itself goes on working.
 
+## Update
+
+opencode has no way to update the kit itself: update your clone and run the installer again, with
+the same option you installed with (`--project` / `-Project` for a project's `.opencode/`).
+
+```bash
+cd elasticore-agent-kit          # your clone of this repository
+git pull                         # or git checkout vX.Y.Z for one version
+git describe --tags              # the version you are about to install
+bash opencode/install.sh                                        # macOS, Linux, Git Bash
+powershell -ExecutionPolicy Bypass -File opencode\install.ps1   # Windows PowerShell
+```
+
+Then start a new opencode session. The installer overwrites the plugin, the hook script, the skills,
+the agents and the commands, and deletes nothing: a file a newer kit no longer has stays until you
+delete it (the files the kit installs are listed under [Uninstall](#uninstall)). Your
+`opencode.json` is not touched.
+
+Check the first line the installer prints, `Installing the ElastiCORE agent kit for opencode into
+<folder>`: that must be the folder opencode reads. On Windows a `bash` that is not Git Bash (MSYS2,
+WSL) has a home of its own, and `bash opencode/install.sh` run with it installs into that home
+instead - use `install.ps1`, or Git Bash itself.
+
+Checked: `install.ps1 -Project` of v1.2.0, then of v1.4.0 from the same clone, left the v1.4.0
+hook script, plugin and skills in `.opencode/`.
+
 ## What you get
 
 | Part | What it does |

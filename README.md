@@ -120,22 +120,46 @@ source or read other projects on your machine.
 
 ## Update
 
-Claude Code does not update plugins from a marketplace like this one on its own. To get the newest
-version:
+No tool updates the kit on its own. [CHANGELOG.md](CHANGELOG.md) says what changed, and every
+version is a [release](https://github.com/xsko/elasticore-agent-kit/releases) with the same notes
+([RELEASING.md](RELEASING.md)). After an update, start a new session: a running one keeps the old
+version.
+
+| Tool | Installed with | Update | Version you have |
+|---|---|---|---|
+| Claude Code | marketplace | `claude plugin marketplace update elasticore-agent-kit`, then `claude plugin update elasticore@elasticore-agent-kit` | `claude plugin list` |
+| opencode | `opencode/install.sh` / `.ps1` | `git pull` in your clone, then the same installer again | `git describe --tags` in the clone |
+| Codex CLI | plugin | `codex plugin marketplace upgrade elasticore-agent-kit`, then `codex plugin add elasticore@elasticore-agent-kit` | `codex plugin list` |
+| Codex CLI | `codex/install.sh` / `.ps1` | `git pull` in your clone, then the same installer again | `git describe --tags` in the clone |
+| pi | `pi install git:...@vX.Y.Z` | `pi install git:github.com/xsko/elasticore-agent-kit@<new tag>` | `pi list` |
+| pi, omp | `pi/install.sh` / `.ps1` | `git pull` in your clone, then the same installer again | `git describe --tags` in the clone |
+
+**Claude Code.** In a session: `/plugin`, the **Installed** tab, `elasticore`, **Update now**; then
+`/reload-plugins` or a new session. To have it updated automatically: `/plugin`, the
+**Marketplaces** tab, `elasticore-agent-kit`, **Enable auto-update** - Claude Code then updates it
+when a session starts, and the next session loads the new version. `Marketplace 'elasticore-agent-kit'
+not found` means this Claude Code (another machine, WSL, another `CLAUDE_CONFIG_DIR`) never added
+it: run the two Install commands there first.
+
+**The installers** (opencode, Codex, pi, omp) copy files; run the same one again, with the same
+options (`--project`, `--omp`, ...), from an up-to-date clone:
 
 ```bash
-claude plugin marketplace update elasticore-agent-kit
-claude plugin update elasticore@elasticore-agent-kit
+git clone https://github.com/xsko/elasticore-agent-kit.git   # once
+cd elasticore-agent-kit
+git pull                                                      # each update; or git checkout vX.Y.Z
+bash opencode/install.sh                                      # or codex/, pi/ - as you installed
 ```
 
-Then start a new Claude Code session, or run `/reload-plugins` in one that is open.
-`claude plugin list` shows the version you have; [CHANGELOG.md](CHANGELOG.md) says what changed,
-and every version is a [release](https://github.com/xsko/elasticore-agent-kit/releases) with the
-same notes ([RELEASING.md](RELEASING.md)).
+Each installer overwrites its own files and deletes nothing, so a file a newer kit no longer has
+stays until you delete it. Its first line says where it installs (`Installing ... into <folder>`);
+on Windows run the `.ps1`, or the `.sh` from Git Bash - a `bash` from MSYS2 or WSL has a home of
+its own, and the files land there instead of where your tool reads them. Codex asks you to trust
+the hooks again in `/hooks` when the hook script changed; the Codex installer leaves a `hooks.json`
+that already exists as it is.
 
-In a session: `/plugin`, the **Installed** tab, `elasticore`, **Update now**. To have it updated
-automatically: `/plugin`, the **Marketplaces** tab, `elasticore-agent-kit`, **Enable auto-update** -
-Claude Code then updates it when a session starts, and the next session loads the new version.
+Tool by tool: [opencode/README.md](opencode/README.md#update), [codex/README.md](codex/README.md#update),
+[pi/README.md](pi/README.md).
 
 ## Measured: the same task, with and without the kit
 
