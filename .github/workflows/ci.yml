@@ -36,6 +36,18 @@ jobs:
         shell: bash
         run: bash tests/hooks/test-hooks.sh
 
+      # The Codex agents against their Markdown, the manifest, the hooks file and codex/install.sh
+      - name: Codex tests
+        if: always()
+        shell: bash
+        run: bash tests/codex/test-codex.sh
+
+      # The plugin's Windows hook command, run by Windows PowerShell as Codex runs it
+      - name: Codex hook command on Windows
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/codex/test-commandwindows.ps1
+
       # macOS's own /bin/bash is 3.2; the bash on the PATH may be a newer one.
       # Runs even when the step above failed, so both results are known.
       - name: Hook tests with /bin/bash
@@ -77,6 +89,14 @@ jobs:
         run: |
           claude plugin validate ./plugins/elasticore --strict
           claude plugin validate . --strict
+
+      # Claude Code reads front matter leniently; pi (and maybe others) drop a skill whose
+      # front matter strict YAML refuses.
+      - name: Front matter is strict YAML
+        if: always()
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 tests/frontmatter/check_frontmatter.py
 
   contract:
     name: ElastiCORE behaviour the kit relies on

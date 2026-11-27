@@ -1,6 +1,7 @@
 ---
 name: elasticore
-description: Work in a Spring Boot project that ElastiCORE generates from a YAML DSL in src/main/resources/blueprint, or start a new one. Use when the build applies the io.elasticore Gradle plugin, when files start with an //ecd: line, or when the user asks for an application built "with ElastiCORE" or mentions ElastiCORE, the blueprint DSL, entities, DTOs, enums or ports written in YAML, @access, @owner, states, @compute, @genid, or the elcore / elcore3 tasks.
+description: >-
+  Work in a Spring Boot project that ElastiCORE generates from a YAML DSL in src/main/resources/blueprint, or start a new one. Use when the build applies the io.elasticore Gradle plugin, when files start with an //ecd: line, or when the user asks for an application built "with ElastiCORE" or mentions ElastiCORE, the blueprint DSL, entities, DTOs, enums or ports written in YAML, @access, @owner, states, @compute, @genid, or the elcore / elcore3 tasks.
 user-invocable: false
 ---
 
@@ -305,6 +306,15 @@ DSL change and fix the YAML at the line the message names.
 
 Report what changed for the business before what changed in the code. A reviewer should be able to
 approve it without reading Java. Use `references/change-report.md`.
+
+When ElastiCORE itself fell short - generated code that does not compile or is wrong while the DSL
+is right, a generator exception, a requirement the DSL cannot say so that you wrote code around it,
+a guide that says what the build does not do - say so in the report, and offer the `report-issue`
+skill: it reproduces the problem in a minimal project and drafts an issue, which is posted only on
+the user's yes. Never work around a refused edit of a generated file instead.
+
+A checkout of ElastiCORE itself (`elasticore-project/elasticore-base`) is not a user project: there
+the `contribute` skill applies, not this one.
 
 ## 8. IDs
 

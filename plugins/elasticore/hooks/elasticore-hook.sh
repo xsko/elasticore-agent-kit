@@ -13,21 +13,36 @@
 #   stop       Stop                                      do not finish while a DSL change has not been compiled
 #                                                        (nor its TypeScript client regenerated and type-checked)
 #
+# The same events from Codex CLI (second argument "codex"): an edit is apply_patch,
+# checked file by file; a Stop is answered with decision "block". In a checkout of
+# ElastiCORE itself (contributor mode) the guards above stay off, and the rules of
+# its CONTRIBUTING.md that a hook can see are checked instead. Signs that
+# ElastiCORE itself fell short point to the report-issue skill, once a session.
+#
 # Bash and POSIX tools only: Claude Code runs hooks with sh on macOS and Linux
 # and with Git Bash on Windows. Anything unexpected ends in exit 0 or 1, which
 # lets the action go ahead - a broken hook never blocks the user's work.
 #
 # ELASTICORE_ALLOW_GENERATED_EDITS=1 lets edits to generated files through;
-# ELASTICORE_ALLOW_FORCE=1 lets -Pforce through.
+# ELASTICORE_ALLOW_FORCE=1 lets -Pforce through; ELASTICORE_ALLOW_HISTORY_EDITS=1
+# lets an edit of a checkout's elasticore-history.md through.
 
 set -u
+# The POSIX tools first: Git for Windows' usr/bin/bash.exe, started directly with only Git\cmd
+# on the Windows PATH (what Codex's PowerShell may do), finds no cat, sed or awk otherwise -
+# and every hook would let everything through without a word.
+PATH="/usr/bin:/bin:$PATH"
 # Bytes, not characters: in a UTF-8 locale the BSD tools on macOS refuse or
 # miscount bytes that are not valid UTF-8 - a BOM taken apart, a file in
 # another encoding, a multibyte character cut by head -c.
 export LC_ALL=C
 
 event="${1:-}"
+# The agent: "codex" from the Codex hooks file; otherwise Claude Code's JSON, which
+# the opencode plugin sends too. A payload with Codex's turn_id is Codex's as well.
+agent="${2:-}"
 input="$(cat)" || exit 0
+case "$input" in *'"turn_id"'*) [ -n "$agent" ] || agent=codex ;; esac
 tab="$(printf '\t')"
 
 # The raw value of a JSON string field, still escaped. Claude Code sends one
@@ -78,13 +93,12 @@ merge_base() {
 # The project that keeps a merge base: the nearest folder above the file that
 # has one. The 3.0 code is written without //ecd: lines and merged against it.
 merge_root() {
-    dir="$(dirname -- "$1")"
+    case "$1" in */*) dir="${1%/*}" ;; *) return 1 ;; esac
     i=0
+    # Up a folder with ${dir%/*}, not dirname: no process per level.
     while [ -n "$dir" ] && [ "$i" -lt 40 ]; do
         merge_base "$dir" > /dev/null && { printf '%s' "$dir"; return 0; }
-        parent="$(dirname -- "$dir")"
-        [ "$parent" = "$dir" ] && break
-        dir="$parent"
+        case "$dir" in */*) dir="${dir%/*}" ;; *) break ;; esac
         i=$((i + 1))
     done
     return 1
@@ -259,7 +273,7 @@ trim_json_end() {
 # a block at the first one. Anything else - code outside the block, generated
 # code moved into it, a block at every match, a MultiEdit - is not this edit.
 adds_block() {
-    [ "$(json_string tool_name)" = Edit ] || return 1
+    [ "$tool" = Edit ] || return 1
     json_true replace_all && return 1
     old="$(trim_json_end "$(json_string old_string)")"
     new="$(trim_json_end "$(json_string new_string)")"
@@ -610,9 +624,22 @@ forces() {
 #                          checked since the client was; it lists their folders
 #   legacy-noted-<session> the 2.x-generator warning was given
 #   merged-noted-<session> what an edit of a merged generated file means was said
+#   refused-<session>      the names of the files whose edit was refused
+#   issue-noted-<session>  the report-issue skill was suggested
+# and in an ElastiCORE checkout (contributor mode):
+#   guides-<session>       the guides edited, "en <name>" or "ko <name>" a line
+#   gates-<session>        formatCheck and diffErrorprone passed since the code last changed
+#   push-noted-<session>   what a push still lacked, once said
+#   post-noted-<session>   a post to xsko/ElastiCORE was stopped once to ask the user
+# The notes that only say something was said once are removed at a Stop when older
+# than two days.
+# The folder alone, without a process: what a cheap early exit can look into.
+state_folder() {
+    base="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/elasticore-agent-kit-${UID:-$(id -u 2>/dev/null || echo user)}}"
+    state_dir="${base//\\//}"
+}
 state() {
-    base="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/elasticore-agent-kit-$(id -u 2>/dev/null || echo user)}"
-    state_dir="$(printf '%s' "$base" | tr '\\' '/')"
+    state_folder
     session="$(json_string session_id | tr -cd 'A-Za-z0-9_-')"
     marker="$state_dir/dsl-changed-${session:-default}"
     warned="$state_dir/dsl-warned-${session:-default}"
@@ -620,6 +647,30 @@ state() {
     ts_screens="$state_dir/ts-screens-${session:-default}"
     legacy="$state_dir/legacy-noted-${session:-default}"
     merged_noted="$state_dir/merged-noted-${session:-default}"
+    refused="$state_dir/refused-${session:-default}"
+    issue_noted="$state_dir/issue-noted-${session:-default}"
+    guides="$state_dir/guides-${session:-default}"
+    gates="$state_dir/gates-${session:-default}"
+    pushed="$state_dir/push-noted-${session:-default}"
+    post_noted="$state_dir/post-noted-${session:-default}"
+}
+
+# Whether the folder holds a note whose name starts with $1, without a process.
+any_note() {
+    for f in "$state_dir/$1"*; do
+        [ -e "$f" ] && return 0
+        break
+    done
+    return 1
+}
+
+# A post to xsko/ElastiCORE: gh issue create or comment naming the repository, or a
+# gh api call that writes to its issues (-f, -F, --input, -X POST/PATCH) - not one
+# that reads them. A post to a public repository cannot be taken back.
+WRITES='(-f|-F|--field|--raw-field|--input|-X[[:space:]]*(POST|PATCH)|--method[[:space:]]+(POST|PATCH))'
+posts_issue() {
+    commands "$1" | grep -Ei 'xsko/elasticore([^-A-Za-z0-9]|$)' | grep -Ei '^([^[:space:]]*[/\\])?gh(\.exe)?[[:space:]]' \
+        | grep -Eqi "[[:space:]]issue[[:space:]]+(create|comment|new)([[:space:]]|\$)|[[:space:]]api[[:space:]](.*[[:space:]])?[^[:space:]]*/issues.*[[:space:]]$WRITES|[[:space:]]api[[:space:]].*[[:space:]]$WRITES.*/issues"
 }
 
 note() {
@@ -846,25 +897,255 @@ screens_left() {
 GENERATING='elcore[A-Za-z0-9]*|compileJava|compileKotlin|classes|processResources|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 COMPILING='compileJava|compileKotlin|classes|build|assemble|bootRun|test|check|jar|bootJar|bootWar'
 
-case "$event" in
+# --- Codex CLI ------------------------------------------------------------------
+# Codex sends the same events in its own shapes: an edit is the apply_patch tool,
+# its patch text in tool_input.command; a Stop is answered with decision "block"
+# and a reason, which Codex takes as the next prompt. Its hooks file passes
+# "codex" as the second argument.
 
-pre-edit)
-    [ "${ELASTICORE_ALLOW_GENERATED_EDITS:-}" = 1 ] && exit 0
-    path="$(json_path file_path)"
-    case "$path" in
-        *.java | *.kt | *.ts | *.tsx | *.proto | *.xml | *.properties | *.yml | *.yaml | *.graphqls | */src/main/resources/blueprint/*) ;;
-        *) exit 0 ;;
+# The files a patch adds, changes, deletes or moves to: "<tool> TAB <file>" a line.
+# A file the patch adds, or moves another onto, gets all of its content from the
+# patch - a Write; one it changes is a Patch, never the one-block Edit the guard lets
+# through; one it deletes is a Delete - deleting a generated file and generating again
+# is how one is restored, as the hook's own notes say. A relative path is taken from
+# the folder the call ran in.
+patch_files() {
+    cwd="$(json_path cwd)"
+    decoded "$1" | awk '
+        { sub(/\r$/, "") }
+        match($0, /^\*\*\* (Add File|Update File|Delete File|Move to): /) {
+            verb = substr($0, 5, RLENGTH - 6); f = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", f)
+            if (f != "") print ((verb == "Add File" || verb == "Move to") ? "Write" : (verb == "Delete File" ? "Delete" : "Patch")) "\t" f
+        }' | while IFS="$tab" read -r t f; do
+        f="$(printf '%s' "$f" | tr '\\' '/')"
+        case "$f" in
+            /* | [A-Za-z]:/*) ;;
+            *) [ -n "$cwd" ] || continue; f="$cwd/$f" ;;
+        esac
+        printf '%s\t%s\n' "$t" "$f"
+    done
+}
+
+# The files a tool call edits: "<tool> TAB <file>" a line - the file_path of an
+# Edit, Write or MultiEdit, or each file of an apply_patch.
+edited_files() {
+    t="$(json_string tool_name)"
+    if [ "$t" = apply_patch ]; then
+        patch_files "$(json_string command)"
+    else
+        p="$(json_path file_path)"
+        [ -n "$p" ] && printf '%s\t%s\n' "$t" "$p"
+    fi
+}
+
+# The answer that sends the agent back instead of stopping.
+stop_answer() {
+    if [ "$agent" = codex ]; then
+        printf '{"decision":"block","reason":"%s"}\n' "$(json_text "$1")"
+    else
+        context Stop "$1"
+    fi
+}
+
+# --- contributor mode: a checkout of ElastiCORE itself ------------------------------
+# There the samples and templates are generated and edited on purpose, so the
+# guards of a user project stay off; the rules of the checkout's CONTRIBUTING.md
+# that a hook can see are checked instead.
+
+# The root of an ElastiCORE checkout at or above a folder: elasticore-project/
+# elasticore-base, and a settings.gradle that includes it. The walk stops at the
+# first other Gradle build on the way up - a user project inside a checkout (its
+# tmp/, say) stays a user project - except a build of the checkout's own under
+# elasticore-project/ (the Gradle plugin is an included build).
+checkout_root() {
+    dir="$1"
+    i=0
+    while [ -n "$dir" ] && [ "$i" -lt 40 ]; do
+        for s in "$dir/settings.gradle" "$dir/settings.gradle.kts"; do
+            [ -f "$s" ] || continue
+            if [ -d "$dir/elasticore-project/elasticore-base" ] \
+                && grep -q -F -e 'elasticore-project:elasticore-base' -- "$s" 2>/dev/null; then
+                printf '%s' "$dir"
+                return 0
+            fi
+            case "$dir" in */elasticore-project/*) ;; *) return 1 ;; esac
+        done
+        case "$dir" in */*) dir="${dir%/*}" ;; *) break ;; esac
+        i=$((i + 1))
+    done
+    return 1
+}
+
+HISTORY='elasticore-project/elasticore-base/src/main/resources/elasticore-guide/elasticore-history.md'
+GUIDES='elasticore-project/elasticore-base/src/main/resources/elasticore-guide'
+
+# An edit in a checkout: the history is assembled from changes/ fragments at a
+# release, so a feature branch never edits it - unless the checkout predates
+# changes/, or the branch is a release's (version/*).
+contributor_refusal() {
+    [ "${ELASTICORE_ALLOW_HISTORY_EDITS:-}" = 1 ] && return 0
+    case "$1" in "$2/$HISTORY") ;; *) return 0 ;; esac
+    [ -d "$2/changes" ] || return 0
+    case "$(git -C "$2" symbolic-ref --short HEAD 2>/dev/null)" in version/*) return 0 ;; esac
+    deny "This ElastiCORE checkout records a change as a fragment of its own, changes/<topic>.md (changes/README.md has the form: one ### section with its #### entries - why, before and after, how it was checked, the files), not as an edit to elasticore-history.md: the release moves the fragments into the history (./gradlew assembleHistory), and the CI job Change record fails a pull request that edits it. Write the fragment instead. If this is a release branch's work, the user can set ELASTICORE_ALLOW_HISTORY_EDITS=1."
+}
+
+# What an edit in a checkout calls for, as text: non-ASCII in elasticore-base's main
+# sources; a guide changed in one language (noted for the Stop); code changed since
+# the format and Error Prone gates last passed.
+contributor_note() {
+    rel="${1#"$2"/}"
+    case "$rel" in
+        *.java | *.kt | *.kts | *.gradle) rm -f -- "$gates" ;;
     esac
+    case "$rel" in
+        elasticore-project/elasticore-base/src/main/java/*)
+            lines="$(grep -n "$(printf '[\200-\377]')" -- "$1" 2>/dev/null | cut -d: -f1 | head -n 5 | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')"
+            [ -n "$lines" ] && printf '%s' "$1 now holds characters that are not ASCII (line $lines). elasticore-base's main sources are ASCII only - an IDE or a plain javac on Korean Windows reads them as MS949 and fails, and SourceAsciiTest fails the build: write -> for an arrow, plain quotes and hyphens, English comments; Korean text belongs in a test or a resource file. "
+            ;;
+        "$GUIDES"/ko/*.md) note_line "$guides" "ko ${rel#"$GUIDES"/ko/}" ;;
+        "$GUIDES"/elasticore-history.md) ;;
+        "$GUIDES"/*.md) note_line "$guides" "en ${rel#"$GUIDES"/}" ;;
+    esac
+}
+
+# The guides changed in this session in one language only: "<changed path> TAB <twin path>" a line.
+guides_alone() {
+    [ -f "$guides" ] || return 0
+    awk '{ seen[$0] = 1; k[NR] = $0 }
+         END {
+             for (i = 1; i <= NR; i++) {
+                 lang = substr(k[i], 1, 2); name = substr(k[i], 4)
+                 other = (lang == "en" ? "ko" : "en") " " name
+                 if (!(other in seen) && !(k[i] in done)) {
+                     done[k[i]] = 1
+                     if (lang == "en") print name "\tko/" name; else print "ko/" name "\t" name
+                 }
+             }
+         }' "$guides"
+}
+
+# A git push or a gh pr create among the commands.
+PUSH='^([^[:space:]]*[/\\])?git(\.exe)?([[:space:]]+(-C|-c)[[:space:]]+[^[:space:]]+|[[:space:]]+--[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)|^([^[:space:]]*[/\\])?gh(\.exe)?[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+
+# What a push from a checkout still lacks, by the rules of its CONTRIBUTING.md: a
+# changes/ fragment when the branch changes what ElastiCORE ships, and the format
+# and Error Prone gates on the changed lines since the code last changed in this session.
+push_missing() {
+    root="$1"
+    branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)"
+    # A release branch assembles the fragments into the history: no fragment rule (change-record.sh).
+    case "$branch" in version/*) return 0 ;; esac
+    # What the branch is compared with: the line it tracks when that is main or a release line
+    # (a 3.0 fix branches from release/3.0), else origin/main.
+    base="$(git -C "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"
+    case "$base" in origin/main | origin/release/*) ;; *) base=origin/main ;; esac
+    git -C "$root" rev-parse --verify -q "$base" > /dev/null 2>&1 || return 0
+    # Only what is committed is pushed: uncommitted files neither count nor are missed.
+    changed="$(git -C "$root" diff --name-only "$base"...HEAD 2>/dev/null)"
+    if printf '%s\n' "$changed" | grep -E '^elasticore-project/[^/]+/src/main/' | grep -qvxF "$HISTORY"; then
+        fragments="$(git -C "$root" diff --name-only --diff-filter=A "$base"...HEAD -- changes 2>/dev/null \
+            | grep -E '^changes/[^/]+\.md$' | grep -vxF 'changes/README.md')"
+        if [ -z "$fragments" ]; then
+            loose="$(git -C "$root" status --porcelain -- changes 2>/dev/null | cut -c4- \
+                | grep -E '^changes/[^/]+\.md$' | grep -vxF 'changes/README.md' | head -n 3 | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')"
+            if [ -n "$loose" ]; then
+                printf '%s' "$loose is not committed - the branch changes what ElastiCORE ships (src/main) and pushes no fragment, which the CI job Change record fails: commit it; "
+            else
+                printf '%s' "no new changes/<topic>.md on this branch against $base, and it changes what ElastiCORE ships (src/main) - the CI job Change record fails it (changes/README.md has the form); "
+            fi
+        fi
+    fi
+    if printf '%s\n' "$changed" | grep -Eq '\.java$' && [ ! -f "$gates" ]; then
+        printf '%s' "the gates on the changed lines have not passed since the code last changed in this session - run ./gradlew formatChanged (commit what it changes), then ./gradlew formatCheck diffErrorprone -PdiffBase=$base --no-daemon (or ./gradlew prCheck), which CI runs as Format and static analysis of the change; "
+    fi
+}
+
+# --- ElastiCORE itself falling short -------------------------------------------------
+# A sign that the defect may be ElastiCORE's, not the project's: a compile error in
+# a file the generator wrote, a generator that failed with an exception, or a command
+# that changes a generated file whose edit was refused. Suggested once a session.
+ISSUE_HINT="If the DSL is right, this may be an ElastiCORE defect: the report-issue skill can reproduce it in a minimal project and draft an issue for the user to post - only with their yes."
+
+# Generated files named by compile errors in the output (javac's path:line: error,
+# kotlinc's e: [file:///]path:line:col).
+generated_errors() {
+    printf '%s\n' "$1" | sed -nE \
+        -e 's#^(.*\.(java|kt)):[0-9]+: error:.*#\1#p' \
+        -e 's#^e: (file://)?(.*\.kt):[0-9]+:[0-9]+.*#\2#p' \
+        -e 's#^e: (file://)?(.*\.kt): \([0-9]+, [0-9]+\).*#\2#p' | tr '\\' '/' | sort -u | while IFS= read -r f; do
+        case "$f" in /[A-Za-z]:/*) f="${f#/}" ;; esac
+        [ -f "$f" ] || continue
+        case "$(classify "$f")" in managed | merged | block | regenerated) printf '%s\n' "$f" ;; esac
+    done | head -n 3
+}
+
+# A generation task that failed with an exception of the generator's own - not the
+# model check, which names what to change in the DSL.
+generator_failed() {
+    printf '%s\n' "$1" | grep -Eq "Execution failed for task '[^']*elcore[A-Za-z0-9]*'" || return 1
+    printf '%s\n' "$1" | grep -Eq 'the model check failed|This project holds the code 2.x generates|DSL Validation' && return 1
+    printf '%s\n' "$1" | grep -Eq '[A-Za-z0-9_$.]+(Exception|Error)([:[:space:]]|$)'
+}
+
+# Whether a command failed that Codex reports as PostToolUse - it has no
+# PostToolUseFailure. Codex 0.172 sends a failed shell command's PostToolUse with
+# tool_response as the plain output, no exit code (seen live); an "Exit code: N"
+# header, which its apply_patch response has, is read when there is one. A build
+# that failed still says BUILD FAILED, which is what the checks below go by.
+command_failed() {
+    [ "$agent" = codex ] || return 1
+    printf '%s' "$input" | grep -Eq '"tool_response"[[:space:]]*:[[:space:]]*"Exit code: -?[1-9]|"exit_code"[[:space:]]*:[[:space:]]*-?[1-9]'
+}
+
+# A command that changes a file whose edit was refused in this session: the
+# refusal worked around through the shell.
+# Only the files the command writes count: a redirection's or tee's target, Set-Content,
+# Add-Content, Out-File, what sed -i or perl -i edits, the destination of cp, mv,
+# Copy-Item or Move-Item. Reading it, grepping for it, or restoring it with git does not.
+works_around() {
+    [ -f "$refused" ] || return 1
+    {
+        redirects "$1" | awk -F '\t' '$1 == "F" { print $3 }'
+        commands "$1" | awk '{
+            n = split($0, w, /[ \t]+/); c = w[1]; sub(/^.*[\/\\]/, "", c); c = tolower(c); sub(/\.exe$/, "", c)
+            if (c == "sed" || c == "perl") {
+                inplace = 0
+                for (k = 2; k <= n; k++) if (w[k] ~ /^-[a-zA-Z]*i/ || w[k] == "--in-place") inplace = 1
+                if (inplace) for (k = 2; k <= n; k++) if (substr(w[k], 1, 1) != "-") print w[k]
+            } else if (c == "cp" || c == "mv" || c == "copy-item" || c == "move-item" || c == "copy" || c == "move") print w[n]
+        }'
+    } | tr '\\' '/' | while IFS= read -r target; do
+        name="${target##*/}"
+        [ -n "$name" ] && grep -q -x -F -e "$name" -- "$refused" 2>/dev/null && { echo yes; break; }
+    done | grep -q yes
+}
+
+# --- one edited file ---------------------------------------------------------------
+
+# The refusal of an edit of one file, printed, or nothing. $tool: Edit, Write,
+# MultiEdit, Patch (a change in a patch) or Delete (a delete in a patch).
+refusal_for() {
+    path="$1"
+    case "$path" in
+        */elasticore-history.md) root="$(checkout_root "${path%/*}")" && contributor_refusal "$path" "$root"; return 0 ;;
+        *.java | *.kt | *.ts | *.tsx | *.proto | *.xml | *.properties | *.yml | *.yaml | *.graphqls | */src/main/resources/blueprint/*) ;;
+        *) return 0 ;;
+    esac
+    checkout_root "${path%/*}" > /dev/null && return 0
+    [ "${ELASTICORE_ALLOW_GENERATED_EDITS:-}" = 1 ] && return 0
+    # Deleting a generated file is how it is restored: the next generation writes it anew.
+    [ "$tool" = Delete ] && return 0
     case "$(classify "$path")" in
     managed)
-        adds_block && exit 0
+        adds_block && return 0
         deny "ElastiCORE generates $path from the DSL (its first line is //ecd:). A hand edit is not kept in step: from the next build on, the generator skips the file - SKIP(user-modified) - and it no longer follows the DSL. (The 3.0 code merges hand edits: if this project is on ElastiCORE 3.0 and its build sets neither output = 'v2' nor merge = false, build once first - the build takes a file nobody edited over without its //ecd: line, and an edit made after that is kept.) Make this change in the YAML under src/main/resources/blueprint/<domain>/, or in a file that carries the line '// Initially generated by ElastiCORE;' - the elasticore skill says which. Code that has to live in this very file, such as a custom query in a repository, goes in a preserved block right before the class's closing brace - the generator puts a block's code there on every regeneration: one Edit whose old text ends with that last '}' line and whose new text is the same with one whole block inserted before the '}' - '// !----------', the code with fully qualified type names, '// ------------!', each on lines of their own - and nothing else; only that edit goes through. Do not make the change another way, with a shell command or a script. If the user wants this file edited by hand anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
     regenerated)
         case "$path" in
         *.graphqls)
             deny "ElastiCORE writes $path from the compiled classes on every build (elcoreGraphQl), so an edit to it is lost. An entity's GraphQL operations follow the YAML in src/main/resources/blueprint/<domain>/ and env.yml (graphql:); an operation of your own goes in a .graphqls file of your own under src/main/resources/graphql/, written as 'extend type Query' or 'extend type Mutation'. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
-            exit 0
+            return 0
             ;;
         esac
         deny "ElastiCORE writes $path again on every generation, so an edit to it is lost. The model is the YAML in src/main/resources/blueprint/<domain>/; a message is translated or reworded in a copy with a locale suffix next to the default file, such as <domain>-messages_ko.properties. Do not make the change another way, with a shell command or a script. If the user wants this file edited anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
@@ -874,43 +1155,23 @@ pre-edit)
         # of the agent's own given the name of a generated one, whose code (an entity's
         # controller, say) is then gone, and into which the next build merges the DSL's
         # changes as if it were still that file. Edit and MultiEdit stay allowed.
-        [ "$(json_string tool_name)" = Write ] || exit 0
+        [ "$tool" = Write ] || return 0
         base_name=".elasticore/$(basename -- "$(merge_base "$(merge_root "$path")")")"
         deny "$path holds a file ElastiCORE generates from the DSL (it is in the merge base, $base_name), and Write replaces all of it: what the generator wrote there - an entity's API, its DTO, its mapper - would be gone, and the next build would merge the DSL's changes into a file that no longer has anything to do with them. To change this file, Edit it: the edit is kept and merged with the DSL's changes. To add a class of your own, choose another name, one the generator does not write. Do not replace it another way, with a shell command or a script. If the user wants the file replaced anyway, they can set ELASTICORE_ALLOW_GENERATED_EDITS=1."
         ;;
     esac
-    exit 0
-    ;;
+    return 0
+}
 
-pre-bash)
-    # A build whose output goes to a file: note when it starts, and how long a file it
-    # appends to is, so that post-bash reads only what this run wrote.
-    case "$input" in
-        *gradle* | *tsc* | *check*)
-            state
-            started="$(started_note)"
-            rm -f -- "$started"
-            files="$(output_files "$(json_string command)")"
-            if [ -n "$files" ] && mkdir -p -- "$state_dir" 2>/dev/null; then
-                printf '%s\n' "$files" | while IFS="$tab" read -r mode f; do
-                    size=0
-                    [ "$mode" = a ] && [ -f "$f" ] && size="$(wc -c < "$f" | tr -d ' ')"
-                    printf '%s\t%s\t%s\n' "$mode" "$size" "$f"
-                done > "$started"
-            fi
-            ;;
-    esac
-    [ "${ELASTICORE_ALLOW_FORCE:-}" = 1 ] && exit 0
-    case "$input" in *force*) ;; *) exit 0 ;; esac
-    command="$(json_string command)"
-    forces "$command" || exit 0
-    deny "-Pforce makes the ElastiCORE generator overwrite hand edits in generated files, and those edits are lost. Ask the user first. If they agree, they can run the command themselves, or set ELASTICORE_ALLOW_FORCE=1."
-    exit 0
-    ;;
-
-post-edit)
-    path="$(json_path file_path)"
-    [ -n "$path" ] || exit 0
+# What an edit of one file calls for, as text, or nothing: after a DSL change, what
+# to run; after an edit of a generated file, what is kept.
+note_for() {
+    path="$1"
+    [ -n "$path" ] || return 0
+    if root="$(checkout_root "${path%/*}")"; then
+        contributor_note "$path" "$root"
+        return 0
+    fi
     model=0
     if is_dsl "$path"; then
         model=1
@@ -921,7 +1182,6 @@ post-edit)
         esac
     fi
     if [ "$model" = 1 ]; then
-        state
         text=""
         # What the last build left is about the model before this change.
         rm -f -- "$warned"
@@ -952,27 +1212,150 @@ post-edit)
             note "$legacy"
             text="${text}This project's build runs the 2.x generator (elcore): it says output = 'v2', or its ElastiCORE is 2.x or an early 3.0 build older than 3.0.261028 and it has no elasticore { } block that sets architecture, language or rules. That generator ignores @access, @owner, @password, @login, states:, @compute and @snapshot without a warning, and writes money and quantity fields without the converters the rule engine adds: none of that will be checked, hashed or derived. Tell the user before relying on it; moving the project to the 3.0 rule engine is their decision."
         fi
-        [ -n "$text" ] && context PostToolUse "$text"
-        exit 0
+        printf '%s' "$text"
+        return 0
     fi
     case "$(classify "$path")" in
     block)
-        context PostToolUse "$path is generated by ElastiCORE. Only code between '// !----------' and '// ------------!' survives regeneration. A change outside the block is lost on the 2.x generator (elcore) and makes the 3.0 rule engine (elcore3) skip the whole file - put it in the DSL instead."
+        printf '%s' "$path is generated by ElastiCORE. Only code between '// !----------' and '// ------------!' survives regeneration. A change outside the block is lost on the 2.x generator (elcore) and makes the 3.0 rule engine (elcore3) skip the whole file - put it in the DSL instead."
         ;;
     merged)
-        state
-        [ -f "$merged_noted" ] && exit 0
+        [ -f "$merged_noted" ] && return 0
         note "$merged_noted"
         # The file classify() read: the base under the name this project has.
         base_name=".elasticore/$(basename -- "$(merge_base "$(merge_root "$path")")")"
-        context PostToolUse "$path is generated from the DSL and merged (it is in the merge base, $base_name): ElastiCORE keeps your edit and merges the DSL's later changes into it. Where the DSL changes the same lines, the next build writes <<<<<<< yours / >>>>>>> elasticore marks into the file and fails until they are resolved. Whatever the DSL can say - a field, a check, a search condition, access - belongs in the DSL; keep hand edits for what it cannot."
+        printf '%s' "$path is generated from the DSL and merged (it is in the merge base, $base_name): ElastiCORE keeps your edit and merges the DSL's later changes into it. Where the DSL changes the same lines, the next build writes <<<<<<< yours / >>>>>>> elasticore marks into the file and fails until they are resolved. Whatever the DSL can say - a field, a check, a search condition, access - belongs in the DSL; keep hand edits for what it cannot."
         ;;
     esac
+    return 0
+}
+
+case "$event" in
+
+pre-edit)
+    state
+    # One file at a time - an apply_patch names several; the first refusal is the answer.
+    while IFS="$tab" read -r tool path; do
+        [ -n "$path" ] || continue
+        answer="$(refusal_for "$path")"
+        if [ -n "$answer" ]; then
+            printf '%s\n' "$answer"
+            note_line "$refused" "${path##*/}"
+            break
+        fi
+    done <<EOF
+$(edited_files)
+EOF
+    exit 0
+    ;;
+
+pre-bash)
+    # A build whose output goes to a file: note when it starts, and how long a file it
+    # appends to is, so that post-bash reads only what this run wrote.
+    case "$input" in
+        *gradle* | *tsc* | *check*)
+            state
+            started="$(started_note)"
+            rm -f -- "$started"
+            files="$(output_files "$(json_string command)")"
+            if [ -n "$files" ] && mkdir -p -- "$state_dir" 2>/dev/null; then
+                printf '%s\n' "$files" | while IFS="$tab" read -r mode f; do
+                    size=0
+                    [ "$mode" = a ] && [ -f "$f" ] && size="$(wc -c < "$f" | tr -d ' ')"
+                    printf '%s\t%s\t%s\n' "$mode" "$size" "$f"
+                done > "$started"
+            fi
+            ;;
+    esac
+    # The cheap test first: only a push, a pull request, a post to an issue or -Pforce
+    # is looked at further.
+    case "$input" in *push* | *pr*create* | *force* | *issue*) ;; *) exit 0 ;; esac
+    command="$(json_string command)"
+    # A post to xsko/ElastiCORE (the report-issue skill): stopped once a session, so that
+    # the user sees the draft and says yes first.
+    case "$input" in
+        *issue*)
+            if posts_issue "$command"; then
+                state
+                if [ ! -f "$post_noted" ]; then
+                    note "$post_noted"
+                    deny "This posts to xsko/ElastiCORE, a public repository, and a post cannot be taken back. Show the user the whole draft first - the title, the body and the labels, or the whole comment and the issue it goes to - and get their explicit yes to this very draft; a yes to something else, or no answer, is no yes. With their yes, run the command again (this is asked once a session); without it, give them the text to post themselves."
+                    exit 0
+                fi
+            fi
+            ;;
+    esac
+    # An ElastiCORE checkout: no -Pforce guard; before a push, what CONTRIBUTING.md asks
+    # for and the branch lacks - said once, by refusing that one push.
+    root=""
+    case "$input" in *push* | *pr*create* | *force*) root="$(checkout_root "$(json_path cwd)")" ;; esac
+    if [ -n "$root" ]; then
+        commands "$command" | grep -Eq "$PUSH" || exit 0
+        state
+        missing="$(push_missing "$root")"
+        [ -n "$missing" ] || exit 0
+        [ -f "$pushed" ] && [ "$(cat -- "$pushed" 2>/dev/null)" = "$missing" ] && exit 0
+        mkdir -p -- "$state_dir" 2>/dev/null && printf '%s' "$missing" > "$pushed"
+        deny "Before this push, by the checkout's CONTRIBUTING.md: ${missing}and rebase on the latest base branch if the branch is behind it. Do what is missing, then push again; if it is done already (outside this session), push again - this is said once."
+        exit 0
+    fi
+    [ "${ELASTICORE_ALLOW_FORCE:-}" = 1 ] && exit 0
+    case "$input" in *force*) ;; *) exit 0 ;; esac
+    forces "$command" || exit 0
+    deny "-Pforce makes the ElastiCORE generator overwrite hand edits in generated files, and those edits are lost. Ask the user first. If they agree, they can run the command themselves, or set ELASTICORE_ALLOW_FORCE=1."
+    exit 0
+    ;;
+
+post-edit)
+    state
+    texts=""
+    while IFS="$tab" read -r tool path; do
+        [ -n "$path" ] || continue
+        t="$(note_for "$path")"
+        [ -n "$t" ] || continue
+        case "$texts" in *"$t"*) ;; *) texts="$texts$t " ;; esac
+    done <<EOF
+$(edited_files)
+EOF
+    texts="$(printf '%s' "$texts" | sed 's/[[:space:]]*$//')"
+    [ -n "$texts" ] && context PostToolUse "$texts"
     exit 0
     ;;
 
 post-bash)
-    case "$input" in *gradle* | *tsc* | *check*) ;; *) exit 0 ;; esac
+    case "$input" in *gradle* | *tsc* | *check*) build=1 ;; *) build=0 ;; esac
+    # An ElastiCORE checkout: only whether the gates on the changed lines passed.
+    root=""
+    case "$input" in *gradle*) root="$(checkout_root "$(json_path cwd)")" ;; esac
+    if [ -n "$root" ]; then
+        command="$(json_string command)"
+        state
+        # The whole output: Claude Code saves a long one to a file.
+        gate_out="$input"
+        saved="$(printf '%s' "$input" | sed -nE 's/.*"persistedOutputPath"[[:space:]]*:[[:space:]]*"((\\.|[^"\\])*)".*/\1/p' | sed 's#\\\\#/#g')"
+        [ -n "$saved" ] && [ -f "$saved" ] && gate_out="$(plain_text < "$saved" 2>/dev/null)"
+        if { runs_gradle "$command" 'prCheck' || { runs_gradle "$command" 'formatCheck' && runs_gradle "$command" 'diffErrorprone'; }; } \
+            && [ "$(json_string hook_event_name)" != PostToolUseFailure ] && ! command_failed \
+            && printf '%s' "$gate_out" | grep -q -F -e 'BUILD SUCCESSFUL' && ! printf '%s' "$gate_out" | grep -q -F -e 'BUILD FAILED'; then
+            note "$gates"
+        fi
+        exit 0
+    fi
+    # A generated file whose edit was refused, changed through the shell instead - looked
+    # for only when a refusal was noted at all.
+    around=""
+    state_folder
+    if any_note refused-; then
+        state
+        if [ -f "$refused" ] && [ ! -f "$issue_noted" ] && works_around "$(json_string command)"; then
+            note "$issue_noted"
+            around="This command changes a generated file whose edit was refused in this session. Do not work around the refusal: undo it, and make the change in the DSL or in a file you own. If the DSL cannot say what the requirement needs, tell the user - this may be a gap in ElastiCORE: the report-issue skill can draft a reproducible issue for them to post, only with their yes. "
+        fi
+    fi
+    if [ "$build" = 0 ]; then
+        [ -n "$around" ] && context PostToolUse "$around"
+        exit 0
+    fi
     # Returned before the build ran, or stopped partway: proves nothing.
     json_true run_in_background && exit 0
     json_true interrupted && exit 0
@@ -1000,6 +1383,11 @@ post-bash)
     if [ "$hook_event" = PostToolUseFailure ]; then
         failed=1
         from_json="$(printf '%s' "$input" | sed -n 's/.*"error"//p')"
+    elif command_failed; then
+        # Codex has no PostToolUseFailure: a command that failed comes as PostToolUse.
+        hook_event=PostToolUse
+        failed=1
+        from_json="$(printf '%s' "$input" | sed -n 's/.*"tool_response"//p')"
     else
         hook_event=PostToolUse
         failed=0
@@ -1023,7 +1411,7 @@ $from_file"
     printed() { decoded "$from_json"; printf '%s\n' "$from_file"; }
 
     state
-    text=""
+    text="$around"
     unreadable=0
     # The model loader prints " * LOAD ERROR: <file>" and the parse error, skips
     # the file and goes on: the build can pass without that part of the model.
@@ -1156,6 +1544,21 @@ $from_file"
             fi
         fi
     fi
+    # ElastiCORE itself may have fallen short: a compile error in a generated file, or
+    # the generator failed with an exception. Suggested once a session.
+    if [ "$gradle" = 1 ] && [ ! -f "$issue_noted" ]; then
+        if [ "$failed" = 1 ] || has 'BUILD FAILED'; then
+            out_text="$(printed)"
+            broken="$(generated_errors "$out_text")"
+            if [ -n "$broken" ]; then
+                note "$issue_noted"
+                text="${text}The compile errors are in files ElastiCORE generated ($(printf '%s\n' "$broken" | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')). Check the DSL first - a type named but not declared, a DTO no dto: section defines - and fix it there, never in the generated file. $ISSUE_HINT "
+            elif generator_failed "$out_text"; then
+                note "$issue_noted"
+                text="${text}The ElastiCORE generator itself failed with an exception, not with a model check that names what to change. Read the exception; if the YAML at fault is not obvious, make the model smaller until it passes. $ISSUE_HINT "
+            fi
+        fi
+    fi
     [ -n "$text" ] && context "$hook_event" "$text"
     exit 0
     ;;
@@ -1163,6 +1566,19 @@ $from_file"
 stop)
     json_true stop_hook_active && exit 0
     state
+    # The once-said notes of sessions two days old and older; only files of these names.
+    if [ -d "$state_dir" ] && any_note ''; then
+        find "$state_dir" -maxdepth 1 -type f \( -name 'refused-*' -o -name 'issue-noted-*' -o -name 'guides-*' \
+            -o -name 'gates-*' -o -name 'push-noted-*' -o -name 'post-noted-*' \) -mtime +1 -exec rm -f -- {} + 2>/dev/null
+    fi
+    # An ElastiCORE checkout: a guide changed in one language only. Said once.
+    alone="$(guides_alone)"
+    if [ -n "$alone" ]; then
+        rm -f -- "$guides"
+        list="$(printf '%s\n' "$alone" | awk -F '\t' 'NR > 1 { printf "; " } { printf "%s without %s", $1, $2 }')"
+        stop_answer "In this session a guide under elasticore-guide/ changed in one language only: $list. Each guide is written twice, in English and in Korean under ko/ - change both, at the same lines (GuideTranslationTest fails when their line counts, headings or code blocks differ, and cannot see a value changed in one language only). If the user asked for one language only, say so in your answer instead."
+        exit 0
+    fi
     [ -f "$marker" ] || [ -f "$ts_client" ] || [ -f "$ts_screens" ] || exit 0
     text=""
     if [ ! -f "$marker" ]; then
@@ -1190,7 +1606,7 @@ stop)
     fi
     # Remind once per DSL change; the next DSL edit sets the notes again.
     rm -f -- "$marker" "$warned" "$ts_client" "$ts_screens"
-    [ -n "$text" ] && context Stop "$text"
+    [ -n "$text" ] && stop_answer "$text"
     exit 0
     ;;
 

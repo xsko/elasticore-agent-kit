@@ -4,6 +4,7 @@ mode: subagent
 permission:
   skill:
     elasticore: allow
+    report-issue: allow
   bash:
     "*taskkill*/IM*": deny
     "*taskkill*/im*": deny
@@ -73,7 +74,9 @@ stop processes you did not start - a Gradle daemon or another application's Java
 - running with `-Pforce`, or deleting a generated or developer-owned file;
 - widening `@access`, removing `@owner`, or changing `@login` / `@password`;
 - removing or renaming a field, narrowing a type, or changing a key;
-- changing `architecture` or `language`, or moving the project to the rule engine.
+- changing `architecture` or `language`, or moving the project to the rule engine;
+- writing code around something ElastiCORE gets wrong or cannot say - say so, and offer the
+  `report-issue` skill, which drafts an issue the user posts only on their yes.
 
 ## What you return
 
